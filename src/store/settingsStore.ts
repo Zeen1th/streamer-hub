@@ -4,11 +4,13 @@ import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 
 export type { Language };
+export type Theme = 'light' | 'dark';
 
 interface SettingsState {
   clientId: string;
   clientSecret: string;
   language: Language | '';
+  theme: Theme;
   loaded: boolean;
   openRouterConfigured: boolean;
   groqConfigured: boolean;
@@ -19,6 +21,7 @@ interface SettingsState {
   setClientId(clientId: string): void;
   setClientSecret(clientSecret: string): void;
   setLanguage(language: Language): void;
+  setTheme(theme: Theme): void;
 }
 
 function persist(get: () => SettingsState) {
@@ -35,6 +38,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   clientId: '',
   clientSecret: '',
   language: '',
+  theme: (localStorage.getItem('streamer-hub-theme') === 'dark' ? 'dark' : 'light') as Theme,
   loaded: false,
   openRouterConfigured: false,
   groqConfigured: false,
@@ -76,4 +80,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ language });
     persist(get);
   },
+  setTheme: (theme) => {
+    set({ theme });
+    localStorage.setItem('streamer-hub-theme', theme);
+  },
 }));
+

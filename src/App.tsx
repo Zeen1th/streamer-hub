@@ -21,12 +21,17 @@ import { useUpdateStore } from './store/updateStore';
 export default function App() {
   const activeTool = useToolStore((s) => s.activeTool);
   const language = useSettingsStore((s) => s.language);
+  const theme = useSettingsStore((s) => s.theme);
 
   useEffect(() => {
     const lang = language === 'ar' ? 'ar' : 'en';
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
     document.documentElement.lang = lang;
   }, [language]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     void useUpdateStore.getState().check();
@@ -165,3 +170,4 @@ export default function App() {
     </div>
   );
 }
+

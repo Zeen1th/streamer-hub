@@ -212,6 +212,10 @@ const EN = {
   'settings.guide7': 'Done — the Twitch light in the titlebar ignites and the app joins your channel\'s chat. Commands now work, the login is stored safely on this PC, and it reconnects automatically. Click the Twitch chip anytime to reconnect, or Forget Login to remove it.',
   'settings.language': 'Language',
   'settings.languageHint': 'Choose the language of the app',
+  'settings.theme': 'Appearance',
+  'settings.themeHint': 'Choose the look that feels best while you stream',
+  'settings.themeLight': 'Light',
+  'settings.themeDark': 'Dark',
   'settings.openRouter': 'AI Replies · OpenRouter',
   'settings.aiProviders': 'AI Providers',
   'settings.aiProvidersHint': 'Use your own OpenRouter or Groq key for AI-powered chat replies.',
@@ -448,6 +452,10 @@ const AR: Record<keyof typeof EN, string> = {
   'settings.guide7': 'انتهى — ستضيء شارة تويتش في شريط العنوان وينضم التطبيق إلى دردشة قناتك. تعمل الأوامر الآن، ويُحفظ تسجيل الدخول بأمان على هذا الجهاز ويعيد الاتصال تلقائياً. انقر على شارة تويتش في أي وقت لإعادة الاتصال، أو اضغط Forget Login لإزالته.',
   'settings.language': 'اللغة',
   'settings.languageHint': 'اختر لغة التطبيق',
+  'settings.theme': 'المظهر',
+  'settings.themeHint': 'اختر المظهر الأنسب لك أثناء البث',
+  'settings.themeLight': 'فاتح',
+  'settings.themeDark': 'داكن',
   'settings.openRouter': 'الردود الذكية · OpenRouter',
   'settings.aiProviders': 'مزودو الذكاء الاصطناعي',
   'settings.aiProvidersHint': 'استخدم مفتاح OpenRouter أو Groq الخاص بك لتفعيل الردود الذكية في الدردشة.',
@@ -494,3 +502,4 @@ export function t(language: Language, key: string, params?: Params): string {
   if (!params) return template;
   return template.replace(/\{(\w+)\}/g, (_, name: string) => String(params[name] ?? ''));
 }
+

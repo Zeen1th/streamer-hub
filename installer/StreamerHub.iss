@@ -14,6 +14,8 @@ OutputBaseFilename=StreamerHub-Setup-v{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\assets\streamer-hub-icon.ico
+UninstallDisplayIcon={app}\StreamerHub.exe
 ArchitecturesInstallIn64BitMode=x64
 
 [Files]

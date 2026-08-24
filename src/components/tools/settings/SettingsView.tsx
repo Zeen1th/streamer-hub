@@ -1,4 +1,4 @@
-import { KeyRound, Languages, LogOut, Settings as SettingsIcon, Sparkles } from 'lucide-react';
+import { KeyRound, Languages, LogOut, Moon, Settings as SettingsIcon, Sparkles, Sun } from 'lucide-react';
 import { useState } from 'react';
 import { t } from '../../../i18n/translations';
 import { isMockMode, rpc } from '../../../rpc';
@@ -14,6 +14,8 @@ import { Input } from '../../ui/Input';
 export function SettingsView() {
   const language = useSettingsStore((s) => s.language);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
   const openRouterConfigured = useSettingsStore((s) => s.openRouterConfigured);
   const groqConfigured = useSettingsStore((s) => s.groqConfigured);
   const saveOpenRouterKey = useSettingsStore((s) => s.saveOpenRouterKey);
@@ -172,7 +174,25 @@ export function SettingsView() {
             />
           </div>
         </Card>
-      </div>
+
+        <Card title={t(lang, 'settings.theme')} className="xl:col-span-12">
+          <div className="flex items-center gap-3">
+            {theme === 'dark' ? <Moon size={16} className="text-primary" aria-hidden /> : <Sun size={16} className="text-primary" aria-hidden />}
+            <p className="font-sans text-sm text-ink/70">{t(lang, 'settings.themeHint')}</p>
+          </div>
+          <div className="mt-4 max-w-sm">
+            <SegmentedControl
+              name="app-theme"
+              value={theme}
+              options={[
+                { value: 'light', label: t(lang, 'settings.themeLight') },
+                { value: 'dark', label: t(lang, 'settings.themeDark') },
+              ]}
+              onChange={(value) => setTheme(value as 'light' | 'dark')}
+            />
+          </div>
+        </Card>      </div>
     </div>
   );
 }
+

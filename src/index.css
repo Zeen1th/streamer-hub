@@ -26,6 +26,18 @@
   --danger: #8f2f23;
   --on-primary: #f0e9d8;
 }
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --surface: #181513;
+  --surface-2: #241e19;
+  --ink: #f0e9d8;
+  --primary: #c8782c;
+  --secondary: #8ea3c7;
+  --success: #9ab86d;
+  --warning: #b29acb;
+  --danger: #dc7667;
+  --on-primary: #21170f;
+}
 
 @theme {
   --font-display: 'Cinzel', 'Cairo', 'Georgia', serif;
@@ -198,3 +210,4 @@ input[type='range'].art-slider:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
