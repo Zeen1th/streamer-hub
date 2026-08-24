@@ -12,7 +12,9 @@ export function Titlebar() {
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const lang = language === 'ar' ? 'ar' : 'en';
   const updateAvailable = useUpdateStore((s) => s.updateAvailable);
-  const releaseUrl = useUpdateStore((s) => s.downloadUrl || s.releaseUrl);
+  const installing = useUpdateStore((s) => s.installing);
+  const installUpdate = useUpdateStore((s) => s.install);
+  const checkForUpdate = useUpdateStore((s) => s.check);
 
   return (
     <header
@@ -58,12 +60,16 @@ export function Titlebar() {
           <button
             type="button"
             aria-label={updateAvailable ? 'Update available' : 'Check for updates'}
-            title={updateAvailable ? 'Update available' : 'Check for updates'}
-            onClick={() => window.open(releaseUrl, '_blank', 'noopener,noreferrer')}
+            title={installing ? 'Installing update' : updateAvailable ? 'Update available' : 'Check for updates'}
+            disabled={installing}
+            onClick={() => {
+              if (updateAvailable) void installUpdate();
+              else void checkForUpdate();
+            }}
             className={`flex h-7 items-center gap-1.5 border px-2 font-sans text-xs font-bold uppercase tracking-[0.08em] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${updateAvailable ? 'border-primary bg-primary text-white hover:bg-primary/90' : 'border-ink/25 bg-surface-2 text-ink/75 hover:border-ink/50'}`}
           >
             <Download size={13} aria-hidden />
-            {updateAvailable && <span>Update</span>}
+            {installing ? <span>Updating...</span> : updateAvailable && <span>Update</span>}
           </button>
           <WindowControls />
         </div>
@@ -71,3 +77,4 @@ export function Titlebar() {
     </header>
   );
 }
+

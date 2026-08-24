@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -27,6 +28,7 @@ public sealed class HostController : IDisposable
     private sealed record GenerateAutoReplyPayload(string RuleId, ChatMessage? Message, bool? Send = null);
     private sealed record GenerateAutoReplyResponse(bool Ok, string? Message = null, bool UsedFallback = false, string? Error = null);
     private sealed record UpdateCheckResponse(string CurrentVersion, string LatestVersion, bool UpdateAvailable, string ReleaseUrl, string? DownloadUrl = null);
+    private sealed record UpdateInstallPayload(string DownloadUrl);
 
     private readonly MainForm _form;
     private readonly WebView2 _webView;
@@ -145,6 +147,7 @@ public sealed class HostController : IDisposable
         });
         _dispatcher.Register(Channels.CoreGetStatus, (_, _) => Task.FromResult<object?>(BuildStatus()));
         _dispatcher.Register(Channels.UpdateCheck, async (_, ct) => await CheckForUpdateAsync(ct).ConfigureAwait(false));
+        _dispatcher.Register(Channels.UpdateInstall, async (payload, ct) => await InstallUpdateAsync(payload, ct).ConfigureAwait(false));
         _dispatcher.Register(Channels.CountersGetState, (_, _) => Task.FromResult<object?>(_settings.Counters));
         _dispatcher.Register(Channels.CountersSetCount, (payload, _) =>
         {
@@ -454,6 +457,43 @@ public sealed class HostController : IDisposable
         }
     }
 
+    private async Task<object> InstallUpdateAsync(JsonElement? payload, CancellationToken ct)
+    {
+        var request = Json.Deserialize<UpdateInstallPayload>(payload ?? default);
+        if (request is null || !Uri.TryCreate(request.DownloadUrl, UriKind.Absolute, out var downloadUri) || downloadUri.Host != "github.com" && downloadUri.Host != "objects.githubusercontent.com" && downloadUri.Host != "release-assets.githubusercontent.com")
+            return new { ok = false, error = "INVALID UPDATE DOWNLOAD" };
+        try
+        {
+            using var response = await UpdateHttp.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return new { ok = false, error = "UPDATE DOWNLOAD FAILED" };
+            var installerPath = Path.Combine(Path.GetTempPath(), $"StreamerHub-update-{Guid.NewGuid():N}.exe");
+            await using (var output = File.Create(installerPath))
+                await response.Content.CopyToAsync(output, ct).ConfigureAwait(false);
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = installerPath,
+                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+                UseShellExecute = true,
+            });
+            if (process is null) return new { ok = false, error = "UPDATE INSTALLER COULD NOT START" };
+            Ui(() =>
+            {
+                var closeTimer = new System.Windows.Forms.Timer { Interval = 500 };
+                closeTimer.Tick += (_, _) =>
+                {
+                    closeTimer.Stop();
+                    closeTimer.Dispose();
+                    _form.Close();
+                };
+                closeTimer.Start();
+            });
+            return new { ok = true };
+        }
+        catch
+        {
+            return new { ok = false, error = "UPDATE INSTALL FAILED" };
+        }
+    }
     private static bool IsNewerVersion(string latest, string current) =>
         Version.TryParse(latest, out var latestVersion) && Version.TryParse(current, out var currentVersion) && latestVersion > currentVersion;
 
@@ -590,3 +630,4 @@ public sealed class HostController : IDisposable
         _settings.Dispose();
     }
 }
+

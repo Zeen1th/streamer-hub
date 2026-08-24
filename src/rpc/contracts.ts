@@ -159,6 +159,7 @@ export const Channels = {
   TwitchSendChatMessage: 'twitch/send-chat-message',
   TwitchUpdateTitle: 'twitch/update-title',
   UpdateCheck: 'update/check',
+  UpdateInstall: 'update/install',
 } as const;
 
 export type ChannelName = (typeof Channels)[keyof typeof Channels];
@@ -210,6 +211,7 @@ export interface HostApi {
   [Channels.TwitchSendChatMessage]: { request: { message: string }; response: { ok: boolean; error?: string } };
   [Channels.TwitchUpdateTitle]: { request: { title: string }; response: { ok: boolean; error?: string } };
   [Channels.UpdateCheck]: { request: undefined; response: UpdateState };
+  [Channels.UpdateInstall]: { request: { downloadUrl: string }; response: { ok: boolean; error?: string } };
 }
 
 export interface EventMap {
@@ -218,3 +220,4 @@ export interface EventMap {
   [Events.WindowMaximizedChanged]: { isMaximized: boolean };
   [Events.CoreLog]: { message: string };
 }
+

@@ -57,6 +57,7 @@ public static class Channels
     public const string TwitchUpdateTitle = "twitch/update-title";
     public const string AutoRepliesGenerate = "auto-replies/generate";
     public const string UpdateCheck = "update/check";
+    public const string UpdateInstall = "update/install";
 }
 
 public static class Events
@@ -66,3 +67,4 @@ public static class Events
     public const string WindowMaximizedChanged = "window/maximized-changed";
     public const string CoreLog = "core/log";
 }
+
