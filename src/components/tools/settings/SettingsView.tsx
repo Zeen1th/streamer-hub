@@ -16,6 +16,8 @@ export function SettingsView() {
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const startupEnabled = useSettingsStore((s) => s.startupEnabled);
+  const setStartupEnabled = useSettingsStore((s) => s.setStartupEnabled);
   const botAccountEnabled = useSettingsStore((s) => s.botAccountEnabled);
   const setBotAccountEnabled = useSettingsStore((s) => s.setBotAccountEnabled);
   const openRouterConfigured = useSettingsStore((s) => s.openRouterConfigured);
@@ -216,6 +218,13 @@ export function SettingsView() {
               onChange={(value) => setTheme(value as 'light' | 'dark')}
             />
           </div>
+        </Card>
+
+        <Card title={lang === 'ar' ? 'بدء التشغيل' : 'Start with Windows'} className="xl:col-span-12">
+          <label className="flex cursor-pointer items-center gap-3 font-sans text-sm text-ink/75">
+            <input type="checkbox" checked={startupEnabled} onChange={(event) => setStartupEnabled(event.target.checked)} className="h-4 w-4 accent-[var(--primary)]" />
+            <span>{lang === 'ar' ? 'تشغيل Streamer Hub تلقائياً عند بدء تشغيل Windows' : 'Launch Streamer Hub automatically when Windows starts'}</span>
+          </label>
         </Card>      </div>
     </div>
   );

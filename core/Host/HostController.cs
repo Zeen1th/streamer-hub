@@ -18,7 +18,7 @@ public sealed class HostController : IDisposable
     private sealed record DeleteCounterPayload(string CounterId);
     private sealed record ObsWritePayload(string FilePath, string Content);
     private sealed record SaveFilePayload(string DefaultName);
-    private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null);
+    private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null, bool? StartupEnabled = null);
     private sealed record SaveAutoReplyPayload(AutoReply? Rule);
     private sealed record SaveAutoReplySettingsPayload(AutoReplySettings? Settings);
     private sealed record DeleteAutoReplyPayload(string RuleId);
@@ -228,13 +228,18 @@ public sealed class HostController : IDisposable
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
-            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled }));
+            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, startupEnabled = _settings.StartupEnabled }));
         _dispatcher.Register(Channels.SettingsSave, (payload, _) =>
         {
             var request = Json.Deserialize<SaveSettingsPayload>(payload ?? default);
             if (request?.Twitch is null) return Task.FromResult<object?>(new { ok = false });
             _settings.SetTwitch(request.Twitch);
             if (request.Language is not null) _settings.SetLanguage(request.Language);
+            if (request.StartupEnabled.HasValue)
+            {
+                _settings.SetStartupEnabled(request.StartupEnabled.Value);
+                _form.SetStartupEnabled(request.StartupEnabled.Value);
+            }
             if (request.BotAccountEnabled.HasValue)
             {
                 _settings.SetBotAccountEnabled(request.BotAccountEnabled.Value);

@@ -1,9 +1,13 @@
 import { Plus, X } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '../../ui/Button';
 import { Input } from '../../ui/Input';
 import { Switch } from '../../ui/Switch';
 import { t } from '../../../i18n/translations';
 import type { AutoReply, TitleCounter } from '../../../rpc/contracts';
+import { Channels } from '../../../rpc/contracts';
+import { rpc } from '../../../rpc';
+import { renderStreamTitle } from '../../../lib/autoReplyRules';
 
 interface TriggerTitleActionProps {
   rule: AutoReply;
@@ -14,6 +18,13 @@ interface TriggerTitleActionProps {
 export function TriggerTitleAction({ rule, lang, update }: TriggerTitleActionProps) {
   const counters = rule.titleCounters?.length ? rule.titleCounters : [{ id: 'count1', start: rule.titleStart ?? 1, count: rule.titleCount ?? rule.titleStart ?? 1 }];
   const updateCounters = (next: TitleCounter[]) => update(rule.id, { titleCounters: next, titleStart: next[0]?.start ?? 1, titleCount: next[0]?.count ?? 1 });
+  const [applyStatus, setApplyStatus] = useState<string | null>(null);
+  const currentTitle = renderStreamTitle(rule.titleTemplate ?? '', Object.fromEntries(counters.map((counter, index) => ['count' + (index + 1), counter.count])));
+  const applyTitle = async () => {
+    if (!currentTitle.trim()) return;
+    const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title: currentTitle });
+    setApplyStatus(result.ok ? (lang === 'ar' ? 'تم تطبيق العنوان' : 'Title applied') : (result.error ?? (lang === 'ar' ? 'تعذر تطبيق العنوان' : 'Could not apply title')));
+  };
 
   return (
     <div className="border border-ink/15 bg-surface-2 p-4">
@@ -45,6 +56,8 @@ export function TriggerTitleAction({ rule, lang, update }: TriggerTitleActionPro
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => updateCounters([...counters, { id: `count${counters.length + 1}`, start: 1, count: 1 }])}><Plus size={13} />{t(lang, 'autoReplies.titleAddCounter')}</Button>
           <Button variant="outline" size="sm" onClick={() => updateCounters(counters.map((counter) => ({ ...counter, count: counter.start })))}>{t(lang, 'autoReplies.titleReset')}</Button>
+          <Button size="sm" onClick={applyTitle} disabled={!currentTitle.trim()}>{lang === 'ar' ? 'تطبيق العنوان' : 'Apply title'}</Button>
+          {applyStatus && <span className="self-center font-sans text-xs text-ink/65">{applyStatus}</span>}
         </div>
       </div>}
     </div>

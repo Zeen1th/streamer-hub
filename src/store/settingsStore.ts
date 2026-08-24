@@ -12,10 +12,11 @@ interface SettingsState {
   language: Language | '';
   theme: Theme;
   botAccountEnabled: boolean;
+  startupEnabled: boolean;
   loaded: boolean;
   openRouterConfigured: boolean;
   groqConfigured: boolean;
-  hydrate(clientId: string, clientSecret: string, language: string, botAccountEnabled?: boolean): void;
+  hydrate(clientId: string, clientSecret: string, language: string, botAccountEnabled?: boolean, startupEnabled?: boolean): void;
   hydrateOpenRouter(configured: boolean, groqConfigured: boolean): void;
   saveOpenRouterKey(provider: 'openrouter' | 'groq', apiKey: string): Promise<boolean>;
   removeOpenRouterKey(provider: 'openrouter' | 'groq'): Promise<boolean>;
@@ -24,15 +25,17 @@ interface SettingsState {
   setLanguage(language: Language): void;
   setTheme(theme: Theme): void;
   setBotAccountEnabled(enabled: boolean): void;
+  setStartupEnabled(enabled: boolean): void;
 }
 
 function persist(get: () => SettingsState) {
-  const { clientId, clientSecret, language, botAccountEnabled } = get();
+  const { clientId, clientSecret, language, botAccountEnabled, startupEnabled } = get();
   rpc
     .invoke(Channels.SettingsSave, {
       twitch: { clientId: clientId.trim(), clientSecret: clientSecret.trim() },
       language: language || 'en',
       botAccountEnabled,
+      startupEnabled,
     })
     .catch(() => undefined);
 }
@@ -43,15 +46,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   language: '',
   theme: (localStorage.getItem('streamer-hub-theme') === 'dark' ? 'dark' : 'light') as Theme,
   botAccountEnabled: false,
+  startupEnabled: true,
   loaded: false,
   openRouterConfigured: false,
   groqConfigured: false,
-  hydrate: (clientId, clientSecret, language, botAccountEnabled) =>
+  hydrate: (clientId, clientSecret, language, botAccountEnabled, startupEnabled) =>
     set({
       clientId,
       clientSecret,
       language: language === 'ar' ? 'ar' : language === 'en' ? 'en' : '',
       botAccountEnabled: botAccountEnabled ?? false,
+      startupEnabled: startupEnabled ?? true,
       loaded: true,
     }),
   hydrateOpenRouter: (configured, groqConfigured) => set({ openRouterConfigured: configured, groqConfigured }),
@@ -83,6 +88,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   setLanguage: (language) => {
     set({ language });
+    persist(get);
+  },
+  setStartupEnabled: (enabled) => {
+    set({ startupEnabled: enabled });
     persist(get);
   },
   setBotAccountEnabled: (enabled) => {

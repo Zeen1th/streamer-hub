@@ -88,7 +88,7 @@ export default function App() {
         if (!disposed) {
           useSettingsStore
             .getState()
-            .hydrate(settings.twitch.clientId, settings.twitch.clientSecret, settings.language, settings.botAccountEnabled);
+            .hydrate(settings.twitch.clientId, settings.twitch.clientSecret, settings.language, settings.botAccountEnabled, settings.startupEnabled);
         }
       } catch {
         void 0;
@@ -158,7 +158,7 @@ export default function App() {
       )}
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <main className="min-w-0 flex-1 overflow-y-auto">
+        <main className="app-scroll min-w-0 flex-1">
           <div className="mx-auto max-w-[1400px] px-8 py-8">
             {activeTool === 'home' && <HomeView />}
             {activeTool === 'counter' && <CounterView />}

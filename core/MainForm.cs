@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -89,6 +90,7 @@ public sealed class MainForm : Form
         Directory.CreateDirectory(localData);
 
         _settings = new SettingsStore(Path.Combine(appData, "settings.json"));
+        SetStartupEnabled(_settings.StartupEnabled);
         ApplyWindowSettings();
 
         var environmentOptions = new CoreWebView2EnvironmentOptions();
@@ -142,6 +144,20 @@ public sealed class MainForm : Form
             Height = bounds.Height,
             Maximized = maximized,
         });
+    }
+
+    internal void SetStartupEnabled(bool enabled)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+            if (key is null) return;
+            if (enabled) key.SetValue("StreamerHub", $"\"{Application.ExecutablePath}\"");
+            else key.DeleteValue("StreamerHub", false);
+        }
+        catch
+        {
+        }
     }
 
     internal void StartWindowDrag()

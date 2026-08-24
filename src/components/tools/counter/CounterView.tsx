@@ -131,7 +131,7 @@ export function CounterView() {
         <ActivityLog className="xl:col-span-12" />
       </div>
       {configCounter && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfigId(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/20 p-6 backdrop-blur-md" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfigId(null); }}>
           <section className="max-h-[calc(100vh-48px)] w-full max-w-4xl overflow-y-auto" role="dialog" aria-modal="true" aria-label={t(lang, 'counters.customize')}>
             <CounterConfigPanel key={configCounter.id} counter={configCounter} onClose={() => setConfigId(null)} />
           </section>

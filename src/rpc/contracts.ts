@@ -110,6 +110,7 @@ export interface ConnectionStatus {
   twitchChannel: string;
   authRequired?: boolean;
   botAccountEnabled?: boolean;
+  startupEnabled?: boolean;
   botConnected?: boolean;
   botLogin?: string;
 }
@@ -202,9 +203,9 @@ export interface HostApi {
   [Channels.TwitchForget]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchBotAuthorize]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchBotForget]: { request: undefined; response: { ok: boolean } };
-  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean } };
+  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; startupEnabled?: boolean } };
   [Channels.SettingsSave]: {
-    request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean };
+    request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; startupEnabled?: boolean };
     response: { ok: boolean };
   };
   [Channels.OpenRouterGetState]: { request: undefined; response: OpenRouterSettingsState };

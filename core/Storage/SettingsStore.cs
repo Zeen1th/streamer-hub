@@ -23,6 +23,7 @@ public sealed class SettingsStore : IDisposable
         public WindowSettings Window { get; init; } = new();
         public string Language { get; init; } = string.Empty;
         public bool BotAccountEnabled { get; init; }
+        public bool StartupEnabled { get; init; } = true;
     }
 
     private readonly string _filePath;
@@ -71,6 +72,17 @@ public sealed class SettingsStore : IDisposable
     public string Language
     {
         get { lock (_lock) return _document.Language; }
+    }
+
+    public bool StartupEnabled
+    {
+        get { lock (_lock) return _document.StartupEnabled; }
+    }
+
+    public void SetStartupEnabled(bool enabled)
+    {
+        lock (_lock) _document = _document with { StartupEnabled = enabled };
+        ScheduleSave();
     }
 
     public bool BotAccountEnabled
