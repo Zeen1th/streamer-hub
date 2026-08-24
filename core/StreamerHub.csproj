@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>StreamerHub.Core</RootNamespace>
     <AssemblyName>StreamerHub</AssemblyName>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
