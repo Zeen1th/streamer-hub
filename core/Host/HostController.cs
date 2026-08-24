@@ -1,0 +1,592 @@
+using System.Text.Json;
+using System.Net.Http.Headers;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
+using StreamerHub.Core.Obs;
+using StreamerHub.Core.AI;
+using StreamerHub.Core.Rpc;
+using StreamerHub.Core.Storage;
+using StreamerHub.Core.Twitch;
+
+namespace StreamerHub.Core.Host;
+
+public sealed class HostController : IDisposable
+{
+    private sealed record SetCountPayload(string CounterId, int Count, string Source);
+    private sealed record SaveCounterPayload(Counter? Counter);
+    private sealed record DeleteCounterPayload(string CounterId);
+    private sealed record ObsWritePayload(string FilePath, string Content);
+    private sealed record SaveFilePayload(string DefaultName);
+    private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language);
+    private sealed record SaveAutoReplyPayload(AutoReply? Rule);
+    private sealed record SaveAutoReplySettingsPayload(AutoReplySettings? Settings);
+    private sealed record DeleteAutoReplyPayload(string RuleId);
+    private sealed record SendChatMessagePayload(string Message);
+    private sealed record UpdateTitlePayload(string Title);
+    private sealed record SaveOpenRouterPayload(string Provider, string? ApiKey);
+    private sealed record GenerateAutoReplyPayload(string RuleId, ChatMessage? Message, bool? Send = null);
+    private sealed record GenerateAutoReplyResponse(bool Ok, string? Message = null, bool UsedFallback = false, string? Error = null);
+    private sealed record UpdateCheckResponse(string CurrentVersion, string LatestVersion, bool UpdateAvailable, string ReleaseUrl, string? DownloadUrl = null);
+
+    private readonly MainForm _form;
+    private readonly WebView2 _webView;
+    private readonly CancellationToken _shutdown;
+    private readonly SettingsStore _settings;
+    private readonly ObsFileWriter _obs = new();
+    private readonly TokenVault _tokens;
+    private readonly SecretVault _openRouterKey;
+    private readonly SecretVault _groqKey;
+    private readonly OpenRouterClient _openRouter = new();
+    private static readonly HttpClient UpdateHttp = new();
+    private const string UpdateRepository = "Zeen1th/streamer-hub";
+    private readonly ITwitchClient _twitch = new TwitchIrcClient();
+    private readonly RpcDispatcher _dispatcher = new();
+    private readonly string _logPath;
+
+    private volatile bool _authRequired;
+    private int _authorizeInProgress;
+    private string _twitchChannel = string.Empty;
+    private int _chatBurst;
+    private DateTime _chatWindow = DateTime.UtcNow;
+    private DateTime _lastChatSentAt = DateTime.MinValue;
+    private readonly SemaphoreSlim _chatSendLock = new(1, 1);
+    private readonly SemaphoreSlim _aiRequestLock = new(1, 1);
+    private DateTime _aiWindow = DateTime.UtcNow;
+    private int _aiRequestsInWindow;
+
+    public HostController(MainForm form, WebView2 webView, SettingsStore settings, string appData, CancellationToken shutdown)
+    {
+        _form = form;
+        _webView = webView;
+        _shutdown = shutdown;
+        _settings = settings;
+        _tokens = new TokenVault(Path.Combine(appData, "token.bin"));
+        _openRouterKey = new SecretVault(Path.Combine(appData, "openrouter-key.bin"));
+        _groqKey = new SecretVault(Path.Combine(appData, "groq-key.bin"));
+        _logPath = Path.Combine(appData, "logs", $"session-{DateTime.Now:yyyyMMdd}.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!);
+        RegisterHandlers();
+        WireTwitch();
+    }
+
+    private string Lang => _settings.Language == "ar" ? "ar" : "en";
+
+    public async Task InitializeAsync()
+    {
+        Log("system", CoreStrings.L(Lang, "core-started"));
+        var tokens = _tokens.Load();
+        if (tokens is null)
+        {
+            _authRequired = true;
+            EmitStatus();
+            if (!_tokens.HasStoredToken())
+                await TriggerAuthorizeAsync().ConfigureAwait(false);
+            return;
+        }
+        await ConnectWithTokensAsync(tokens, TwitchConstants.ClientId).ConfigureAwait(false);
+    }
+
+    public async Task<object?> DispatchAsync(string channel, JsonElement? payload, CancellationToken ct) =>
+        await _dispatcher.DispatchAsync(channel, payload, ct).ConfigureAwait(false);
+
+    public void PostEvent(string channel, object payload)
+    {
+        if (_form.IsDisposed || _form.Disposing) return;
+        if (_form.InvokeRequired)
+        {
+            try
+            {
+                _form.BeginInvoke(() => PostEvent(channel, payload));
+            }
+            catch
+            {
+            }
+            return;
+        }
+        var envelope = new { v = 1, id = Guid.NewGuid().ToString(), kind = "event", channel, payload };
+        try
+        {
+            _webView.CoreWebView2.PostWebMessageAsJson(Json.Serialize(envelope));
+        }
+        catch
+        {
+        }
+    }
+
+    private void RegisterHandlers()
+    {
+        _dispatcher.Register(Channels.WindowMinimize, (_, _) =>
+        {
+            Ui(() => _form.WindowState = FormWindowState.Minimized);
+            return Task.FromResult<object?>(null);
+        });
+        _dispatcher.Register(Channels.WindowMaximizeToggle, (_, _) =>
+        {
+            var maximized = Ui(() =>
+            {
+                _form.WindowState = _form.WindowState == FormWindowState.Maximized
+                    ? FormWindowState.Normal
+                    : FormWindowState.Maximized;
+                return _form.WindowState == FormWindowState.Maximized;
+            });
+            return Task.FromResult<object?>(new { isMaximized = maximized });
+        });
+        _dispatcher.Register(Channels.WindowClose, (_, _) =>
+        {
+            Ui(_form.Close);
+            return Task.FromResult<object?>(null);
+        });
+        _dispatcher.Register(Channels.WindowIsMaximized, (_, _) =>
+            Task.FromResult<object?>(new { isMaximized = Ui(() => _form.WindowState == FormWindowState.Maximized) }));
+        _dispatcher.Register(Channels.WindowBeginDrag, (_, _) =>
+        {
+            Ui(_form.StartWindowDrag);
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.CoreGetStatus, (_, _) => Task.FromResult<object?>(BuildStatus()));
+        _dispatcher.Register(Channels.UpdateCheck, async (_, ct) => await CheckForUpdateAsync(ct).ConfigureAwait(false));
+        _dispatcher.Register(Channels.CountersGetState, (_, _) => Task.FromResult<object?>(_settings.Counters));
+        _dispatcher.Register(Channels.CountersSetCount, (payload, _) =>
+        {
+            var request = Json.Deserialize<SetCountPayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.CounterId))
+                return Task.FromResult<object?>(new { ok = false, count = 0 });
+            _settings.SetCount(request.CounterId, request.Count);
+            var current = _settings.Counters.FirstOrDefault(c => c.Id == request.CounterId)?.Count ?? 0;
+            return Task.FromResult<object?>(new { ok = true, count = current });
+        });
+        _dispatcher.Register(Channels.CountersSave, (payload, _) =>
+        {
+            var request = Json.Deserialize<SaveCounterPayload>(payload ?? default);
+            if (request?.Counter is null) return Task.FromResult<object?>(new { ok = false });
+            _settings.SaveCounter(request.Counter);
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.CountersDelete, (payload, _) =>
+        {
+            var request = Json.Deserialize<DeleteCounterPayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.CounterId))
+                return Task.FromResult<object?>(new { ok = false });
+            _settings.DeleteCounter(request.CounterId);
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.ObsWrite, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ObsWritePayload>(payload ?? default);
+            if (request is null) return new { ok = false, error = "BAD PAYLOAD" };
+            var (ok, error) = await _obs.WriteAsync(request.FilePath, request.Content, ct).ConfigureAwait(false);
+            return new { ok, error };
+        });
+        _dispatcher.Register(Channels.DialogSaveFile, (payload, _) =>
+        {
+            var request = Json.Deserialize<SaveFilePayload>(payload ?? default);
+            return Task.FromResult<object?>(new { path = ShowSaveDialog(request?.DefaultName ?? "deaths.txt") });
+        });
+        _dispatcher.Register(Channels.LogAppend, (payload, _) =>
+        {
+            var entry = Json.Deserialize<LogPayload>(payload ?? default);
+            if (entry is not null) Log(entry.Kind, entry.Message, emitEvent: false);
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.TwitchAuthorize, (_, _) =>
+        {
+            _ = Task.Run(async () => await TriggerAuthorizeAsync().ConfigureAwait(false));
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.TwitchForget, (_, _) =>
+        {
+            _tokens.Delete();
+            _twitch.Disconnect();
+            _twitchChannel = string.Empty;
+            _authRequired = true;
+            Log("system", CoreStrings.L(Lang, "login-forgotten"));
+            EmitStatus();
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
+            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language }));
+        _dispatcher.Register(Channels.SettingsSave, (payload, _) =>
+        {
+            var request = Json.Deserialize<SaveSettingsPayload>(payload ?? default);
+            if (request?.Twitch is null) return Task.FromResult<object?>(new { ok = false });
+            _settings.SetTwitch(request.Twitch);
+            if (request.Language is not null) _settings.SetLanguage(request.Language);
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.OpenRouterGetState, (_, _) =>
+            Task.FromResult<object?>(new OpenRouterSettingsState
+            {
+                Configured = !string.IsNullOrWhiteSpace(_openRouterKey.Load()),
+                GroqConfigured = !string.IsNullOrWhiteSpace(_groqKey.Load()),
+            }));
+        _dispatcher.Register(Channels.OpenRouterSave, (payload, _) =>
+        {
+            var request = Json.Deserialize<SaveOpenRouterPayload>(payload ?? default);
+            var key = request?.ApiKey?.Trim() ?? string.Empty;
+            var vault = request?.Provider == "groq" ? _groqKey : _openRouterKey;
+            if (key.Length > 300) return Task.FromResult<object?>(new { ok = false, configured = !string.IsNullOrWhiteSpace(vault.Load()) });
+            if (key.Length == 0) vault.Delete();
+            else vault.Save(key);
+            return Task.FromResult<object?>(new { ok = true, configured = key.Length > 0 });
+        });
+        _dispatcher.Register(Channels.AutoRepliesGetState, (_, _) =>
+            Task.FromResult<object?>(_settings.AutoReplies));
+        _dispatcher.Register(Channels.AutoRepliesSettingsGet, (_, _) =>
+            Task.FromResult<object?>(_settings.AutoReplySettings));
+        _dispatcher.Register(Channels.AutoRepliesSettingsSave, (payload, _) =>
+        {
+            var request = Json.Deserialize<SaveAutoReplySettingsPayload>(payload ?? default);
+            if (request?.Settings is null) return Task.FromResult<object?>(new { ok = false });
+            _settings.SetAutoReplySettings(request.Settings with
+            {
+                GlobalAiCooldownSeconds = Math.Clamp(request.Settings.GlobalAiCooldownSeconds, 0, 3600),
+                GlobalAiUserCooldownSeconds = Math.Clamp(request.Settings.GlobalAiUserCooldownSeconds, 0, 3600),
+            });
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.AutoRepliesSave, (payload, _) =>
+        {
+            var request = Json.Deserialize<SaveAutoReplyPayload>(payload ?? default);
+            if (request?.Rule is null || string.IsNullOrWhiteSpace(request.Rule.Id))
+                return Task.FromResult<object?>(new { ok = false });
+            var aiInstructions = request.Rule.AiInstructions?.Trim() ?? string.Empty;
+            var aiModel = request.Rule.AiModel?.Trim() ?? string.Empty;
+            var aiFallback = request.Rule.AiFallback?.Trim() ?? string.Empty;
+            _settings.SaveAutoReply(request.Rule with
+            {
+                Triggers = request.Rule.Triggers.Count > 0
+                    ? request.Rule.Triggers.Select(trigger => trigger.Trim()).Where(trigger => trigger.Length > 0).Distinct().ToList()
+                    : string.IsNullOrWhiteSpace(request.Rule.Trigger) ? new List<string>() : new List<string> { request.Rule.Trigger.Trim() },
+                Trigger = string.Empty,
+                Response = request.Rule.Response.Trim(),
+                CooldownSeconds = Math.Clamp(request.Rule.CooldownSeconds, 0, 3600),
+                UserCooldownSeconds = Math.Clamp(request.Rule.UserCooldownSeconds, 0, 3600),
+                MinimumRank = request.Rule.MinimumRank is "subscriber" or "vip" or "mod" or "broadcaster" ? request.Rule.MinimumRank : "everyone",
+                AiUserCooldownSeconds = Math.Clamp(request.Rule.AiUserCooldownSeconds, 0, 3600),
+                ResponseMode = request.Rule.ResponseMode == "ai" ? "ai" : "static",
+                AiInstructions = aiInstructions[..Math.Min(aiInstructions.Length, 2000)],
+                AiModel = string.IsNullOrWhiteSpace(aiModel) ? (request.Rule.AiProvider == "groq" ? "openai/gpt-oss-20b" : "meta-llama/llama-3.2-3b-instruct:free") : aiModel[..Math.Min(aiModel.Length, 120)],
+                AiProvider = request.Rule.AiProvider == "groq" ? "groq" : "openrouter",
+                AiMaxTokens = Math.Clamp(request.Rule.AiMaxTokens, 40, 240),
+                AiFallback = aiFallback[..Math.Min(aiFallback.Length, 500)],
+            });
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.AutoRepliesDelete, (payload, _) =>
+        {
+            var request = Json.Deserialize<DeleteAutoReplyPayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.RuleId))
+                return Task.FromResult<object?>(new { ok = false });
+            _settings.DeleteAutoReply(request.RuleId);
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.TwitchSendChatMessage, async (payload, _) =>
+        {
+            var request = Json.Deserialize<SendChatMessagePayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.Message))
+                return new { ok = false, error = "EMPTY MESSAGE" };
+            var ok = await SendChatMessageCoreAsync(request.Message).ConfigureAwait(false);
+            return new { ok, error = ok ? null : "TWITCH CHAT IS NOT CONNECTED" };
+        });
+        _dispatcher.Register(Channels.TwitchUpdateTitle, async (payload, _) =>
+        {
+            var request = Json.Deserialize<UpdateTitlePayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.Title)) return new { ok = false, error = "EMPTY TITLE" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.UpdateChannelTitleAsync(request.Title).ConfigureAwait(false);
+            if (!result.Ok) Log("system", $"TWITCH TITLE UPDATE FAILED · {result.Error ?? "UNKNOWN ERROR"} · RECONNECT TWITCH IF THE TOKEN PREDATES TITLE PERMISSION");
+            return new { ok = result.Ok, error = result.Ok ? null : result.Error };
+        });
+        _dispatcher.Register(Channels.AutoRepliesGenerate, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<GenerateAutoReplyPayload>(payload ?? default);
+            if (request?.Message is null || string.IsNullOrWhiteSpace(request.RuleId))
+                return new GenerateAutoReplyResponse(false, Error: "BAD PAYLOAD");
+            var rule = _settings.AutoReplies.FirstOrDefault(item => item.Id == request.RuleId);
+            if (rule is null || rule.ResponseMode != "ai") return new GenerateAutoReplyResponse(false, Error: "AI RULE NOT FOUND");
+            var shouldSend = request.Send != false;
+            var provider = rule.AiProvider == "groq" ? "groq" : "openrouter";
+            var key = provider == "groq" ? _groqKey.Load() : _openRouterKey.Load();
+            if (string.IsNullOrWhiteSpace(key)) return new GenerateAutoReplyResponse(false, Error: $"{provider.ToUpperInvariant()} KEY IS NOT CONFIGURED");
+            if (shouldSend && _twitch.State != TwitchState.Connected) return new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED");
+            if (!await AllowAiRequestAsync().ConfigureAwait(false)) return new GenerateAutoReplyResponse(false, Error: "AI LIMIT REACHED");
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown);
+            timeout.CancelAfter(TimeSpan.FromSeconds(25));
+            var generated = await _openRouter.GenerateAsync(provider, key, rule.AiModel, rule.AiInstructions, request.Message, rule.AiMaxTokens, timeout.Token).ConfigureAwait(false);
+            if (!generated.Ok || string.IsNullOrWhiteSpace(generated.Message))
+            {
+                Log("system", $"AI reply failed ({provider}) · {generated.Error ?? "EMPTY RESPONSE"}");
+                var fallback = rule.AiFallback.Trim();
+                if (string.IsNullOrWhiteSpace(fallback))
+                    return new GenerateAutoReplyResponse(false, Error: generated.Error ?? "AI DID NOT RETURN A MESSAGE");
+                if (!shouldSend) return new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error);
+                var fallbackOk = await SendChatMessageCoreAsync(fallback).ConfigureAwait(false);
+                return fallbackOk
+                    ? new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error)
+                    : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED");
+            }
+            if (!shouldSend) return new GenerateAutoReplyResponse(true, generated.Message);
+            var sent = await SendChatMessageCoreAsync(generated.Message).ConfigureAwait(false);
+            return sent
+                ? new GenerateAutoReplyResponse(true, generated.Message)
+                : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED");
+        });
+    }
+
+    private void WireTwitch()
+    {
+        _twitch.ChatMessageReceived += message =>
+        {
+            if (!AllowChatRelay()) return;
+            Log("system", CoreStrings.L(Lang, "chat-relayed") + $"{message.Username}: {message.Message}");
+            PostEvent(Events.TwitchChatMessage, message);
+        };
+        _twitch.Info += info =>
+        {
+            var message = info.Key switch
+            {
+                "chat-joined" => CoreStrings.LF(Lang, "chat-joined", $"#{info.Arg}"),
+                "notice" => CoreStrings.L(Lang, "notice") + ": " + info.Arg,
+                "connect-failed" => CoreStrings.L(Lang, "connect-failed") + ": " + info.Arg,
+                _ => CoreStrings.L(Lang, info.Key),
+            };
+            Log("system", message);
+        };
+        _twitch.StateChanged += state =>
+        {
+            Log("system", CoreStrings.L(Lang, "state-prefix") + CoreStrings.StateName(Lang, state));
+            if (state == TwitchState.AuthFailed)
+            {
+                _authRequired = true;
+                Log("system", CoreStrings.L(Lang, "auth-failed"));
+            }
+            else if (state == TwitchState.Connected)
+            {
+                _authRequired = false;
+            }
+            EmitStatus();
+        };
+    }
+
+    private bool AllowChatRelay()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _chatWindow).TotalSeconds >= 1)
+        {
+            _chatWindow = now;
+            _chatBurst = 0;
+        }
+        return _chatBurst++ < 20;
+    }
+
+    private async Task<bool> AllowAiRequestAsync()
+    {
+        await _aiRequestLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var now = DateTime.UtcNow;
+            if ((now - _aiWindow).TotalMinutes >= 1)
+            {
+                _aiWindow = now;
+                _aiRequestsInWindow = 0;
+            }
+            if (_aiRequestsInWindow >= 10) return false;
+            _aiRequestsInWindow++;
+            return true;
+        }
+        finally
+        {
+            _aiRequestLock.Release();
+        }
+    }
+
+    private async Task<bool> SendChatMessageCoreAsync(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return false;
+        await _chatSendLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var elapsed = DateTime.UtcNow - _lastChatSentAt;
+            if (elapsed < TimeSpan.FromSeconds(1))
+                await Task.Delay(TimeSpan.FromSeconds(1) - elapsed).ConfigureAwait(false);
+            var ok = await _twitch.SendChatMessageAsync(message.Trim()).ConfigureAwait(false);
+            if (ok) _lastChatSentAt = DateTime.UtcNow;
+            return ok;
+        }
+        finally
+        {
+            _chatSendLock.Release();
+        }
+    }
+
+    private object BuildStatus() => new ConnectionStatus
+    {
+        CoreConnected = true,
+        CoreVersion = typeof(HostController).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
+        TwitchConnected = _twitch.State == TwitchState.Connected,
+        TwitchChannel = _twitchChannel,
+        AuthRequired = _authRequired,
+    };
+
+    private async Task<UpdateCheckResponse> CheckForUpdateAsync(CancellationToken ct)
+    {
+        var current = typeof(HostController).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{UpdateRepository}/releases/latest");
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("StreamerHub", current));
+            using var response = await UpdateHttp.SendAsync(request, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return new UpdateCheckResponse(current, current, false, $"https://github.com/{UpdateRepository}/releases/latest");
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+            var root = document.RootElement;
+            var tag = root.TryGetProperty("tag_name", out var tagValue) ? tagValue.GetString() ?? current : current;
+            var latest = tag.Trim().TrimStart('v', 'V');
+            var releaseUrl = root.TryGetProperty("html_url", out var urlValue) ? urlValue.GetString() ?? $"https://github.com/{UpdateRepository}/releases/latest" : $"https://github.com/{UpdateRepository}/releases/latest";
+            string? downloadUrl = null;
+            if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array && assets.GetArrayLength() > 0)
+                downloadUrl = assets[0].TryGetProperty("browser_download_url", out var assetUrl) ? assetUrl.GetString() : null;
+            return new UpdateCheckResponse(current, latest, IsNewerVersion(latest, current), releaseUrl, downloadUrl);
+        }
+        catch
+        {
+            return new UpdateCheckResponse(current, current, false, $"https://github.com/{UpdateRepository}/releases/latest");
+        }
+    }
+
+    private static bool IsNewerVersion(string latest, string current) =>
+        Version.TryParse(latest, out var latestVersion) && Version.TryParse(current, out var currentVersion) && latestVersion > currentVersion;
+
+    private void EmitStatus() => PostEvent(Events.CoreStatusChanged, BuildStatus());
+
+    private async Task ConnectWithTokensAsync(TwitchTokens tokens, string clientId)
+    {
+        if (tokens.ExpiresAtUtc <= DateTime.UtcNow.AddMinutes(5))
+        {
+            var refreshed = await TwitchAuth.RefreshAsync(clientId, string.Empty, tokens.RefreshToken).ConfigureAwait(false);
+            if (refreshed is null)
+            {
+                _authRequired = true;
+                Log("system", CoreStrings.L(Lang, "refresh-failed"));
+                EmitStatus();
+                return;
+            }
+            tokens = refreshed with { Login = tokens.Login };
+            _tokens.Save(tokens);
+        }
+
+        var login = tokens.Login;
+        if (string.IsNullOrEmpty(login))
+        {
+            login = await TwitchAuth.ValidateLoginAsync(tokens.AccessToken).ConfigureAwait(false);
+            if (login is null)
+            {
+                _authRequired = true;
+                Log("system", CoreStrings.L(Lang, "token-invalid"));
+                EmitStatus();
+                return;
+            }
+            _tokens.Save(tokens with { Login = login });
+        }
+
+        _twitchChannel = login;
+        _authRequired = false;
+        EmitStatus();
+        _twitch.Connect(tokens.AccessToken, login);
+    }
+
+    public async Task TriggerAuthorizeAsync()
+    {
+        if (Interlocked.Exchange(ref _authorizeInProgress, 1) == 1)
+        {
+            Log("system", CoreStrings.L(Lang, "login-in-progress"));
+            return;
+        }
+        try
+        {
+            await TriggerAuthorizeCoreAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _authorizeInProgress, 0);
+        }
+    }
+
+    private async Task TriggerAuthorizeCoreAsync()
+    {
+        var (device, deviceError) = await TwitchAuth.RequestDeviceCodeAsync(TwitchConstants.ClientId, _shutdown).ConfigureAwait(false);
+        if (device is null)
+        {
+            _authRequired = true;
+            if (!_shutdown.IsCancellationRequested) Log("system", "TWITCH DEVICE LOGIN FAILED · " + (deviceError ?? "UNKNOWN ERROR"));
+            EmitStatus();
+            return;
+        }
+
+        Log("system", $"TWITCH LOGIN · ENTER CODE {device.UserCode} IN YOUR BROWSER");
+        TwitchAuth.OpenBrowser(device.VerificationUri);
+        var (tokens, exchangeError) = await TwitchAuth.PollDeviceCodeAsync(TwitchConstants.ClientId, device, _shutdown).ConfigureAwait(false);
+        if (tokens is null)
+        {
+            _authRequired = true;
+            Log("system", CoreStrings.L(Lang, "exchange-failed") + (exchangeError ?? "UNKNOWN ERROR"));
+            EmitStatus();
+            return;
+        }
+        _tokens.Save(tokens);
+        Log("system", CoreStrings.L(Lang, "linked"));
+        await ConnectWithTokensAsync(tokens, TwitchConstants.ClientId).ConfigureAwait(false);
+    }
+
+    private string? ShowSaveDialog(string defaultName)
+    {
+        string? path = null;
+        Ui(() =>
+        {
+            using var dialog = new SaveFileDialog
+            {
+                FileName = defaultName,
+                Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
+                Title = "Choose the OBS text file",
+            };
+            if (dialog.ShowDialog(_form) == DialogResult.OK) path = dialog.FileName;
+        });
+        return path;
+    }
+
+    private void Ui(Action action)
+    {
+        if (_form.InvokeRequired) _form.Invoke(action);
+        else action();
+    }
+
+    private T? Ui<T>(Func<T> action)
+    {
+        if (_form.InvokeRequired) return (T?)_form.Invoke(action);
+        return action();
+    }
+
+    private void Log(string kind, string message, bool emitEvent = true)
+    {
+        try
+        {
+            File.AppendAllText(_logPath, $"[{DateTime.Now:HH:mm:ss}] [{kind.ToUpperInvariant()}] {message}{Environment.NewLine}");
+        }
+        catch
+        {
+        }
+        if (emitEvent) PostEvent(Events.CoreLog, new { message });
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            _twitch.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+        catch
+        {
+        }
+        _settings.Dispose();
+    }
+}

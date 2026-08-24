@@ -1,0 +1,12 @@
+node_modules/
+dist/
+core/bin/
+core/obj/
+*.user
+*.suo
+*.log
+*.bin
+deaths.txt
+
+.impeccable/
+*.tsbuildinfo

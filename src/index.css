@@ -1,0 +1,200 @@
+@import '@fontsource/cinzel/600.css';
+@import '@fontsource/cinzel/700.css';
+@import '@fontsource/cairo/400.css';
+@import '@fontsource/cairo/600.css';
+@import '@fontsource/cairo/700.css';
+@import '@fontsource/cairo/800.css';
+@import '@fontsource/barlow/400.css';
+@import '@fontsource/barlow/500.css';
+@import '@fontsource/barlow/600.css';
+@import '@fontsource/barlow/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
+@import '@fontsource/jetbrains-mono/700.css';
+@import 'tailwindcss';
+
+:root {
+  color-scheme: light;
+  --surface: #e8e2d2;
+  --surface-2: #f5f0e4;
+  --ink: #241b13;
+  --primary: #8a4f1d;
+  --secondary: #41587d;
+  --success: #3d5527;
+  --warning: #5d4a7e;
+  --danger: #8f2f23;
+  --on-primary: #f0e9d8;
+}
+
+@theme {
+  --font-display: 'Cinzel', 'Cairo', 'Georgia', serif;
+  --font-sans: 'Barlow', 'Cairo', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cairo', ui-monospace, 'SFMono-Regular', 'Consolas', monospace;
+
+  --text-xs: 12px;
+  --text-xs--line-height: 1.4;
+  --text-sm: 14px;
+  --text-sm--line-height: 1.5;
+  --text-base: 16px;
+  --text-base--line-height: 1.5;
+  --text-lg: 18px;
+  --text-lg--line-height: 1.3;
+  --text-xl: 24px;
+  --text-xl--line-height: 1.25;
+  --text-2xl: 30px;
+  --text-2xl--line-height: 1.2;
+  --text-3xl: 36px;
+  --text-3xl--line-height: 1.15;
+  --text-5xl: 48px;
+  --text-5xl--line-height: 1.05;
+  --text-7xl: 72px;
+  --text-7xl--line-height: 1;
+}
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-on-primary: var(--on-primary);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-surface font-sans text-sm text-ink antialiased;
+    margin: 0;
+  }
+
+  input,
+  textarea,
+  select {
+    caret-color: var(--primary);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 30%, transparent);
+    color: var(--ink);
+  }
+}
+
+@layer components {
+  .slab {
+    background: var(--surface-2);
+    border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 8%, transparent);
+  }
+
+  .engraved {
+    border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--ink) 10%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--surface) 55%, transparent);
+  }
+
+  .ember-glow {
+    box-shadow: 0 0 12px 1px color-mix(in srgb, var(--primary) 40%, transparent);
+  }
+
+  .ember-track {
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--ink) 10%, transparent),
+      0 0 12px 1px color-mix(in srgb, var(--primary) 40%, transparent);
+  }
+
+  .kindle {
+    animation: kindle 700ms ease-out;
+  }
+
+  .struck {
+    text-decoration-line: line-through;
+    text-decoration-color: color-mix(in srgb, var(--warning) 75%, transparent);
+    text-decoration-thickness: 1px;
+  }
+
+  @keyframes kindle {
+    0% {
+      color: var(--primary);
+      text-shadow: 0 0 20px color-mix(in srgb, var(--primary) 60%, transparent);
+    }
+    100% {
+      color: var(--ink);
+      text-shadow: none;
+    }
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink) 25%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ink) 25%, transparent);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+input[type='range'].art-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range'].art-slider::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--slider-fill, color-mix(in srgb, var(--ink) 15%, transparent));
+}
+
+input[type='range'].art-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -7px;
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent);
+  border-radius: 9999px;
+  background: var(--primary);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 45%, transparent);
+}
+
+input[type='range'].art-slider:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+
+input[type='range'].art-slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
