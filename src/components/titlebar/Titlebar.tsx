@@ -13,10 +13,13 @@ export function Titlebar() {
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const lang = language === 'ar' ? 'ar' : 'en';
   const updateAvailable = useUpdateStore((s) => s.updateAvailable);
+  const latestVersion = useUpdateStore((s) => s.latestVersion);
+  const releaseNotes = useUpdateStore((s) => s.releaseNotes);
   const installing = useUpdateStore((s) => s.installing);
   const installUpdate = useUpdateStore((s) => s.install);
   const checkForUpdate = useUpdateStore((s) => s.check);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+  const [showUpdatePanel, setShowUpdatePanel] = useState(false);
 
   return (
     <header
@@ -80,6 +83,19 @@ export function Titlebar() {
             {installing ? <span>Updating...</span> : updateAvailable && <span>Update</span>}
           </button>
           {updateMessage && <span role="status" className="font-sans text-xs font-semibold uppercase tracking-[0.08em] text-success">{updateMessage}</span>}
+          {showUpdatePanel && updateAvailable && (
+            <section role="status" aria-live="polite" className="absolute end-4 top-10 z-[80] w-[min(390px,calc(100vw-2rem))] border border-ink/20 bg-surface p-4 text-start shadow-lg">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-display text-sm uppercase tracking-[0.08em] text-ink">{t(lang, 'updates.available')} · v{latestVersion}</p>
+                  <p className="mt-2 text-xs text-ink/65">{installing ? t(lang, 'updates.installing') : t(lang, 'updates.available')}</p>
+                </div>
+                {!installing && <button type="button" aria-label="Close update details" onClick={() => setShowUpdatePanel(false)} className="text-lg leading-none text-ink/60 hover:text-ink">×</button>}
+              </div>
+              <div className="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap border-t border-ink/10 pt-3 text-xs leading-relaxed text-ink/75">{releaseNotes || t(lang, 'updates.fallbackNotes')}</div>
+              {installing && <div className="mt-4 h-1.5 overflow-hidden bg-ink/10"><div className="update-progress h-full w-2/5 bg-primary" /></div>}
+            </section>
+          )}
           <WindowControls />
         </div>
       </div>

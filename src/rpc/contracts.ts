@@ -89,6 +89,7 @@ export interface UpdateState {
   updateAvailable: boolean;
   releaseUrl: string;
   downloadUrl?: string;
+  releaseNotes?: string;
 }
 
 export interface ChatMessage {

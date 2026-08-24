@@ -27,7 +27,7 @@ public sealed class HostController : IDisposable
     private sealed record SaveOpenRouterPayload(string Provider, string? ApiKey);
     private sealed record GenerateAutoReplyPayload(string RuleId, ChatMessage? Message, bool? Send = null);
     private sealed record GenerateAutoReplyResponse(bool Ok, string? Message = null, bool UsedFallback = false, string? Error = null);
-    private sealed record UpdateCheckResponse(string CurrentVersion, string LatestVersion, bool UpdateAvailable, string ReleaseUrl, string? DownloadUrl = null);
+    private sealed record UpdateCheckResponse(string CurrentVersion, string LatestVersion, bool UpdateAvailable, string ReleaseUrl, string? DownloadUrl = null, string? ReleaseNotes = null);
     private sealed record UpdateInstallPayload(string DownloadUrl);
 
     private readonly MainForm _form;
@@ -449,7 +449,10 @@ public sealed class HostController : IDisposable
             string? downloadUrl = null;
             if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array && assets.GetArrayLength() > 0)
                 downloadUrl = assets[0].TryGetProperty("browser_download_url", out var assetUrl) ? assetUrl.GetString() : null;
-            return new UpdateCheckResponse(current, latest, IsNewerVersion(latest, current), releaseUrl, downloadUrl);
+            var releaseNotes = root.TryGetProperty("body", out var bodyValue) ? bodyValue.GetString() : null;
+            if (string.IsNullOrWhiteSpace(releaseNotes)) releaseNotes = null;
+            else if (releaseNotes.Length > 4000) releaseNotes = releaseNotes[..4000];
+            return new UpdateCheckResponse(current, latest, IsNewerVersion(latest, current), releaseUrl, downloadUrl, releaseNotes);
         }
         catch
         {
@@ -469,13 +472,31 @@ public sealed class HostController : IDisposable
             var installerPath = Path.Combine(Path.GetTempPath(), $"StreamerHub-update-{Guid.NewGuid():N}.exe");
             await using (var output = File.Create(installerPath))
                 await response.Content.CopyToAsync(output, ct).ConfigureAwait(false);
+            var updaterPath = Path.Combine(Path.GetTempPath(), $"StreamerHub-updater-{Guid.NewGuid():N}.cmd");
+            var appPath = Path.Combine(AppContext.BaseDirectory, "StreamerHub.exe");
+            var currentPid = Environment.ProcessId;
+            var script = $"""
+@echo off
+:wait
+tasklist /FI "PID eq {currentPid}" | find "{currentPid}" >nul
+if not errorlevel 1 (
+  timeout /t 1 /nobreak >nul
+  goto wait
+)
+start /wait "" "{installerPath}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS
+start "" "{appPath}"
+del "%~f0"
+""";
+            await File.WriteAllTextAsync(updaterPath, script, ct).ConfigureAwait(false);
             var process = Process.Start(new ProcessStartInfo
             {
-                FileName = installerPath,
-                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+                FileName = "cmd.exe",
+                Arguments = $"/d /c \"\"{updaterPath}\"\"",
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
                 UseShellExecute = true,
             });
-            if (process is null) return new { ok = false, error = "UPDATE INSTALLER COULD NOT START" };
+            if (process is null) return new { ok = false, error = "UPDATE HANDOFF COULD NOT START" };
             Ui(() =>
             {
                 var closeTimer = new System.Windows.Forms.Timer { Interval = 500 };

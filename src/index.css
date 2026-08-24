@@ -211,3 +211,6 @@ input[type='range'].art-slider:disabled {
   }
 }
 
+
+.update-progress { animation: update-progress 1.15s ease-in-out infinite; }
+@keyframes update-progress { 0% { transform: translateX(-120%); } 100% { transform: translateX(280%); } }
