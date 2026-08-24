@@ -5,7 +5,7 @@ import { Channels, type UpdateState } from '../rpc/contracts';
 interface UpdateStore extends UpdateState {
   checked: boolean;
   installing: boolean;
-  check: () => Promise<void>;
+  check: () => Promise<UpdateState | null>;
   install: () => Promise<boolean>;
 }
 
@@ -24,8 +24,10 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     try {
       const result = await rpc.invoke(Channels.UpdateCheck);
       set({ ...result, checked: true });
+      return result;
     } catch {
       set({ checked: true });
+      return null;
     }
   },
   install: async () => {

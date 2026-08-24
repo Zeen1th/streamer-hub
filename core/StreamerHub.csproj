@@ -8,7 +8,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>StreamerHub.Core</RootNamespace>
     <AssemblyName>StreamerHub</AssemblyName>
-    <Version>0.1.5</Version>
+    <ApplicationIcon>..\assets\streamer-hub-icon.ico</ApplicationIcon>
+    <Version>0.1.6</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
@@ -20,6 +21,7 @@
 
   <ItemGroup>
     <Content Include="..\dist\**\*" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\assets\streamer-hub-icon.ico" Link="streamer-hub-icon.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

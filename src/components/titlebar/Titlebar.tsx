@@ -1,4 +1,5 @@
 import { Download, Flame, Languages } from 'lucide-react';
+import { useState } from 'react';
 import { t } from '../../i18n/translations';
 import { isMockMode, rpc } from '../../rpc';
 import { Channels } from '../../rpc/contracts';
@@ -15,6 +16,7 @@ export function Titlebar() {
   const installing = useUpdateStore((s) => s.installing);
   const installUpdate = useUpdateStore((s) => s.install);
   const checkForUpdate = useUpdateStore((s) => s.check);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
   return (
     <header
@@ -62,15 +64,22 @@ export function Titlebar() {
             aria-label={updateAvailable ? 'Update available' : 'Check for updates'}
             title={installing ? 'Installing update' : updateAvailable ? 'Update available' : 'Check for updates'}
             disabled={installing}
-            onClick={() => {
-              if (updateAvailable) void installUpdate();
-              else void checkForUpdate();
+            onClick={async () => {
+              setUpdateMessage(null);
+              const result = await checkForUpdate();
+              if (result?.updateAvailable) {
+                void installUpdate();
+                return;
+              }
+              setUpdateMessage(t(lang, 'updates.upToDate'));
+              window.setTimeout(() => setUpdateMessage(null), 3500);
             }}
             className={`flex h-7 items-center gap-1.5 border px-2 font-sans text-xs font-bold uppercase tracking-[0.08em] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${updateAvailable ? 'border-primary bg-primary text-white hover:bg-primary/90' : 'border-ink/25 bg-surface-2 text-ink/75 hover:border-ink/50'}`}
           >
             <Download size={13} aria-hidden />
             {installing ? <span>Updating...</span> : updateAvailable && <span>Update</span>}
           </button>
+          {updateMessage && <span role="status" className="font-sans text-xs font-semibold uppercase tracking-[0.08em] text-success">{updateMessage}</span>}
           <WindowControls />
         </div>
       </div>

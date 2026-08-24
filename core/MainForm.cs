@@ -53,6 +53,8 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Text = "Streamer Hub";
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "streamer-hub-icon.ico");
+        if (File.Exists(iconPath)) Icon = new Icon(iconPath);
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1280, 800);
@@ -329,3 +331,4 @@ public sealed class MainForm : Form
         base.OnFormClosing(e);
     }
 }
+
