@@ -22,6 +22,7 @@ public sealed class SettingsStore : IDisposable
         public TwitchSettings Twitch { get; init; } = new();
         public WindowSettings Window { get; init; } = new();
         public string Language { get; init; } = string.Empty;
+        public bool BotAccountEnabled { get; init; }
     }
 
     private readonly string _filePath;
@@ -70,6 +71,17 @@ public sealed class SettingsStore : IDisposable
     public string Language
     {
         get { lock (_lock) return _document.Language; }
+    }
+
+    public bool BotAccountEnabled
+    {
+        get { lock (_lock) return _document.BotAccountEnabled; }
+    }
+
+    public void SetBotAccountEnabled(bool enabled)
+    {
+        lock (_lock) _document = _document with { BotAccountEnabled = enabled };
+        ScheduleSave();
     }
 
     public void SetLanguage(string language)

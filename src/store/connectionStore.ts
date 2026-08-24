@@ -7,6 +7,9 @@ interface ConnectionState {
   coreVersion: string | null;
   twitchChannel: string | null;
   authRequired: boolean;
+  botAccountEnabled: boolean;
+  botConnected: boolean;
+  botLogin: string | null;
   statusReceived: boolean;
   isMaximized: boolean;
   setStatus(status: ConnectionStatus): void;
@@ -20,6 +23,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   coreVersion: null,
   twitchChannel: null,
   authRequired: false,
+  botAccountEnabled: false,
+  botConnected: false,
+  botLogin: null,
   statusReceived: false,
   isMaximized: false,
   setStatus: (status) =>
@@ -29,6 +35,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
       coreVersion: status.coreVersion,
       twitchChannel: status.twitchChannel || null,
       authRequired: status.authRequired ?? false,
+      botAccountEnabled: status.botAccountEnabled ?? false,
+      botConnected: status.botConnected ?? false,
+      botLogin: status.botLogin || null,
       statusReceived: true,
     }),
   setCoreConnected: (connected) => set({ coreConnected: connected, statusReceived: true }),

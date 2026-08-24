@@ -43,6 +43,8 @@ public static class Channels
     public const string LogAppend = "log/append";
     public const string TwitchAuthorize = "twitch/authorize";
     public const string TwitchForget = "twitch/forget";
+    public const string TwitchBotAuthorize = "twitch/bot-authorize";
+    public const string TwitchBotForget = "twitch/bot-forget";
     public const string SettingsGetState = "settings/get-state";
     public const string SettingsSave = "settings/save";
     public const string OpenRouterGetState = "openrouter/get-state";

@@ -99,6 +99,9 @@ public sealed record ConnectionStatus
     public bool TwitchConnected { get; init; }
     public string TwitchChannel { get; init; } = string.Empty;
     public bool AuthRequired { get; init; }
+    public bool BotAccountEnabled { get; init; }
+    public bool BotConnected { get; init; }
+    public string BotLogin { get; init; } = string.Empty;
 }
 
 public sealed record LogPayload

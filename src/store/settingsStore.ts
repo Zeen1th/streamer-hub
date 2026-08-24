@@ -11,10 +11,11 @@ interface SettingsState {
   clientSecret: string;
   language: Language | '';
   theme: Theme;
+  botAccountEnabled: boolean;
   loaded: boolean;
   openRouterConfigured: boolean;
   groqConfigured: boolean;
-  hydrate(clientId: string, clientSecret: string, language: string): void;
+  hydrate(clientId: string, clientSecret: string, language: string, botAccountEnabled?: boolean): void;
   hydrateOpenRouter(configured: boolean, groqConfigured: boolean): void;
   saveOpenRouterKey(provider: 'openrouter' | 'groq', apiKey: string): Promise<boolean>;
   removeOpenRouterKey(provider: 'openrouter' | 'groq'): Promise<boolean>;
@@ -22,14 +23,16 @@ interface SettingsState {
   setClientSecret(clientSecret: string): void;
   setLanguage(language: Language): void;
   setTheme(theme: Theme): void;
+  setBotAccountEnabled(enabled: boolean): void;
 }
 
 function persist(get: () => SettingsState) {
-  const { clientId, clientSecret, language } = get();
+  const { clientId, clientSecret, language, botAccountEnabled } = get();
   rpc
     .invoke(Channels.SettingsSave, {
       twitch: { clientId: clientId.trim(), clientSecret: clientSecret.trim() },
       language: language || 'en',
+      botAccountEnabled,
     })
     .catch(() => undefined);
 }
@@ -39,14 +42,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   clientSecret: '',
   language: '',
   theme: (localStorage.getItem('streamer-hub-theme') === 'dark' ? 'dark' : 'light') as Theme,
+  botAccountEnabled: false,
   loaded: false,
   openRouterConfigured: false,
   groqConfigured: false,
-  hydrate: (clientId, clientSecret, language) =>
+  hydrate: (clientId, clientSecret, language, botAccountEnabled) =>
     set({
       clientId,
       clientSecret,
       language: language === 'ar' ? 'ar' : language === 'en' ? 'en' : '',
+      botAccountEnabled: botAccountEnabled ?? false,
       loaded: true,
     }),
   hydrateOpenRouter: (configured, groqConfigured) => set({ openRouterConfigured: configured, groqConfigured }),
@@ -78,6 +83,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   setLanguage: (language) => {
     set({ language });
+    persist(get);
+  },
+  setBotAccountEnabled: (enabled) => {
+    set({ botAccountEnabled: enabled });
     persist(get);
   },
   setTheme: (theme) => {

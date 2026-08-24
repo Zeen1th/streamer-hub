@@ -1,4 +1,4 @@
-import { KeyRound, Languages, LogOut, Moon, Settings as SettingsIcon, Sparkles, Sun } from 'lucide-react';
+import { Bot, KeyRound, Languages, LogOut, Moon, Settings as SettingsIcon, Sparkles, Sun } from 'lucide-react';
 import { useState } from 'react';
 import { t } from '../../../i18n/translations';
 import { isMockMode, rpc } from '../../../rpc';
@@ -16,6 +16,8 @@ export function SettingsView() {
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const botAccountEnabled = useSettingsStore((s) => s.botAccountEnabled);
+  const setBotAccountEnabled = useSettingsStore((s) => s.setBotAccountEnabled);
   const openRouterConfigured = useSettingsStore((s) => s.openRouterConfigured);
   const groqConfigured = useSettingsStore((s) => s.groqConfigured);
   const saveOpenRouterKey = useSettingsStore((s) => s.saveOpenRouterKey);
@@ -24,6 +26,8 @@ export function SettingsView() {
   const [provider, setProvider] = useState<'openrouter' | 'groq'>('openrouter');
   const [keyStatus, setKeyStatus] = useState<string | null>(null);
   const twitchConnected = useConnectionStore((s) => s.twitchConnected);
+  const botConnected = useConnectionStore((s) => s.botConnected);
+  const botLogin = useConnectionStore((s) => s.botLogin);
   const mockMode = isMockMode;
   const lang = language === 'ar' ? 'ar' : 'en';
 
@@ -90,6 +94,27 @@ export function SettingsView() {
                   <KeyRound size={14} />
                   {t(lang, 'settings.connect')}
                 </Button>
+              </div>
+            </div>
+
+            <div className="border-t border-ink/15 pt-5">
+              <div className="flex items-start gap-3">
+                <Bot size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <div className="font-sans text-xs font-bold uppercase tracking-[0.15em] text-ink/75">{lang === 'ar' ? 'إضافة حساب بوت' : 'Add bot account'}</div>
+                  <p className="mt-1 font-sans text-xs leading-relaxed text-ink/60">{lang === 'ar' ? 'استخدم حساباً آخر، مثل حساب مشرف، لإرسال رسائل الدردشة والردود التلقائية.' : 'Use another account, such as a moderator, to send chat messages and automatic replies.'}</p>
+                  <label className="mt-3 flex items-center gap-2 font-sans text-xs font-semibold uppercase tracking-[0.08em] text-ink/75">
+                    <input type="checkbox" checked={botAccountEnabled} onChange={(event) => setBotAccountEnabled(event.target.checked)} className="h-4 w-4 accent-[var(--primary)]" />
+                    {lang === 'ar' ? 'تفعيل حساب البوت' : 'Use bot account'}
+                  </label>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button disabled={mockMode || !botAccountEnabled} onClick={() => rpc.invoke(Channels.TwitchBotAuthorize).catch(() => undefined)}>
+                      <KeyRound size={14} />{lang === 'ar' ? 'اتصال بحساب البوت' : 'Connect bot account'}
+                    </Button>
+                    {botConnected && <Badge tone="success">{botLogin || (lang === 'ar' ? 'متصل' : 'Connected')}</Badge>}
+                    {botConnected && <Button variant="danger" onClick={() => rpc.invoke(Channels.TwitchBotForget).catch(() => undefined)}><LogOut size={14} />{lang === 'ar' ? 'إزالة' : 'Remove'}</Button>}
+                  </div>
+                </div>
               </div>
             </div>
 

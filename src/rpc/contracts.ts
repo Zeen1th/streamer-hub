@@ -109,6 +109,9 @@ export interface ConnectionStatus {
   twitchConnected: boolean;
   twitchChannel: string;
   authRequired?: boolean;
+  botAccountEnabled?: boolean;
+  botConnected?: boolean;
+  botLogin?: string;
 }
 
 export type LogKind =
@@ -146,6 +149,8 @@ export const Channels = {
   LogAppend: 'log/append',
   TwitchAuthorize: 'twitch/authorize',
   TwitchForget: 'twitch/forget',
+  TwitchBotAuthorize: 'twitch/bot-authorize',
+  TwitchBotForget: 'twitch/bot-forget',
   SettingsGetState: 'settings/get-state',
   SettingsSave: 'settings/save',
   OpenRouterGetState: 'openrouter/get-state',
@@ -195,9 +200,11 @@ export interface HostApi {
   [Channels.LogAppend]: { request: LogPayload; response: { ok: boolean } };
   [Channels.TwitchAuthorize]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchForget]: { request: undefined; response: { ok: boolean } };
-  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string } };
+  [Channels.TwitchBotAuthorize]: { request: undefined; response: { ok: boolean } };
+  [Channels.TwitchBotForget]: { request: undefined; response: { ok: boolean } };
+  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean } };
   [Channels.SettingsSave]: {
-    request: { twitch: TwitchSettings; language: string };
+    request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean };
     response: { ok: boolean };
   };
   [Channels.OpenRouterGetState]: { request: undefined; response: OpenRouterSettingsState };

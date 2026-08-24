@@ -18,7 +18,7 @@ public sealed class HostController : IDisposable
     private sealed record DeleteCounterPayload(string CounterId);
     private sealed record ObsWritePayload(string FilePath, string Content);
     private sealed record SaveFilePayload(string DefaultName);
-    private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language);
+    private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null);
     private sealed record SaveAutoReplyPayload(AutoReply? Rule);
     private sealed record SaveAutoReplySettingsPayload(AutoReplySettings? Settings);
     private sealed record DeleteAutoReplyPayload(string RuleId);
@@ -36,18 +36,22 @@ public sealed class HostController : IDisposable
     private readonly SettingsStore _settings;
     private readonly ObsFileWriter _obs = new();
     private readonly TokenVault _tokens;
+    private readonly TokenVault _botTokens;
     private readonly SecretVault _openRouterKey;
     private readonly SecretVault _groqKey;
     private readonly OpenRouterClient _openRouter = new();
     private static readonly HttpClient UpdateHttp = new();
     private const string UpdateRepository = "Zeen1th/streamer-hub";
     private readonly ITwitchClient _twitch = new TwitchIrcClient();
+    private readonly ITwitchClient _botTwitch = new TwitchIrcClient();
     private readonly RpcDispatcher _dispatcher = new();
     private readonly string _logPath;
 
     private volatile bool _authRequired;
     private int _authorizeInProgress;
+    private int _botAuthorizeInProgress;
     private string _twitchChannel = string.Empty;
+    private string _botLogin = string.Empty;
     private int _chatBurst;
     private DateTime _chatWindow = DateTime.UtcNow;
     private DateTime _lastChatSentAt = DateTime.MinValue;
@@ -63,12 +67,14 @@ public sealed class HostController : IDisposable
         _shutdown = shutdown;
         _settings = settings;
         _tokens = new TokenVault(Path.Combine(appData, "token.bin"));
+        _botTokens = new TokenVault(Path.Combine(appData, "bot-token.bin"));
         _openRouterKey = new SecretVault(Path.Combine(appData, "openrouter-key.bin"));
         _groqKey = new SecretVault(Path.Combine(appData, "groq-key.bin"));
         _logPath = Path.Combine(appData, "logs", $"session-{DateTime.Now:yyyyMMdd}.log");
         Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!);
         RegisterHandlers();
         WireTwitch();
+        WireBotState();
     }
 
     private string Lang => _settings.Language == "ar" ? "ar" : "en";
@@ -200,20 +206,45 @@ public sealed class HostController : IDisposable
         {
             _tokens.Delete();
             _twitch.Disconnect();
+            _botTwitch.Disconnect();
+            _botLogin = string.Empty;
             _twitchChannel = string.Empty;
             _authRequired = true;
             Log("system", CoreStrings.L(Lang, "login-forgotten"));
             EmitStatus();
             return Task.FromResult<object?>(new { ok = true });
         });
+        _dispatcher.Register(Channels.TwitchBotAuthorize, (_, _) =>
+        {
+            _ = Task.Run(async () => await TriggerBotAuthorizeAsync().ConfigureAwait(false));
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.TwitchBotForget, (_, _) =>
+        {
+            _botTokens.Delete();
+            _botTwitch.Disconnect();
+            _botLogin = string.Empty;
+            EmitStatus();
+            return Task.FromResult<object?>(new { ok = true });
+        });
         _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
-            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language }));
+            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled }));
         _dispatcher.Register(Channels.SettingsSave, (payload, _) =>
         {
             var request = Json.Deserialize<SaveSettingsPayload>(payload ?? default);
             if (request?.Twitch is null) return Task.FromResult<object?>(new { ok = false });
             _settings.SetTwitch(request.Twitch);
             if (request.Language is not null) _settings.SetLanguage(request.Language);
+            if (request.BotAccountEnabled.HasValue)
+            {
+                _settings.SetBotAccountEnabled(request.BotAccountEnabled.Value);
+                if (request.BotAccountEnabled.Value)
+                {
+                    var botTokens = _botTokens.Load();
+                    if (botTokens is not null && !string.IsNullOrWhiteSpace(_twitchChannel)) Task.Run(() => ConnectBotWithTokensAsync(botTokens));
+                }
+                else _botTwitch.Disconnect();
+            }
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.OpenRouterGetState, (_, _) =>
@@ -372,6 +403,15 @@ public sealed class HostController : IDisposable
         };
     }
 
+    private void WireBotState()
+    {
+        _botTwitch.StateChanged += state =>
+        {
+            if (state == TwitchState.AuthFailed) Log("system", "BOT ACCOUNT AUTHENTICATION FAILED");
+            EmitStatus();
+        };
+    }
+
     private bool AllowChatRelay()
     {
         var now = DateTime.UtcNow;
@@ -413,7 +453,8 @@ public sealed class HostController : IDisposable
             var elapsed = DateTime.UtcNow - _lastChatSentAt;
             if (elapsed < TimeSpan.FromSeconds(1))
                 await Task.Delay(TimeSpan.FromSeconds(1) - elapsed).ConfigureAwait(false);
-            var ok = await _twitch.SendChatMessageAsync(message.Trim()).ConfigureAwait(false);
+            var chatClient = _settings.BotAccountEnabled && _botTwitch.State == TwitchState.Connected ? _botTwitch : _twitch;
+            var ok = await chatClient.SendChatMessageAsync(message.Trim()).ConfigureAwait(false);
             if (ok) _lastChatSentAt = DateTime.UtcNow;
             return ok;
         }
@@ -430,6 +471,9 @@ public sealed class HostController : IDisposable
         TwitchConnected = _twitch.State == TwitchState.Connected,
         TwitchChannel = _twitchChannel,
         AuthRequired = _authRequired,
+        BotAccountEnabled = _settings.BotAccountEnabled,
+        BotConnected = _botTwitch.State == TwitchState.Connected,
+        BotLogin = _botLogin,
     };
 
     private async Task<UpdateCheckResponse> CheckForUpdateAsync(CancellationToken ct)
@@ -551,6 +595,29 @@ public sealed class HostController : IDisposable
         _authRequired = false;
         EmitStatus();
         _twitch.Connect(tokens.AccessToken, login);
+        if (_settings.BotAccountEnabled)
+        {
+            var botTokens = _botTokens.Load();
+            if (botTokens is not null) _ = ConnectBotWithTokensAsync(botTokens);
+        }
+    }
+
+    private async Task ConnectBotWithTokensAsync(TwitchTokens tokens)
+    {
+        if (tokens.ExpiresAtUtc <= DateTime.UtcNow.AddMinutes(5))
+        {
+            var refreshed = await TwitchAuth.RefreshAsync(TwitchConstants.ClientId, string.Empty, tokens.RefreshToken).ConfigureAwait(false);
+            if (refreshed is null) { Log("system", "BOT ACCOUNT TOKEN REFRESH FAILED"); return; }
+            tokens = refreshed with { Login = tokens.Login };
+        }
+        var login = tokens.Login ?? await TwitchAuth.ValidateLoginAsync(tokens.AccessToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(login)) { Log("system", "BOT ACCOUNT TOKEN IS INVALID"); return; }
+        if (string.IsNullOrWhiteSpace(_twitchChannel)) { Log("system", "CONNECT THE BROADCASTER ACCOUNT BEFORE THE BOT ACCOUNT"); return; }
+        tokens = tokens with { Login = login };
+        _botTokens.Save(tokens);
+        _botLogin = login;
+        _botTwitch.Connect(tokens.AccessToken, login, _twitchChannel);
+        EmitStatus();
     }
 
     public async Task TriggerAuthorizeAsync()
@@ -568,6 +635,23 @@ public sealed class HostController : IDisposable
         {
             Interlocked.Exchange(ref _authorizeInProgress, 0);
         }
+    }
+
+    private async Task TriggerBotAuthorizeAsync()
+    {
+        if (Interlocked.Exchange(ref _botAuthorizeInProgress, 1) == 1) return;
+        try
+        {
+            var (device, deviceError) = await TwitchAuth.RequestDeviceCodeAsync(TwitchConstants.ClientId, _shutdown).ConfigureAwait(false);
+            if (device is null) { Log("system", "BOT DEVICE LOGIN FAILED · " + (deviceError ?? "UNKNOWN ERROR")); return; }
+            Log("system", $"BOT LOGIN · ENTER CODE {device.UserCode} IN YOUR BROWSER");
+            TwitchAuth.OpenBrowser(device.VerificationUri);
+            var (tokens, exchangeError) = await TwitchAuth.PollDeviceCodeAsync(TwitchConstants.ClientId, device, _shutdown).ConfigureAwait(false);
+            if (tokens is null) { Log("system", "BOT LOGIN FAILED · " + (exchangeError ?? "UNKNOWN ERROR")); return; }
+            _botTokens.Save(tokens);
+            await ConnectBotWithTokensAsync(tokens).ConfigureAwait(false);
+        }
+        finally { Interlocked.Exchange(ref _botAuthorizeInProgress, 0); }
     }
 
     private async Task TriggerAuthorizeCoreAsync()
@@ -641,6 +725,7 @@ public sealed class HostController : IDisposable
         try
         {
             _twitch.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            _botTwitch.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         catch
         {

@@ -31,18 +31,20 @@ public sealed class TwitchIrcClient : ITwitchClient
     private Task? _loop;
     private string _accessToken = string.Empty;
     private string _login = string.Empty;
+    private string _channel = string.Empty;
     private volatile TwitchState _state = TwitchState.Disconnected;
     private bool _sawJoin;
     private bool _sawMessage;
 
     public TwitchState State => _state;
 
-    public void Connect(string accessToken, string login)
+    public void Connect(string accessToken, string login, string? channel = null)
     {
         lock (_connectLock)
         {
             _accessToken = accessToken;
             _login = login.ToLowerInvariant();
+            _channel = string.IsNullOrWhiteSpace(channel) ? _login : channel.Trim().ToLowerInvariant();
             if (_loop is { IsCompleted: false })
             {
                 _cts.Cancel();
@@ -83,7 +85,7 @@ public sealed class TwitchIrcClient : ITwitchClient
         if (string.IsNullOrWhiteSpace(message) || string.IsNullOrWhiteSpace(_login)) return false;
         var trimmed = message.Trim();
         if (trimmed.Length > 500) trimmed = trimmed[..500];
-        return await SendAsync($"PRIVMSG #{_login} :{trimmed}").ConfigureAwait(false);
+        return await SendAsync($"PRIVMSG #{_channel} :{trimmed}").ConfigureAwait(false);
     }
 
     public async Task<(bool Ok, string? Error)> UpdateChannelTitleAsync(string title)
@@ -159,7 +161,7 @@ public sealed class TwitchIrcClient : ITwitchClient
                 await SendAsync("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands").ConfigureAwait(false);
                 await SendAsync($"PASS oauth:{_accessToken}").ConfigureAwait(false);
                 await SendAsync($"NICK {_login}").ConfigureAwait(false);
-                await SendAsync($"JOIN #{_login}").ConfigureAwait(false);
+                await SendAsync($"JOIN #{_channel}").ConfigureAwait(false);
                 SetState(TwitchState.Connected);
                 delay = TimeSpan.FromSeconds(1);
                 string? line;
@@ -213,12 +215,12 @@ public sealed class TwitchIrcClient : ITwitchClient
             SetState(TwitchState.AuthFailed);
             return;
         }
-        if (line.Contains($" JOIN #{_login}", StringComparison.Ordinal))
+        if (line.Contains($" JOIN #{_channel}", StringComparison.Ordinal))
         {
             if (!_sawJoin)
             {
                 _sawJoin = true;
-                Info?.Invoke(new TwitchInfo("chat-joined", _login));
+                Info?.Invoke(new TwitchInfo("chat-joined", _channel));
             }
             return;
         }

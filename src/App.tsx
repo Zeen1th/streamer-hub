@@ -88,7 +88,7 @@ export default function App() {
         if (!disposed) {
           useSettingsStore
             .getState()
-            .hydrate(settings.twitch.clientId, settings.twitch.clientSecret, settings.language);
+            .hydrate(settings.twitch.clientId, settings.twitch.clientSecret, settings.language, settings.botAccountEnabled);
         }
       } catch {
         void 0;
