@@ -1,7 +1,7 @@
 #define MyAppVersion GetEnv("APP_VERSION")
 
 [Setup]
-AppId={D6A0D4B9-3B24-4A9C-9EA1-123456789001}
+AppId={{D6A0D4B9-3B24-4A9C-9EA1-123456789001}
 AppName=Streamer Hub
 AppVersion={#MyAppVersion}
 AppPublisher=Streamer Hub
