@@ -71,7 +71,7 @@ export function Titlebar() {
               setUpdateMessage(null);
               const result = await checkForUpdate();
               if (result?.updateAvailable) {
-                void installUpdate();
+                setShowUpdatePanel(true);
                 return;
               }
               setUpdateMessage(t(lang, 'updates.upToDate'));
@@ -84,17 +84,19 @@ export function Titlebar() {
           </button>
           {updateMessage && <span role="status" className="font-sans text-xs font-semibold uppercase tracking-[0.08em] text-success">{updateMessage}</span>}
           {showUpdatePanel && updateAvailable && (
-            <section role="status" aria-live="polite" className="absolute end-4 top-10 z-[80] w-[min(390px,calc(100vw-2rem))] border border-ink/20 bg-surface p-4 text-start shadow-lg">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-display text-sm uppercase tracking-[0.08em] text-ink">{t(lang, 'updates.available')} · v{latestVersion}</p>
-                  <p className="mt-2 text-xs text-ink/65">{installing ? t(lang, 'updates.installing') : t(lang, 'updates.available')}</p>
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/60 p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !installing) setShowUpdatePanel(false); }}>
+              <section role="dialog" aria-modal="true" aria-labelledby="update-dialog-title" className="slab w-full max-w-lg p-6 text-start shadow-xl">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p id="update-dialog-title" className="font-display text-lg uppercase tracking-[0.08em] text-ink">{t(lang, 'updates.available')} · v{latestVersion}</p>
+                    <p className="mt-2 text-xs text-ink/65">{installing ? t(lang, 'updates.installing') : t(lang, 'updates.available')}</p>
+                  </div>
+                  {!installing && <button type="button" aria-label="Close update details" onClick={() => setShowUpdatePanel(false)} className="text-lg leading-none text-ink/60 hover:text-ink">×</button>}
                 </div>
-                {!installing && <button type="button" aria-label="Close update details" onClick={() => setShowUpdatePanel(false)} className="text-lg leading-none text-ink/60 hover:text-ink">×</button>}
-              </div>
-              <div className="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap border-t border-ink/10 pt-3 text-xs leading-relaxed text-ink/75">{releaseNotes || t(lang, 'updates.fallbackNotes')}</div>
-              {installing && <div className="mt-4 h-1.5 overflow-hidden bg-ink/10"><div className="update-progress h-full w-2/5 bg-primary" /></div>}
-            </section>
+                <div className="mt-3 max-h-56 overflow-y-auto whitespace-pre-wrap border-t border-ink/10 pt-3 text-xs leading-relaxed text-ink/75">{releaseNotes || t(lang, 'updates.fallbackNotes')}</div>
+                {installing ? <div className="mt-4 h-1.5 overflow-hidden bg-ink/10"><div className="update-progress h-full w-2/5 bg-primary" /></div> : <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setShowUpdatePanel(false)} className="border border-ink/25 px-3 py-2 text-xs font-bold uppercase tracking-[0.08em] text-ink/70">{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button><button type="button" onClick={() => { void installUpdate(); }} className="bg-primary px-3 py-2 text-xs font-bold uppercase tracking-[0.08em] text-on-primary">{lang === 'ar' ? 'تحديث الآن' : 'Update now'}</button></div>}
+              </section>
+            </div>
           )}
           <WindowControls />
         </div>

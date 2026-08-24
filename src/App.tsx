@@ -31,6 +31,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle('theme-dark', theme === 'dark');
   }, [theme]);
 
   useEffect(() => {

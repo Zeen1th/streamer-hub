@@ -26,8 +26,10 @@
   --danger: #8f2f23;
   --on-primary: #f0e9d8;
 }
-:root[data-theme='dark'] {
+:root[data-theme='dark'],
+:root.theme-dark {
   color-scheme: dark;
+  background-color: #181513;
   --surface: #181513;
   --surface-2: #241e19;
   --ink: #f0e9d8;

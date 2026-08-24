@@ -238,12 +238,12 @@ public sealed class HostController : IDisposable
             Task.FromResult<object?>(_settings.AutoReplySettings));
         _dispatcher.Register(Channels.AutoRepliesSettingsSave, (payload, _) =>
         {
-            var request = Json.Deserialize<SaveAutoReplySettingsPayload>(payload ?? default);
-            if (request?.Settings is null) return Task.FromResult<object?>(new { ok = false });
-            _settings.SetAutoReplySettings(request.Settings with
+            var settings = Json.Deserialize<AutoReplySettings>(payload ?? default);
+            if (settings is null) return Task.FromResult<object?>(new { ok = false });
+            _settings.SetAutoReplySettings(settings with
             {
-                GlobalAiCooldownSeconds = Math.Clamp(request.Settings.GlobalAiCooldownSeconds, 0, 3600),
-                GlobalAiUserCooldownSeconds = Math.Clamp(request.Settings.GlobalAiUserCooldownSeconds, 0, 3600),
+                GlobalAiCooldownSeconds = Math.Clamp(settings.GlobalAiCooldownSeconds, 0, 3600),
+                GlobalAiUserCooldownSeconds = Math.Clamp(settings.GlobalAiUserCooldownSeconds, 0, 3600),
             });
             return Task.FromResult<object?>(new { ok = true });
         });
@@ -472,26 +472,23 @@ public sealed class HostController : IDisposable
             var installerPath = Path.Combine(Path.GetTempPath(), $"StreamerHub-update-{Guid.NewGuid():N}.exe");
             await using (var output = File.Create(installerPath))
                 await response.Content.CopyToAsync(output, ct).ConfigureAwait(false);
-            var updaterPath = Path.Combine(Path.GetTempPath(), $"StreamerHub-updater-{Guid.NewGuid():N}.cmd");
-            var appPath = Path.Combine(AppContext.BaseDirectory, "StreamerHub.exe");
+            var updaterPath = Path.Combine(Path.GetTempPath(), $"StreamerHub-updater-{Guid.NewGuid():N}.ps1");
+            var appPath = Process.GetCurrentProcess().MainModule?.FileName ?? Path.Combine(AppContext.BaseDirectory, "StreamerHub.exe");
             var currentPid = Environment.ProcessId;
-            var script = $"""
-@echo off
-:wait
-tasklist /FI "PID eq {currentPid}" | find "{currentPid}" >nul
-if not errorlevel 1 (
-  timeout /t 1 /nobreak >nul
-  goto wait
-)
-start /wait "" "{installerPath}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS
-start "" "{appPath}"
-del "%~f0"
-""";
+            static string PsQuote(string value) => "'" + value.Replace("'", "''") + "'";
+            var script = string.Join(Environment.NewLine, new[]
+            {
+                "$ErrorActionPreference = 'Stop'",
+                $"while (Get-Process -Id {currentPid} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 500 }}",
+                $"Start-Process -FilePath {PsQuote(installerPath)} -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS' -Wait",
+                $"Start-Process -FilePath {PsQuote(appPath)}",
+                "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue",
+            });
             await File.WriteAllTextAsync(updaterPath, script, ct).ConfigureAwait(false);
             var process = Process.Start(new ProcessStartInfo
             {
-                FileName = "cmd.exe",
-                Arguments = $"/d /c \"\"{updaterPath}\"\"",
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"{updaterPath}\"",
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
                 UseShellExecute = true,
