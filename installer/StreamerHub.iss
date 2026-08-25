@@ -27,6 +27,9 @@ Source: "..\release\StreamerHub\*"; DestDir: "{app}"; Flags: ignoreversion recur
 Name: "{autoprograms}\Streamer Hub"; Filename: "{app}\StreamerHub.exe"
 Name: "{autodesktop}\Streamer Hub"; Filename: "{app}\StreamerHub.exe"
 
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "StreamerHub"; ValueData: """{app}\StreamerHub.exe"" --startup"; Flags: uninsdeletevalue
+
 [Run]
 Filename: "{app}\StreamerHub.exe"; Description: "Launch Streamer Hub"; Flags: nowait postinstall skipifsilent
 

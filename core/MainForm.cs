@@ -73,11 +73,28 @@ public sealed class MainForm : Form
         if (Interlocked.Exchange(ref _initialized, 1) == 1) return;
         try
         {
+            // Give Windows time to finish the logon session and initialize
+            // WebView2 before a background launch begins.
+            if (Program.StartedWithWindows)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(4), _shutdown.Token);
+            }
+
             await InitializeAsync();
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "Streamer Hub failed to start",
+            var details = ex.ToString();
+            WriteStartupError(details);
+
+            MessageBox.Show(this,
+                Program.StartedWithWindows
+                    ? "Streamer Hub could not start automatically. Open it once from the Start menu and try again."
+                    : ex.Message,
+                "Streamer Hub failed to start",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -117,6 +134,25 @@ public sealed class MainForm : Form
         _webView.CoreWebView2.Navigate("https://app.streamerhub/index.html");
     }
 
+    private static void WriteStartupError(string details)
+    {
+        try
+        {
+            var logDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "StreamerHub",
+                "logs");
+            Directory.CreateDirectory(logDirectory);
+            var path = Path.Combine(logDirectory, "startup-error.log");
+            File.AppendAllText(path,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {details}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Startup diagnostics must never prevent the fallback message.
+        }
+    }
+
     private void ApplyWindowSettings()
     {
         var window = _settings!.Window;
@@ -152,7 +188,7 @@ public sealed class MainForm : Form
         {
             using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
             if (key is null) return;
-            if (enabled) key.SetValue("StreamerHub", $"\"{Application.ExecutablePath}\"");
+            if (enabled) key.SetValue("StreamerHub", $"\"{Application.ExecutablePath}\" --startup");
             else key.DeleteValue("StreamerHub", false);
         }
         catch
@@ -232,8 +268,15 @@ public sealed class MainForm : Form
         {
             base.WndProc(ref m);
             var mmi = Marshal.PtrToStructure<MinMaxInfo>(m.LParam);
-            var workArea = Screen.FromHandle(Handle).WorkingArea;
-            mmi.MaxPosition = workArea.Location;
+            var monitor = Screen.FromHandle(Handle);
+            var workArea = monitor.WorkingArea;
+
+            // WM_GETMINMAXINFO expects MaxPosition relative to the monitor,
+            // not the desktop's absolute coordinates. Using workArea.Location
+            // directly moves maximized windows off-screen on secondary monitors.
+            mmi.MaxPosition = new Point(
+                workArea.Left - monitor.Bounds.Left,
+                workArea.Top - monitor.Bounds.Top);
             mmi.MaxSize = new Point(workArea.Width, workArea.Height);
             Marshal.StructureToPtr(mmi, m.LParam, false);
             return;
