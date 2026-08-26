@@ -58,17 +58,25 @@ export function normalizeChatOverlaySettings(value: Partial<ChatOverlaySettings>
 
 export function normalizeChatOverlayMessage(value: Partial<ChatMessage> | null | undefined): NormalizedChatOverlayMessage {
   const input = value ?? {};
+  const username = trimAndCap(input.username, 32) || 'viewer';
+  const userId = trimAndCap(input.userId, 64);
+  const message = trimAndCap(input.message, 500);
+  const timestamp = trimAndCap(input.timestamp, 64);
+  const isBroadcaster = input.isBroadcaster === true;
+  const isMod = input.isMod === true;
+  const isVip = input.isVip === true;
+  const isSubscriber = input.isSubscriber === true;
   return {
-    id: trimAndCap(input.id, 80) || 'chat-message',
-    username: trimAndCap(input.username, 32) || 'viewer',
-    userId: trimAndCap(input.userId, 64),
+    id: trimAndCap(input.id, 80) || buildFallbackMessageId({ username, userId, message, timestamp, isBroadcaster, isMod, isVip, isSubscriber }),
+    username,
+    userId,
     avatarUrl: normalizeAvatarUrl(input.avatarUrl),
-    isBroadcaster: input.isBroadcaster === true,
-    isMod: input.isMod === true,
-    isVip: input.isVip === true,
-    isSubscriber: input.isSubscriber === true,
-    message: trimAndCap(input.message, 500),
-    timestamp: trimAndCap(input.timestamp, 64),
+    isBroadcaster,
+    isMod,
+    isVip,
+    isSubscriber,
+    message,
+    timestamp,
   };
 }
 
@@ -95,6 +103,43 @@ function normalizeAvatarUrl(value: unknown): string {
   } catch {
     return CHAT_OVERLAY_AVATAR_FALLBACK;
   }
+}
+
+function buildFallbackMessageId(parts: {
+  username: string;
+  userId: string;
+  message: string;
+  timestamp: string;
+  isBroadcaster: boolean;
+  isMod: boolean;
+  isVip: boolean;
+  isSubscriber: boolean;
+}): string {
+  const seedParts = [
+    parts.userId,
+    parts.username,
+    parts.message,
+    parts.timestamp,
+    parts.isBroadcaster ? 'b' : '',
+    parts.isMod ? 'm' : '',
+    parts.isVip ? 'v' : '',
+    parts.isSubscriber ? 's' : '',
+  ].filter(Boolean);
+
+  if (seedParts.length === 0) {
+    return `chat-${crypto.randomUUID()}`;
+  }
+
+  return `chat-${stableHash(seedParts.join('|'))}`;
+}
+
+function stableHash(value: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const char of value) {
+    hash ^= BigInt(char.codePointAt(0) ?? 0);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, '0');
 }
 
 export function isChatOverlayTheme(value: string): value is ChatOverlayTheme {

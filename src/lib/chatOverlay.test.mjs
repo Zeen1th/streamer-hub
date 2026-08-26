@@ -108,3 +108,27 @@ test('normalizes chat messages and uses a neutral avatar fallback', () => {
     },
   );
 });
+test('does not reuse fallback ids for distinct missing-id messages', () => {
+  const first = normalizeChatOverlayMessage({
+    username: 'viewer',
+    userId: '100',
+    message: 'hello world',
+    timestamp: '2026-08-26T00:00:00.000Z',
+  });
+
+  const second = normalizeChatOverlayMessage({
+    username: 'viewer',
+    userId: '100',
+    message: 'hello again',
+    timestamp: '2026-08-26T00:00:01.000Z',
+  });
+
+  assert.notEqual(first.id, second.id);
+  assert.equal(first.id, normalizeChatOverlayMessage({
+    username: 'viewer',
+    userId: '100',
+    message: 'hello world',
+    timestamp: '2026-08-26T00:00:00.000Z',
+  }).id);
+});
+
