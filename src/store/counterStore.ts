@@ -37,6 +37,7 @@ interface CounterStoreState {
   updateName(id: string, name: string): void;
   updateCommand(id: string, action: CounterAction, patch: Partial<CounterCommandConfig>): void;
   updateObs(id: string, patch: Partial<ObsOutputConfig>): void;
+  updateTitle(id: string, patch: { titleEnabled?: boolean; titleTemplate?: string }): void;
   incrementManual(id: string): void;
   decrementManual(id: string): void;
   resetManual(id: string): void;
@@ -71,6 +72,24 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
   const failWrite = (id: string, message: string) => {
     set((s) => ({ obsStatus: { ...s.obsStatus, [id]: { state: 'error', message, at: new Date().toISOString() } } }));
     log('obs-error', tr('log.obsFailed', { msg: message }));
+  };
+
+  const counterTitleQueues = new Map<string, Promise<void>>();
+
+  const updateTitle = (id: string) => {
+    const queued = counterTitleQueues.get(id) ?? Promise.resolve();
+    const next = queued.catch(() => undefined).then(async () => {
+      const current = get().counters.find((c) => c.id === id);
+      if (!current?.titleEnabled || !current.titleTemplate?.trim()) return;
+      const title = renderTemplate(current.titleTemplate, current.count, null).trim();
+      if (!title) return;
+      const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
+      if (!result.ok) log('system', current.name + ' · ' + (result.error ?? 'TITLE UPDATE FAILED'));
+    }).catch(() => undefined);
+    counterTitleQueues.set(id, next);
+    void next.finally(() => {
+      if (counterTitleQueues.get(id) === next) counterTitleQueues.delete(id);
+    });
   };
 
   const writeObs = (id: string, force = false, logSuccess = false) => {
@@ -159,6 +178,7 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
     }));
     log(kind, `${counter.name} · ${message}`.slice(0, 80), username ?? undefined, next);
     syncCount(id, source);
+    updateTitle(id);
   };
 
   return {
@@ -241,7 +261,16 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
       if (counter) persistCounter(counter);
     },
 
+    updateTitle: (id, patch) => {
+      set((s) => ({
+        counters: s.counters.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+      }));
+      const counter = get().counters.find((c) => c.id === id);
+      if (counter) persistCounter(counter);
+    },
+
     updateObs: (id, patch) => {
+
       set((s) => ({
         counters: s.counters.map((c) => (c.id === id ? { ...c, obs: { ...c.obs, ...patch } } : c)),
       }));

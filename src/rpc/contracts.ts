@@ -31,6 +31,8 @@ export interface Counter {
   count: number;
   commands: CounterConfig;
   obs: ObsOutputConfig;
+  titleEnabled?: boolean;
+  titleTemplate?: string;
 }
 
 export interface ObsOutputConfig {

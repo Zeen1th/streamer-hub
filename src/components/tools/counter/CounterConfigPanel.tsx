@@ -116,6 +116,7 @@ interface CounterConfigPanelProps {
 export function CounterConfigPanel({ counter, onClose }: CounterConfigPanelProps) {
   const updateName = useCounterStore((s) => s.updateName);
   const updateObs = useCounterStore((s) => s.updateObs);
+  const updateTitle = useCounterStore((s) => s.updateTitle);
   const removeCounter = useCounterStore((s) => s.removeCounter);
   const testWrite = useCounterStore((s) => s.testWrite);
   const lastTriggerUser = useCounterStore((s) => s.lastTriggerUser[counter.id]);
@@ -157,6 +158,40 @@ export function CounterConfigPanel({ counter, onClose }: CounterConfigPanelProps
           ))}
         </div>
 
+        <div className="border border-ink/15 bg-surface px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-display text-base uppercase tracking-[0.04em] text-ink">
+                {t(lang, "config.counterTitle")}
+              </div>
+              <div className="mt-1 font-sans text-xs text-ink/70">{t(lang, "config.counterTitleHint")}</div>
+            </div>
+            <Switch
+              label={t(lang, "config.counterTitle")}
+              checked={counter.titleEnabled ?? false}
+              onChange={(titleEnabled) => updateTitle(counter.id, { titleEnabled })}
+            />
+          </div>
+          {counter.titleEnabled && <div className="mt-4 space-y-4">
+            <Field label={t(lang, "config.counterTitleTemplate")} hint={t(lang, "config.counterTitleTemplateHint")}>
+              <Input
+                dir="auto"
+                className="text-start"
+                value={counter.titleTemplate ?? ""}
+                onChange={(event) => updateTitle(counter.id, { titleTemplate: event.target.value })}
+                placeholder={counter.name + ": {count}"}
+                spellCheck={false}
+                aria-label={t(lang, "config.counterTitleTemplate")}
+              />
+            </Field>
+            <div className="border border-ink/20 bg-surface-2 px-4 py-3">
+              <div className="font-sans text-xs font-bold uppercase tracking-[0.2em] text-ink/70">{t(lang, "config.counterTitlePreview")}</div>
+              <div dir="auto" className="mt-1.5 break-all text-start font-mono text-sm text-ink">
+                {renderTemplate(counter.titleTemplate ?? "", counter.count, null) || " "}
+              </div>
+            </div>
+          </div>}
+        </div>
         <div className="border border-ink/15 bg-surface px-4 py-4">
           <div className="flex items-center justify-between">
             <div>

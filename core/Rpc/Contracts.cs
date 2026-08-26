@@ -21,6 +21,8 @@ public sealed record Counter
     public int Count { get; init; }
     public CounterConfig Commands { get; init; } = new();
     public ObsOutputConfig Obs { get; init; } = new();
+    public bool TitleEnabled { get; init; }
+    public string TitleTemplate { get; init; } = string.Empty;
 }
 
 public sealed record ObsOutputConfig
