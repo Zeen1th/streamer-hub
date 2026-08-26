@@ -14,4 +14,5 @@ public interface ITwitchClient : IAsyncDisposable
     void Disconnect();
     Task<bool> SendChatMessageAsync(string message);
     Task<(bool Ok, string? Error)> UpdateChannelTitleAsync(string title);
+    Task<IReadOnlyDictionary<string, string?>> GetUserProfileImagesAsync(IReadOnlyList<string> userIds, CancellationToken cancellationToken);
 }

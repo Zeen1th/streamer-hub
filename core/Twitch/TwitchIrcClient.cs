@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
@@ -117,6 +118,34 @@ public sealed class TwitchIrcClient : ITwitchClient
         {
             return (false, ex.Message);
         }
+    }
+
+    public async Task<IReadOnlyDictionary<string, string?>> GetUserProfileImagesAsync(
+        IReadOnlyList<string> userIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(userIds);
+        if (userIds.Count is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(userIds), "Helix user lookups accept between 1 and 100 IDs.");
+        if (string.IsNullOrWhiteSpace(_accessToken)) throw new InvalidOperationException("TWITCH SESSION IS NOT READY");
+
+        var query = string.Join("&", userIds.Select(userId => $"id={Uri.EscapeDataString(userId)}"));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?{query}");
+        AddHelixHeaders(request);
+        using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ReadHelixErrorAsync(response).ConfigureAwait(false));
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+        var profiles = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var user in document.RootElement.GetProperty("data").EnumerateArray())
+        {
+            var userId = user.GetProperty("id").GetString();
+            if (string.IsNullOrWhiteSpace(userId)) continue;
+            profiles[userId] = user.TryGetProperty("profile_image_url", out var avatar)
+                ? avatar.GetString()
+                : null;
+        }
+
+        return profiles;
     }
 
     private static async Task<string> ReadHelixErrorAsync(HttpResponseMessage response)
@@ -243,58 +272,10 @@ public sealed class TwitchIrcClient : ITwitchClient
 
     private void HandlePrivmsg(string line)
     {
-        var idx = line.IndexOf(" PRIVMSG ", StringComparison.Ordinal);
-        if (idx < 0) return;
-        var prefix = line[..idx];
-        var rest = line[(idx + 9)..];
-        var colon = rest.IndexOf(':');
-        if (colon < 0) return;
-        var message = rest[(colon + 1)..];
-
-        var sender = "unknown";
-        var bang = prefix.IndexOf('!');
-        if (bang > 0)
+        if (TwitchPrivmsgParser.TryParse(line, DateTime.UtcNow, out var message))
         {
-            var nameStart = prefix.IndexOf(':');
-            sender = prefix[(nameStart + 1)..bang];
+            ChatMessageReceived?.Invoke(message);
         }
-
-        var isBroadcaster = false;
-        var isMod = false;
-        var isVip = false;
-        var isSubscriber = false;
-        if (prefix.StartsWith('@'))
-        {
-            foreach (var tag in prefix[1..].Split(';'))
-            {
-                if (!tag.StartsWith("badges=", StringComparison.Ordinal)) continue;
-                foreach (var badge in tag[7..].Split(','))
-                {
-                    var parts = badge.Split('/');
-                    if (parts.Length != 2) continue;
-                    if (!int.TryParse(parts[1], out var version) || version <= 0) continue;
-                    switch (parts[0])
-                    {
-                        case "broadcaster": isBroadcaster = true; break;
-                        case "moderator": isMod = true; break;
-                        case "vip": isVip = true; break;
-                        case "subscriber": isSubscriber = true; break;
-                    }
-                }
-            }
-        }
-
-        ChatMessageReceived?.Invoke(new ChatMessage
-        {
-            Id = Guid.NewGuid().ToString(),
-            Username = sender,
-            IsBroadcaster = isBroadcaster,
-            IsMod = isMod,
-            IsVip = isVip,
-            IsSubscriber = isSubscriber,
-            Message = message,
-            Timestamp = DateTime.UtcNow.ToString("O"),
-        });
     }
 
     private async Task<bool> SendAsync(string text)
@@ -339,5 +320,74 @@ public sealed class TwitchIrcClient : ITwitchClient
             }
         }
         _cts.Dispose();
+    }
+}
+
+public static class TwitchPrivmsgParser
+{
+    public static bool TryParse(string line, DateTime timestamp, [NotNullWhen(true)] out ChatMessage? message)
+    {
+        message = null;
+        var idx = line.IndexOf(" PRIVMSG ", StringComparison.Ordinal);
+        if (idx < 0) return false;
+        var prefix = line[..idx];
+        var rest = line[(idx + 9)..];
+        var colon = rest.IndexOf(':');
+        if (colon < 0) return false;
+        var messageText = rest[(colon + 1)..];
+
+        var sender = "unknown";
+        var bang = prefix.IndexOf('!');
+        if (bang > 0)
+        {
+            var nameStart = prefix.IndexOf(':');
+            sender = prefix[(nameStart + 1)..bang];
+        }
+
+        string? userId = null;
+        var isBroadcaster = false;
+        var isMod = false;
+        var isVip = false;
+        var isSubscriber = false;
+        if (prefix.StartsWith('@'))
+        {
+            foreach (var tag in prefix[1..].Split(';'))
+            {
+                if (tag.StartsWith("user-id=", StringComparison.Ordinal))
+                {
+                    userId = tag[8..];
+                    continue;
+                }
+
+                if (!tag.StartsWith("badges=", StringComparison.Ordinal)) continue;
+                foreach (var badge in tag[7..].Split(','))
+                {
+                    var parts = badge.Split('/');
+                    if (parts.Length != 2) continue;
+                    if (!int.TryParse(parts[1], out var version) || version <= 0) continue;
+                    switch (parts[0])
+                    {
+                        case "broadcaster": isBroadcaster = true; break;
+                        case "moderator": isMod = true; break;
+                        case "vip": isVip = true; break;
+                        case "subscriber": isSubscriber = true; break;
+                    }
+                }
+            }
+        }
+
+        message = new ChatMessage
+        {
+            Id = Guid.NewGuid().ToString(),
+            Username = sender,
+            UserId = string.IsNullOrWhiteSpace(userId) ? null : userId,
+            IsBroadcaster = isBroadcaster,
+            IsMod = isMod,
+            IsVip = isVip,
+            IsSubscriber = isSubscriber,
+            Message = messageText,
+            Timestamp = timestamp.ToString("O"),
+        };
+        return true;
     }
 }

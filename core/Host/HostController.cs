@@ -44,6 +44,7 @@ public sealed class HostController : IDisposable
     private const string UpdateRepository = "Zeen1th/streamer-hub";
     private readonly ITwitchClient _twitch = new TwitchIrcClient();
     private readonly ITwitchClient _botTwitch = new TwitchIrcClient();
+    private readonly TwitchUserProfileCache _twitchUserProfiles = new();
     private readonly RpcDispatcher _dispatcher = new();
     private readonly string _logPath;
 
@@ -378,13 +379,42 @@ public sealed class HostController : IDisposable
         });
     }
 
+    private async Task ResolveTwitchUserProfileAsync(string userId, string username)
+    {
+        try
+        {
+            var results = await _twitchUserProfiles.ResolveAsync(
+                    new[] { userId },
+                    _twitch.GetUserProfileImagesAsync,
+                    _shutdown)
+                .ConfigureAwait(false);
+            if (results.Count == 1 && results[0].ShouldLogFailure)
+            {
+                Log("system", $"TWITCH AVATAR LOOKUP FAILED · {username}");
+            }
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+        }
+    }
+
     private void WireTwitch()
     {
         _twitch.ChatMessageReceived += message =>
         {
             if (!AllowChatRelay()) return;
-            Log("system", CoreStrings.L(Lang, "chat-relayed") + $"{message.Username}: {message.Message}");
-            PostEvent(Events.TwitchChatMessage, message);
+            var publishedMessage = message;
+            if (!string.IsNullOrWhiteSpace(message.UserId) && _twitchUserProfiles.TryGet(message.UserId, out var avatarUrl))
+            {
+                publishedMessage = message with { AvatarUrl = avatarUrl };
+            }
+
+            Log("system", CoreStrings.L(Lang, "chat-relayed") + $"{publishedMessage.Username}: {publishedMessage.Message}");
+            PostEvent(Events.TwitchChatMessage, publishedMessage);
+            if (!string.IsNullOrWhiteSpace(message.UserId) && !_twitchUserProfiles.TryGet(message.UserId, out _))
+            {
+                _ = ResolveTwitchUserProfileAsync(message.UserId, message.Username);
+            }
         };
         _twitch.Info += info =>
         {
