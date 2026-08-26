@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cooldownRemainingSeconds, directionFromStart, insertTemplateToken, matchesAnyAutoReply, matchesAutoReply, renderAutoReply, renderStreamTitle, titleActionDirection } from './autoReplyRules.ts';
+import { cooldownRemainingSeconds, directionFromStart, insertTemplateToken, matchesAnyAutoReply, matchesAutoReply, renderAutoReply, renderStreamTitle, nextTitleCounters, titleActionDirection } from './autoReplyRules.ts';
 
 test('matches trimmed Unicode text exactly', () => {
   assert.equal(matchesAutoReply('  السلام عليكم  ', 'السلام عليكم'), true);
@@ -44,6 +44,18 @@ test('sets direction from the first non-space character', () => {
 test('matches when any configured trigger matches', () => {
   assert.equal(matchesAnyAutoReply('سلام عليكم', ['السلام عليكم', 'سلام عليكم'], 'exact'), true);
   assert.equal(matchesAnyAutoReply('مرحبا', ['السلام عليكم', 'سلام عليكم'], 'exact'), false);
+});
+
+test('advances title counters before rendering command results', () => {
+  const counters = [{ id: 'count1', start: 1, count: 4 }, { id: 'count2', start: 10, count: 12 }];
+  assert.deepEqual(nextTitleCounters(counters, 'increase'), [
+    { id: 'count1', start: 1, count: 5 },
+    { id: 'count2', start: 10, count: 13 },
+  ]);
+  assert.deepEqual(nextTitleCounters(counters, 'decrease'), [
+    { id: 'count1', start: 1, count: 3 },
+    { id: 'count2', start: 10, count: 11 },
+  ]);
 });
 
 test('selects increase and decrease title commands independently', () => {

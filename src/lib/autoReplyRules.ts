@@ -62,6 +62,11 @@ export function renderAutoReply(template: string, message: { username: string; m
     .replaceAll('{message}', message.message);
 }
 
+export function nextTitleCounters<T extends { count: number }>(counters: readonly T[], direction: 'increase' | 'decrease'): T[] {
+  const delta = direction === 'increase' ? 1 : -1;
+  return counters.map((counter) => ({ ...counter, count: Math.max(0, Math.trunc(counter.count) + delta) }));
+}
+
 export function renderStreamTitle(template: string, counts: number | Record<string, number>): string {
   if (typeof counts === 'number') return template.replaceAll('{count}', String(Math.max(0, Math.trunc(counts))));
   return template.replace(/\{(count\d+)\}/g, (_, token: string) => String(Math.max(0, Math.trunc(counts[token] ?? 0))));

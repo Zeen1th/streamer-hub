@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { AutoReply, AutoReplySettings, ChatMessage, TitleCounter } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
-import { cooldownRemainingSeconds, matchesAnyAutoReply, renderAutoReply, renderStreamTitle, titleActionDirection } from '../lib/autoReplyRules';
+import { cooldownRemainingSeconds, matchesAnyAutoReply, nextTitleCounters, renderAutoReply, renderStreamTitle, titleActionDirection } from '../lib/autoReplyRules';
 import { hasPermission } from '../lib/counterRules';
 import { useLogStore } from './logStore';
 import { useSettingsStore } from './settingsStore';
@@ -153,15 +153,12 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
           const currentRule = get().rules.find((item) => item.id === rule.id);
           if (!currentRule) return;
           const counters = currentRule.titleCounters?.length ? currentRule.titleCounters : [{ id: 'count1', start: currentRule.titleStart ?? 1, count: currentRule.titleCount ?? currentRule.titleStart ?? 1 }];
-          const values = Object.fromEntries(counters.map((counter, index) => [`count${index + 1}`, Math.max(0, Math.trunc(counter.count))]));
+          const nextCounters: TitleCounter[] = direction ? nextTitleCounters(counters, direction) : counters;
+          const values = Object.fromEntries(nextCounters.map((counter, index) => ['count' + (index + 1), Math.max(0, Math.trunc(counter.count))]));
           const title = renderStreamTitle(currentRule.titleTemplate ?? '', values);
           const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
-          if (result.ok) {
-            if (direction) {
-              const delta = direction === 'increase' ? 1 : -1;
-              const nextCounters: TitleCounter[] = counters.map((counter) => ({ ...counter, count: Math.max(0, Math.trunc(counter.count) + delta) }));
-              get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
-            }
+          if (result.ok && direction) {
+            get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
           }
         }).catch(() => undefined);
         titleUpdateQueues.set(rule.id, nextUpdate);
