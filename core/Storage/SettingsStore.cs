@@ -24,6 +24,7 @@ public sealed class SettingsStore : IDisposable
         public string Language { get; init; } = string.Empty;
         public bool BotAccountEnabled { get; init; }
         public bool StartupEnabled { get; init; } = true;
+        public bool? CloseToTray { get; init; }
     }
 
     private readonly string _filePath;
@@ -82,6 +83,17 @@ public sealed class SettingsStore : IDisposable
     public void SetStartupEnabled(bool enabled)
     {
         lock (_lock) _document = _document with { StartupEnabled = enabled };
+        ScheduleSave();
+    }
+
+    public bool? CloseToTray
+    {
+        get { lock (_lock) return _document.CloseToTray; }
+    }
+
+    public void SetCloseToTray(bool closeToTray)
+    {
+        lock (_lock) _document = _document with { CloseToTray = closeToTray };
         ScheduleSave();
     }
 

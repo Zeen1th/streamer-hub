@@ -44,11 +44,15 @@ public sealed class MainForm : Form
     private const int ZoneBottom = 8;
 
     private readonly WebView2 _webView = new();
+    private readonly NotifyIcon _trayIcon;
+    private readonly ContextMenuStrip _trayMenu = new();
     private readonly CancellationTokenSource _shutdown = new();
     private SettingsStore? _settings;
     private HostController? _host;
     private bool _lastMaximized;
     private bool _webViewRefreshPending;
+    private bool _exitingFromTray;
+    private bool _closePromptOpen;
     private int _initialized;
 
     public MainForm()
@@ -65,6 +69,25 @@ public sealed class MainForm : Form
         _webView.DefaultBackgroundColor = Color.FromArgb(0xE8, 0xE2, 0xD2);
         _webView.Dock = DockStyle.Fill;
         Controls.Add(_webView);
+
+        var trayIconPath = Path.Combine(AppContext.BaseDirectory, "streamer-hub-icon.ico");
+        _trayIcon = new NotifyIcon
+        {
+            Icon = File.Exists(trayIconPath) ? new Icon(trayIconPath) : SystemIcons.Application,
+            Text = "Streamer Hub",
+            Visible = true,
+            ContextMenuStrip = _trayMenu,
+        };
+        _trayMenu.Items.Add("Open Streamer Hub", null, (_, _) => RestoreFromTray());
+        _trayMenu.Items.Add(new ToolStripSeparator());
+        _trayMenu.Items.Add("Exit", null, (_, _) => ExitFromTray());
+        _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+
+        if (Program.StartedWithWindows)
+        {
+            WindowState = FormWindowState.Minimized;
+            ShowInTaskbar = false;
+        }
     }
 
     protected override async void OnShown(EventArgs e)
@@ -132,6 +155,10 @@ public sealed class MainForm : Form
 
         _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
         _webView.CoreWebView2.Navigate("https://app.streamerhub/index.html");
+        if (Program.StartedWithWindows)
+        {
+            BeginInvoke(HideToTray);
+        }
     }
 
     private static void WriteStartupError(string details)
@@ -180,6 +207,66 @@ public sealed class MainForm : Form
             Height = bounds.Height,
             Maximized = maximized,
         });
+    }
+
+    private void RestoreFromTray()
+    {
+        if (IsDisposed) return;
+        ShowInTaskbar = true;
+        Show();
+        WindowState = FormWindowState.Normal;
+        Activate();
+    }
+
+    private async Task ShowCloseChoiceAsync()
+    {
+        _closePromptOpen = true;
+        try
+        {
+            var darkTheme = false;
+            try
+            {
+                var theme = await _webView.CoreWebView2.ExecuteScriptAsync("localStorage.getItem(\"streamer-hub-theme\")");
+                darkTheme = theme.Contains("dark", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+            }
+
+            using var dialog = new CloseChoiceDialog(darkTheme);
+            var choice = dialog.ShowDialog(this);
+            if (choice == DialogResult.Cancel) return;
+
+            var closeToTray = choice == DialogResult.Yes;
+            _settings?.SetCloseToTray(closeToTray);
+            if (closeToTray)
+            {
+                HideToTray();
+            }
+            else
+            {
+                _exitingFromTray = true;
+                Close();
+            }
+        }
+        finally
+        {
+            _closePromptOpen = false;
+        }
+    }
+
+    private void HideToTray()
+    {
+        if (IsDisposed) return;
+        ShowInTaskbar = false;
+        Hide();
+    }
+
+    private void ExitFromTray()
+    {
+        _exitingFromTray = true;
+        _trayIcon.Visible = false;
+        Close();
     }
 
     internal void SetStartupEnabled(bool enabled)
@@ -378,7 +465,28 @@ public sealed class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (e.CloseReason == CloseReason.UserClosing && !_exitingFromTray)
+        {
+            var closeToTray = _settings?.CloseToTray;
+            if (closeToTray is null)
+            {
+                e.Cancel = true;
+                if (!_closePromptOpen) _ = ShowCloseChoiceAsync();
+                return;
+            }
+
+            if (closeToTray.Value)
+            {
+                e.Cancel = true;
+                HideToTray();
+                return;
+            }
+        }
+
         SaveWindowSettings();
+        _trayIcon.Visible = false;
+        _trayIcon.Dispose();
+        _trayMenu.Dispose();
         _shutdown.Cancel();
         try
         {
@@ -388,6 +496,60 @@ public sealed class MainForm : Form
         {
         }
         base.OnFormClosing(e);
+    }
+}
+internal sealed class CloseChoiceDialog : Form
+{
+    public CloseChoiceDialog(bool darkTheme)
+    {
+        Text = "Streamer Hub";
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        StartPosition = FormStartPosition.CenterParent;
+        ShowInTaskbar = false;
+        MinimizeBox = false;
+        MaximizeBox = false;
+        ClientSize = new Size(470, 220);
+        BackColor = darkTheme ? Color.FromArgb(0x1D, 0x1A, 0x17) : Color.FromArgb(0xF4, 0xEF, 0xE4);
+        ForeColor = darkTheme ? Color.FromArgb(0xF2, 0xEC, 0xDF) : Color.FromArgb(0x2E, 0x27, 0x20);
+
+        var title = new Label
+        {
+            Text = "Keep Streamer Hub in the tray?",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 14, FontStyle.Bold),
+            Location = new Point(28, 26),
+        };
+        var message = new Label
+        {
+            Text = "Choose what should happen when you close the app.\nYou can change this later in settings.",
+            AutoSize = true,
+            Font = new Font("Segoe UI", 10),
+            Location = new Point(30, 70),
+        };
+        var tray = CreateButton("Keep in tray", darkTheme, 28, 148);
+        tray.DialogResult = DialogResult.Yes;
+        var close = CreateButton("Close app", darkTheme, 160, 148);
+        close.DialogResult = DialogResult.No;
+        var cancel = CreateButton("Cancel", darkTheme, 292, 148);
+        cancel.DialogResult = DialogResult.Cancel;
+        Controls.AddRange(new Control[] { title, message, tray, close, cancel });
+        AcceptButton = tray;
+        CancelButton = cancel;
+    }
+
+    private static Button CreateButton(string text, bool darkTheme, int x, int y)
+    {
+        var button = new Button
+        {
+            Text = text,
+            Location = new Point(x, y),
+            Size = new Size(120, 36),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = darkTheme ? Color.FromArgb(0x8E, 0x4F, 0x20) : Color.FromArgb(0x9A, 0x5A, 0x20),
+            ForeColor = Color.White,
+        };
+        button.FlatAppearance.BorderColor = darkTheme ? Color.FromArgb(0xB9, 0x78, 0x42) : Color.FromArgb(0x7A, 0x43, 0x19);
+        return button;
     }
 }
 

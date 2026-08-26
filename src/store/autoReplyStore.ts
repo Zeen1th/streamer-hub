@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import type { AutoReply, AutoReplySettings, ChatMessage, TitleCounter } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
-import { cooldownRemainingSeconds, matchesAnyAutoReply, renderAutoReply, renderStreamTitle } from '../lib/autoReplyRules';
+import { cooldownRemainingSeconds, matchesAnyAutoReply, renderAutoReply, renderStreamTitle, titleActionDirection } from '../lib/autoReplyRules';
 import { hasPermission } from '../lib/counterRules';
 import { useLogStore } from './logStore';
+import { useSettingsStore } from './settingsStore';
 
 interface AutoReplyState {
   rules: AutoReply[];
@@ -16,7 +17,7 @@ interface AutoReplyState {
   hydrateGlobalSettings(settings: AutoReplySettings): void;
   updateGlobalSettings(patch: Partial<AutoReplySettings>): void;
   hydrate(rules: AutoReply[]): void;
-  add(): void;
+  add(): string;
   update(id: string, patch: Partial<AutoReply>): void;
   remove(id: string): void;
   handleChatMessage(message: ChatMessage): void;
@@ -25,6 +26,8 @@ interface AutoReplyState {
 const persist = (rule: AutoReply) => {
   rpc.invoke(Channels.AutoRepliesSave, { rule }).catch(() => undefined);
 };
+
+const titleUpdateQueues = new Map<string, Promise<void>>();
 
 export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
   rules: [],
@@ -44,12 +47,17 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     return {
       ...rule,
       triggers: rule.triggers?.length ? rule.triggers : legacy.trigger ? [legacy.trigger] : [''],
+      responseEnabled: rule.responseEnabled ?? true,
       matchMode: rule.matchMode ?? 'exact',
       userCooldownSeconds: rule.userCooldownSeconds ?? 0,
       titleActionEnabled: rule.titleActionEnabled ?? false,
       titleTemplate: rule.titleTemplate ?? '',
       titleStart: Math.max(0, Math.trunc(rule.titleStart ?? 1)),
       titleCount: Math.max(0, Math.trunc(rule.titleCount ?? rule.titleStart ?? 1)),
+      titleIncreaseCommand: rule.titleIncreaseCommand ?? '',
+      titleDecreaseCommand: rule.titleDecreaseCommand ?? '',
+      themeActionEnabled: rule.themeActionEnabled ?? false,
+      themeActionMode: rule.themeActionMode === 'light' ? 'light' : 'dark',
       titleCounters: rule.titleCounters?.length ? rule.titleCounters.map((counter) => ({ ...counter, start: Math.max(0, Math.trunc(counter.start)), count: Math.max(0, Math.trunc(counter.count)) })) : [{ id: 'count1', start: Math.max(0, Math.trunc(rule.titleStart ?? 1)), count: Math.max(0, Math.trunc(rule.titleCount ?? rule.titleStart ?? 1)) }],
       responseMode: rule.responseMode ?? 'static',
       minimumRank: rule.minimumRank ?? 'everyone',
@@ -67,12 +75,17 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       triggers: [''],
       response: '',
       enabled: true,
+      responseEnabled: false,
       cooldownSeconds: 30,
       userCooldownSeconds: 0,
       titleActionEnabled: false,
       titleTemplate: '',
       titleStart: 1,
       titleCount: 1,
+      titleIncreaseCommand: '',
+      titleDecreaseCommand: '',
+      themeActionEnabled: false,
+      themeActionMode: 'dark',
       titleCounters: [{ id: 'count1', start: 1, count: 1 }],
       minimumRank: 'everyone',
       aiUserCooldownSeconds: 60,
@@ -86,6 +99,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     };
     set((state) => ({ rules: [...state.rules, rule] }));
     persist(rule);
+    return rule.id;
   },
   update: (id, patch) => {
     set((state) => ({ rules: state.rules.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)) }));
@@ -103,7 +117,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
   },
   handleChatMessage: (message) => {
     const now = Date.now();
-    const rule = get().rules.find((item) => item.enabled && matchesAnyAutoReply(message.message, item.triggers, item.matchMode) && hasPermission(message, item.minimumRank ?? 'everyone'));
+    const rule = get().rules.find((item) => item.enabled && (((item.responseEnabled !== false || item.themeActionEnabled) && matchesAnyAutoReply(message.message, item.triggers, item.matchMode)) || (item.titleActionEnabled && (matchesAnyAutoReply(message.message, item.triggers, item.matchMode) || titleActionDirection(message.message, item.titleIncreaseCommand ?? '', item.titleDecreaseCommand ?? '', item.matchMode) !== null))) && hasPermission(message, item.minimumRank ?? 'everyone'));
     if (!rule) return;
     const remaining = cooldownRemainingSeconds(now, get().lastTriggeredAt[rule.id] ?? null, rule.cooldownSeconds);
     if (remaining !== null) return;
@@ -122,17 +136,42 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       set((state) => ({ lastUserTriggeredAt: { ...state.lastUserTriggeredAt, [`${rule.id}:${userKey}`]: now } }));
     }
     set((state) => ({ lastTriggeredAt: { ...state.lastTriggeredAt, [rule.id]: now } }));
-    if (rule.titleActionEnabled && rule.titleTemplate?.trim()) {
-      const counters = rule.titleCounters?.length ? rule.titleCounters : [{ id: 'count1', start: rule.titleStart ?? 1, count: rule.titleCount ?? rule.titleStart ?? 1 }];
-      const values = Object.fromEntries(counters.map((counter, index) => [`count${index + 1}`, Math.max(0, Math.trunc(counter.count))]));
-      const title = renderStreamTitle(rule.titleTemplate, values);
-      rpc.invoke(Channels.TwitchUpdateTitle, { title }).then((result) => {
-        if (result.ok) {
-          const nextCounters: TitleCounter[] = counters.map((counter) => ({ ...counter, count: Math.max(0, Math.trunc(counter.count)) + 1 }));
-          get().update(rule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
-        }
-      }).catch(() => undefined);
+    if (rule.themeActionEnabled && matchesAnyAutoReply(message.message, rule.triggers, rule.matchMode)) {
+      useSettingsStore.getState().setTheme(rule.themeActionMode === 'light' ? 'light' : 'dark');
     }
+    if (rule.titleActionEnabled && rule.titleTemplate?.trim()) {
+      const direction = titleActionDirection(
+        message.message,
+        rule.titleIncreaseCommand ?? '',
+        rule.titleDecreaseCommand ?? '',
+        rule.matchMode,
+      );
+      const baseTriggerMatched = matchesAnyAutoReply(message.message, rule.triggers, rule.matchMode);
+      if (direction || baseTriggerMatched) {
+        const queued = titleUpdateQueues.get(rule.id) ?? Promise.resolve();
+        const nextUpdate = queued.catch(() => undefined).then(async () => {
+          const currentRule = get().rules.find((item) => item.id === rule.id);
+          if (!currentRule) return;
+          const counters = currentRule.titleCounters?.length ? currentRule.titleCounters : [{ id: 'count1', start: currentRule.titleStart ?? 1, count: currentRule.titleCount ?? currentRule.titleStart ?? 1 }];
+          const values = Object.fromEntries(counters.map((counter, index) => [`count${index + 1}`, Math.max(0, Math.trunc(counter.count))]));
+          const title = renderStreamTitle(currentRule.titleTemplate ?? '', values);
+          const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
+          if (result.ok) {
+            if (direction) {
+              const delta = direction === 'increase' ? 1 : -1;
+              const nextCounters: TitleCounter[] = counters.map((counter) => ({ ...counter, count: Math.max(0, Math.trunc(counter.count) + delta) }));
+              get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
+            }
+          }
+        }).catch(() => undefined);
+        titleUpdateQueues.set(rule.id, nextUpdate);
+        void nextUpdate.finally(() => {
+          if (titleUpdateQueues.get(rule.id) === nextUpdate) titleUpdateQueues.delete(rule.id);
+        });
+      }
+    }
+
+    if (rule.responseEnabled === false) return;
     if (rule.responseMode === 'ai') {
       rpc.invoke(Channels.AutoRepliesGenerate, { ruleId: rule.id, message, send: true }).then((result) => {
         if (result.ok && result.message) useLogStore.getState().add({ kind: 'trigger', message: `AI AUTO REPLY · ${rule.triggers[0] ?? ''}`, username: message.username });

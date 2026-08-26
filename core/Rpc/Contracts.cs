@@ -43,12 +43,17 @@ public sealed record AutoReply
     public string Trigger { get; init; } = string.Empty;
     public string Response { get; init; } = string.Empty;
     public bool Enabled { get; init; } = true;
+    public bool ResponseEnabled { get; init; } = true;
     public int CooldownSeconds { get; init; } = 30;
     public int UserCooldownSeconds { get; init; }
     public bool TitleActionEnabled { get; init; }
     public string TitleTemplate { get; init; } = string.Empty;
     public int TitleStart { get; init; } = 1;
     public int TitleCount { get; init; } = 1;
+    public string TitleIncreaseCommand { get; init; } = string.Empty;
+    public string TitleDecreaseCommand { get; init; } = string.Empty;
+    public bool ThemeActionEnabled { get; init; }
+    public string ThemeActionMode { get; init; } = "dark";
     public List<TitleCounter> TitleCounters { get; init; } = new();
     public string MinimumRank { get; init; } = "everyone";
     public int AiUserCooldownSeconds { get; init; } = 60;

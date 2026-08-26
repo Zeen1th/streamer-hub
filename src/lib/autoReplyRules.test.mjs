@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cooldownRemainingSeconds, directionFromStart, insertTemplateToken, matchesAnyAutoReply, matchesAutoReply, renderAutoReply, renderStreamTitle } from './autoReplyRules.ts';
+import { cooldownRemainingSeconds, directionFromStart, insertTemplateToken, matchesAnyAutoReply, matchesAutoReply, renderAutoReply, renderStreamTitle, titleActionDirection } from './autoReplyRules.ts';
 
 test('matches trimmed Unicode text exactly', () => {
   assert.equal(matchesAutoReply('  السلام عليكم  ', 'السلام عليكم'), true);
@@ -44,4 +44,12 @@ test('sets direction from the first non-space character', () => {
 test('matches when any configured trigger matches', () => {
   assert.equal(matchesAnyAutoReply('سلام عليكم', ['السلام عليكم', 'سلام عليكم'], 'exact'), true);
   assert.equal(matchesAnyAutoReply('مرحبا', ['السلام عليكم', 'سلام عليكم'], 'exact'), false);
+});
+
+test('selects increase and decrease title commands independently', () => {
+  assert.equal(titleActionDirection('next', 'next', 'previous', 'exact'), 'increase');
+  assert.equal(titleActionDirection('previous', 'next', 'previous', 'exact'), 'decrease');
+  assert.equal(titleActionDirection('next', '', '', 'exact'), null);
+  assert.equal(titleActionDirection('other', 'next', 'previous', 'exact'), null);
+  assert.equal(titleActionDirection('count down', 'count', 'count down', 'contains'), null);
 });

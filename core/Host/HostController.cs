@@ -291,6 +291,8 @@ public sealed class HostController : IDisposable
             var aiInstructions = request.Rule.AiInstructions?.Trim() ?? string.Empty;
             var aiModel = request.Rule.AiModel?.Trim() ?? string.Empty;
             var aiFallback = request.Rule.AiFallback?.Trim() ?? string.Empty;
+            var titleIncreaseCommand = request.Rule.TitleIncreaseCommand?.Trim() ?? string.Empty;
+            var titleDecreaseCommand = request.Rule.TitleDecreaseCommand?.Trim() ?? string.Empty;
             _settings.SaveAutoReply(request.Rule with
             {
                 Triggers = request.Rule.Triggers.Count > 0
@@ -300,6 +302,9 @@ public sealed class HostController : IDisposable
                 Response = request.Rule.Response.Trim(),
                 CooldownSeconds = Math.Clamp(request.Rule.CooldownSeconds, 0, 3600),
                 UserCooldownSeconds = Math.Clamp(request.Rule.UserCooldownSeconds, 0, 3600),
+                TitleIncreaseCommand = titleIncreaseCommand[..Math.Min(titleIncreaseCommand.Length, 200)],
+                TitleDecreaseCommand = titleDecreaseCommand[..Math.Min(titleDecreaseCommand.Length, 200)],
+                ThemeActionMode = request.Rule.ThemeActionMode == "light" ? "light" : "dark",
                 MinimumRank = request.Rule.MinimumRank is "subscriber" or "vip" or "mod" or "broadcaster" ? request.Rule.MinimumRank : "everyone",
                 AiUserCooldownSeconds = Math.Clamp(request.Rule.AiUserCooldownSeconds, 0, 3600),
                 ResponseMode = request.Rule.ResponseMode == "ai" ? "ai" : "static",

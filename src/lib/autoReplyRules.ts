@@ -38,6 +38,22 @@ export function matchesAnyAutoReply(message: string, triggers: string[], mode: A
   return triggers.some((trigger) => matchesAutoReply(message, trigger, mode));
 }
 
+export function titleActionDirection(
+  message: string,
+  increaseCommand: string,
+  decreaseCommand: string,
+  mode: AutoReplyMatchMode = 'exact',
+): 'increase' | 'decrease' | null {
+  const increase = increaseCommand.trim();
+  const decrease = decreaseCommand.trim();
+  const increaseMatches = Boolean(increase && matchesAutoReply(message, increase, mode));
+  const decreaseMatches = Boolean(decrease && matchesAutoReply(message, decrease, mode));
+  if (increaseMatches === decreaseMatches && increaseMatches) return null;
+  if (increaseMatches) return 'increase';
+  if (decreaseMatches) return 'decrease';
+  return null;
+}
+
 export function renderAutoReply(template: string, message: { username: string; message: string }): string {
   const mention = message.username ? `@${message.username}` : '';
   return template

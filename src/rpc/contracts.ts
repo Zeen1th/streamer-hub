@@ -49,12 +49,17 @@ export interface AutoReply {
   triggers: string[];
   response: string;
   enabled: boolean;
+  responseEnabled?: boolean;
   cooldownSeconds: number;
   userCooldownSeconds?: number;
   titleActionEnabled?: boolean;
   titleTemplate?: string;
   titleStart?: number;
   titleCount?: number;
+  titleIncreaseCommand?: string;
+  titleDecreaseCommand?: string;
+  themeActionEnabled?: boolean;
+  themeActionMode?: 'light' | 'dark';
   titleCounters?: TitleCounter[];
   minimumRank?: PermissionLevel;
   aiUserCooldownSeconds?: number;
