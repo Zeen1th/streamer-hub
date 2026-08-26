@@ -95,7 +95,7 @@ test('normalizes chat messages and uses a neutral avatar fallback', () => {
       isSubscriber: true,
     }),
     {
-      id: 'msg-1',
+      id: '  msg-1  ',
       username: username.trim().slice(0, 32),
       message: message.trim().slice(0, 500),
       timestamp: '2026-08-26T00:00:00.000Z',
@@ -108,7 +108,7 @@ test('normalizes chat messages and uses a neutral avatar fallback', () => {
     },
   );
 });
-test('does not reuse fallback ids for distinct missing-id messages', () => {
+test('does not reuse fallback ids for otherwise-identical missing-id messages', () => {
   const first = normalizeChatOverlayMessage({
     username: 'viewer',
     userId: '100',
@@ -119,16 +119,12 @@ test('does not reuse fallback ids for distinct missing-id messages', () => {
   const second = normalizeChatOverlayMessage({
     username: 'viewer',
     userId: '100',
-    message: 'hello again',
-    timestamp: '2026-08-26T00:00:01.000Z',
+    message: 'hello world',
+    timestamp: '2026-08-26T00:00:00.000Z',
   });
 
   assert.notEqual(first.id, second.id);
-  assert.equal(first.id, normalizeChatOverlayMessage({
-    username: 'viewer',
-    userId: '100',
-    message: 'hello world',
-    timestamp: '2026-08-26T00:00:00.000Z',
-  }).id);
+  assert.match(first.id, /^chat-/);
+  assert.match(second.id, /^chat-/);
 });
 

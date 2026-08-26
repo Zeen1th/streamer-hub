@@ -58,6 +58,7 @@ export function normalizeChatOverlaySettings(value: Partial<ChatOverlaySettings>
 
 export function normalizeChatOverlayMessage(value: Partial<ChatMessage> | null | undefined): NormalizedChatOverlayMessage {
   const input = value ?? {};
+  const suppliedId = typeof input.id === 'string' && input.id.trim().length > 0 ? input.id : '';
   const username = trimAndCap(input.username, 32) || 'viewer';
   const userId = trimAndCap(input.userId, 64);
   const message = trimAndCap(input.message, 500);
@@ -67,7 +68,7 @@ export function normalizeChatOverlayMessage(value: Partial<ChatMessage> | null |
   const isVip = input.isVip === true;
   const isSubscriber = input.isSubscriber === true;
   return {
-    id: trimAndCap(input.id, 80) || buildFallbackMessageId({ username, userId, message, timestamp, isBroadcaster, isMod, isVip, isSubscriber }),
+    id: suppliedId || buildFallbackMessageId(),
     username,
     userId,
     avatarUrl: normalizeAvatarUrl(input.avatarUrl),
@@ -105,41 +106,8 @@ function normalizeAvatarUrl(value: unknown): string {
   }
 }
 
-function buildFallbackMessageId(parts: {
-  username: string;
-  userId: string;
-  message: string;
-  timestamp: string;
-  isBroadcaster: boolean;
-  isMod: boolean;
-  isVip: boolean;
-  isSubscriber: boolean;
-}): string {
-  const seedParts = [
-    parts.userId,
-    parts.username,
-    parts.message,
-    parts.timestamp,
-    parts.isBroadcaster ? 'b' : '',
-    parts.isMod ? 'm' : '',
-    parts.isVip ? 'v' : '',
-    parts.isSubscriber ? 's' : '',
-  ].filter(Boolean);
-
-  if (seedParts.length === 0) {
-    return `chat-${crypto.randomUUID()}`;
-  }
-
-  return `chat-${stableHash(seedParts.join('|'))}`;
-}
-
-function stableHash(value: string): string {
-  let hash = 0xcbf29ce484222325n;
-  for (const char of value) {
-    hash ^= BigInt(char.codePointAt(0) ?? 0);
-    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
-  }
-  return hash.toString(16).padStart(16, '0');
+function buildFallbackMessageId(): string {
+  return `chat-${crypto.randomUUID()}`;
 }
 
 export function isChatOverlayTheme(value: string): value is ChatOverlayTheme {
