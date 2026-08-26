@@ -20,6 +20,7 @@ public sealed class SettingsStore : IDisposable
         public List<AutoReply> AutoReplies { get; init; } = new();
         public AutoReplySettings AutoReplySettings { get; init; } = new();
         public TwitchSettings Twitch { get; init; } = new();
+        public ChatOverlaySettings ChatOverlay { get; init; } = new();
         public WindowSettings Window { get; init; } = new();
         public string Language { get; init; } = string.Empty;
         public bool BotAccountEnabled { get; init; }
@@ -63,6 +64,17 @@ public sealed class SettingsStore : IDisposable
     public TwitchSettings Twitch
     {
         get { lock (_lock) return _document.Twitch; }
+    }
+
+    public ChatOverlaySettings ChatOverlay
+    {
+        get { lock (_lock) return _document.ChatOverlay; }
+    }
+
+    public void SetChatOverlay(ChatOverlaySettings settings)
+    {
+        lock (_lock) _document = _document with { ChatOverlay = NormalizeChatOverlay(settings) };
+        ScheduleSave();
     }
 
     public WindowSettings Window
@@ -112,7 +124,7 @@ public sealed class SettingsStore : IDisposable
     {
         lock (_lock)
         {
-            _document = _document with { Language = language == "ar" ? "ar" : "en" };
+            _document = _document with { Language = NormalizeLanguage(language) };
         }
         ScheduleSave();
     }
@@ -201,7 +213,7 @@ public sealed class SettingsStore : IDisposable
             var root = doc.RootElement;
             if (root.TryGetProperty("counters", out _))
             {
-                return JsonSerializer.Deserialize<SettingsDocument>(json, Json.Options) ?? new SettingsDocument();
+                return NormalizeSettingsDocument(JsonSerializer.Deserialize<SettingsDocument>(json, Json.Options));
             }
             if (root.TryGetProperty("death", out var death) ||
                 (root.TryGetProperty("count", out _) && root.TryGetProperty("config", out _)))
@@ -226,7 +238,7 @@ public sealed class SettingsStore : IDisposable
                     },
                     Obs = legacy?.Obs ?? new ObsOutputConfig { Enabled = false },
                 };
-                return new SettingsDocument { Counters = new List<Counter> { counter } };
+                return NormalizeSettingsDocument(new SettingsDocument { Counters = new List<Counter> { counter } });
             }
             return new SettingsDocument();
         }
@@ -235,6 +247,48 @@ public sealed class SettingsStore : IDisposable
             return new SettingsDocument();
         }
     }
+
+    private static SettingsDocument NormalizeSettingsDocument(SettingsDocument? document)
+    {
+        var value = document ?? new SettingsDocument();
+        return value with
+        {
+            ChatOverlay = NormalizeChatOverlay(value.ChatOverlay),
+            Language = NormalizeLanguage(value.Language),
+        };
+    }
+
+    private static ChatOverlaySettings NormalizeChatOverlay(ChatOverlaySettings? settings)
+    {
+        return new ChatOverlaySettings
+        {
+            Enabled = settings?.Enabled ?? false,
+            MaxMessages = Clamp(settings?.MaxMessages ?? 8, 1, 12),
+            DurationSeconds = Clamp(settings?.DurationSeconds ?? 20, 5, 120),
+            DisplayMode = NormalizeChoice(settings?.DisplayMode, "stacked", "stacked", "latest"),
+            FontSize = Clamp(settings?.FontSize ?? 24, 12, 32),
+            AvatarSize = Clamp(settings?.AvatarSize ?? 32, 16, 64),
+            Spacing = Clamp(settings?.Spacing ?? 12, 0, 24),
+            ShowUsernames = settings?.ShowUsernames ?? true,
+            ShowAvatars = settings?.ShowAvatars ?? true,
+            Theme = NormalizeChoice(settings?.Theme, "dark", "light", "dark", "transparent"),
+            MessageStyle = NormalizeChoice(settings?.MessageStyle, "rounded", "rounded", "square"),
+            Animation = NormalizeChoice(settings?.Animation, "slide", "slide", "fade", "off"),
+        };
+    }
+
+    private static int Clamp(int value, int min, int max) => Math.Clamp(value, min, max);
+
+    private static string NormalizeChoice(string? value, string fallback, params string[] allowed)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return fallback;
+        var trimmed = value.Trim();
+        return allowed.Contains(trimmed, StringComparer.OrdinalIgnoreCase)
+            ? allowed.First(candidate => string.Equals(candidate, trimmed, StringComparison.OrdinalIgnoreCase))
+            : fallback;
+    }
+
+    private static string NormalizeLanguage(string? language) => string.Equals(language, "ar", StringComparison.OrdinalIgnoreCase) ? "ar" : "en";
 
     private sealed record LegacyDeathState
     {

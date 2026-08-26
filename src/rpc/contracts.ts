@@ -90,6 +90,26 @@ export interface OpenRouterSettingsState {
   groqConfigured: boolean;
 }
 
+export type ChatOverlayDisplayMode = 'stacked' | 'latest';
+export type ChatOverlayTheme = 'light' | 'dark' | 'transparent';
+export type ChatOverlayMessageStyle = 'rounded' | 'square';
+export type ChatOverlayAnimation = 'slide' | 'fade' | 'off';
+
+export interface ChatOverlaySettings {
+  enabled: boolean;
+  maxMessages: number;
+  durationSeconds: number;
+  displayMode: ChatOverlayDisplayMode;
+  fontSize: number;
+  avatarSize: number;
+  spacing: number;
+  showUsernames: boolean;
+  showAvatars: boolean;
+  theme: ChatOverlayTheme;
+  messageStyle: ChatOverlayMessageStyle;
+  animation: ChatOverlayAnimation;
+}
+
 export interface UpdateState {
   currentVersion: string;
   latestVersion: string;
@@ -102,6 +122,8 @@ export interface UpdateState {
 export interface ChatMessage {
   id: string;
   username: string;
+  userId?: string;
+  avatarUrl?: string;
   isBroadcaster: boolean;
   isMod: boolean;
   isVip: boolean;

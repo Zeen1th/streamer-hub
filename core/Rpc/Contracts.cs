@@ -87,10 +87,28 @@ public sealed record OpenRouterSettingsState
     public bool GroqConfigured { get; init; }
 }
 
+public sealed record ChatOverlaySettings
+{
+    public bool Enabled { get; init; }
+    public int MaxMessages { get; init; } = 8;
+    public int DurationSeconds { get; init; } = 20;
+    public string DisplayMode { get; init; } = "stacked";
+    public int FontSize { get; init; } = 24;
+    public int AvatarSize { get; init; } = 32;
+    public int Spacing { get; init; } = 12;
+    public bool ShowUsernames { get; init; } = true;
+    public bool ShowAvatars { get; init; } = true;
+    public string Theme { get; init; } = "dark";
+    public string MessageStyle { get; init; } = "rounded";
+    public string Animation { get; init; } = "slide";
+}
+
 public sealed record ChatMessage
 {
     public string Id { get; init; } = string.Empty;
     public string Username { get; init; } = string.Empty;
+    public string? UserId { get; init; }
+    public string? AvatarUrl { get; init; }
     public bool IsBroadcaster { get; init; }
     public bool IsMod { get; init; }
     public bool IsVip { get; init; }
