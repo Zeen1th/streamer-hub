@@ -66,12 +66,12 @@ function CommandBlock({ counter, action }: { counter: Counter; action: CounterAc
               !
             </span>
             <Input
-              dir="ltr"
+              dir="auto"
               className="ps-8 text-start uppercase"
               value={command.commandName}
               onChange={(event) =>
                 updateCommand(counter.id, action, {
-                  commandName: event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20),
+                  commandName: event.target.value.toLowerCase().replace(/[^\p{L}\p{N}_]/gu, '').slice(0, 20),
                 })
               }
               placeholder={t(lang, meta.label).toLowerCase()}
