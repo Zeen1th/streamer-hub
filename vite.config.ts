@@ -8,5 +8,11 @@ export default defineConfig({
   build: {
     target: 'chrome120',
     outDir: 'dist',
+    rollupOptions: {
+      input: {
+        app: 'index.html',
+        chatOverlay: 'src/chat-overlay.html',
+      },
+    },
   },
 });

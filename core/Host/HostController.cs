@@ -5,6 +5,7 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using StreamerHub.Core.Obs;
 using StreamerHub.Core.AI;
+using StreamerHub.Core.Overlay;
 using StreamerHub.Core.Rpc;
 using StreamerHub.Core.Storage;
 using StreamerHub.Core.Twitch;
@@ -34,6 +35,7 @@ public sealed class HostController : IDisposable
     private readonly WebView2 _webView;
     private readonly CancellationToken _shutdown;
     private readonly SettingsStore _settings;
+    private readonly ChatOverlayServer _chatOverlayServer;
     private readonly ObsFileWriter _obs = new();
     private readonly TokenVault _tokens;
     private readonly TokenVault _botTokens;
@@ -61,12 +63,13 @@ public sealed class HostController : IDisposable
     private DateTime _aiWindow = DateTime.UtcNow;
     private int _aiRequestsInWindow;
 
-    public HostController(MainForm form, WebView2 webView, SettingsStore settings, string appData, CancellationToken shutdown)
+    public HostController(MainForm form, WebView2 webView, SettingsStore settings, ChatOverlayServer chatOverlayServer, string appData, CancellationToken shutdown)
     {
         _form = form;
         _webView = webView;
         _shutdown = shutdown;
         _settings = settings;
+        _chatOverlayServer = chatOverlayServer;
         _tokens = new TokenVault(Path.Combine(appData, "token.bin"));
         _botTokens = new TokenVault(Path.Combine(appData, "bot-token.bin"));
         _openRouterKey = new SecretVault(Path.Combine(appData, "openrouter-key.bin"));
@@ -230,6 +233,8 @@ public sealed class HostController : IDisposable
         });
         _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
             Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, startupEnabled = _settings.StartupEnabled }));
+        _dispatcher.Register(Channels.ChatOverlayGetUrl, (_, _) =>
+            Task.FromResult<object?>(new { url = _chatOverlayServer.OverlayUrl.ToString() }));
         _dispatcher.Register(Channels.SettingsSave, (payload, _) =>
         {
             var request = Json.Deserialize<SaveSettingsPayload>(payload ?? default);

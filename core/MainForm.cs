@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using StreamerHub.Core.Host;
+using StreamerHub.Core.Overlay;
 using StreamerHub.Core.Rpc;
 using StreamerHub.Core.Storage;
 
@@ -49,6 +50,7 @@ public sealed class MainForm : Form
     private readonly CancellationTokenSource _shutdown = new();
     private SettingsStore? _settings;
     private HostController? _host;
+    private ChatOverlayServer? _chatOverlayServer;
     private bool _lastMaximized;
     private bool _webViewRefreshPending;
     private bool _exitingFromTray;
@@ -150,7 +152,9 @@ public sealed class MainForm : Form
         _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
             "app.streamerhub", wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 
-        _host = new HostController(this, _webView, _settings, appData, _shutdown.Token);
+        _chatOverlayServer = new ChatOverlayServer(wwwroot, _settings.ChatOverlay);
+        await _chatOverlayServer.StartAsync(_shutdown.Token);
+        _host = new HostController(this, _webView, _settings, _chatOverlayServer, appData, _shutdown.Token);
         await _host.InitializeAsync();
 
         _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
@@ -491,6 +495,13 @@ public sealed class MainForm : Form
         try
         {
             _host?.Dispose();
+        }
+        catch
+        {
+        }
+        try
+        {
+            _chatOverlayServer?.Dispose();
         }
         catch
         {

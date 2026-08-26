@@ -20,7 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\dist\**\*" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\dist\**\*" Exclude="..\dist\src\chat-overlay.html" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\dist\src\chat-overlay.html" Link="wwwroot\chat-overlay.html" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\assets\streamer-hub-icon.ico" Link="streamer-hub-icon.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
