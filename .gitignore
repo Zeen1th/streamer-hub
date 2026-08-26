@@ -10,3 +10,4 @@ deaths.txt
 
 .impeccable/
 *.tsbuildinfo
+.worktrees/
