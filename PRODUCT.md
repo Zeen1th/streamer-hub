@@ -4,52 +4,52 @@
 
 ## Platform
 
-web
+Windows desktop app (C# .NET 8 + WebView2) with typed RPC architecture and browser-first frontend development support.
 
 ## Users
 
-- Primary: the Twitch streamer using the app. They are the only person who edits and sets up tools in the UI, typically while managing a live stream with OBS Studio.
-- Viewers never touch the UI. They interact only through chat commands the streamer exposes — for example typing `!death` in Twitch chat to increase the counter.
-- Secondary: the developer who builds and ships tools inside the app to their streamer friend.
+- Primary: The Twitch streamer using the app to manage their live broadcast tools (counters, chat overlay, automated replies, stream titles) seamlessly alongside OBS Studio.
+- Viewers: Interact via Twitch chat commands (e.g., `!death`, `!deaths`, auto-reply triggers) to adjust stream stats, trigger customized responses, or appear on the stream chat overlay.
+- Secondary: The developer shipping updates and tailored stream utilities directly to streamer friends via built-in auto-update installer pipelines.
 
 ## Product Purpose
 
-A simple, solid desktop app that lets the developer ship small stream tools to their streamer friend. The working example is the Counters tool: a dataset of user-created counters, each with three chat commands — increase, decrease, and reset — each with its own permission rank and cooldown; any viewer typing a command in Twitch chat updates the counter, and the value is written to the streamer's OBS text field.
-
-## Positioning
-
-Deliberately not a competitor to Streamlabs or StreamElements. A lightweight, locally-run utility for a known streamer, built and extended by a developer friend — no accounts, no platform ambitions.
+A lightweight, local-first streaming companion that provides dedicated tools without requiring external cloud accounts or complex SaaS setups:
+1. **Interactive Counters**: Multi-command (+1, −1, reset) stream counters syncing in real time to OBS text files and Twitch stream titles.
+2. **Auto-Replies & Triggers**: Keyword matching, AI-powered responses (via Groq/OpenRouter), cooldowns, permissions, and dynamic title actions.
+3. **OBS Chat Overlay**: A zero-latency local HTTP overlay server (`127.0.0.1:49178`) with customizable themes, animations, avatar positioning, and full Arabic/English BiDi text rendering.
+4. **Live Stream Title Sync**: Non-destructive stream title updates that preserve manual streamer titles while maintaining clean counter numbers.
 
 ## Operating Context
 
-- Runs on the streamer's Windows PC inside a C# .NET WebView2 container with a frameless window and custom titlebar.
-- The streamer streams with OBS Studio; tool output reaches overlays through plain text files that OBS text sources read.
-- The app connects to Twitch chat; the titlebar shows Twitch and C# core connection status.
-- The frontend must run fully in a plain browser during development (`npm run dev`) via a built-in mock host when the WebView2 bridge is absent.
+- **Shell**: C# .NET 8 Windows Forms app hosting Microsoft WebView2 Runtime in PerMonitorV2 DPI mode with a frameless custom titlebar.
+- **OBS Integration**:
+  - Plain UTF-8 text files read by OBS Text (GDI+) sources.
+  - Local HTTP server for OBS Browser Sources.
+- **Twitch Integration**: Direct Twitch IRC chat connection and Helix API authentication (Broadcaster + optional secondary Bot account).
+- **Auto-Updater**: Background GitHub release checker and single-click self-extracting installer updater.
+- **Frontend**: React 19 + TypeScript + Tailwind CSS with full standalone browser mock mode (`npm run dev`).
 
-## Capabilities and Constraints
+## Capabilities and Features
 
-- Confirmed binding architecture: the C# WebView2 shell with a typed RPC bridge over `window.chrome.webview.postMessage`. The host implements channels (window controls, core status, counters state, OBS file writes, save-file dialog, log append, Twitch auth) and events (status changes, Twitch chat messages, maximize changes, core log lines); the frontend ships an automatic browser mock of the same contract.
-- Counters tool: a hub dashboard lists the tools and brief status; the Counters tool holds a dataset of user-created counters. Each counter has a name, a manual +1/−1/reset, three chat commands (increase, decrease, reset) each with its own name, minimum permission rank, and cooldown; per-counter OBS text-file output with `{count}` and `{username}` placeholders; a shared activity feed of triggers, denials, and system events. Keyboard shortcuts (+/−/R/arrows) act on the selected counter.
-- Existing functionality, not confirmed as binding commitments: a single light color theme.
+- **Counters**:
+  - Custom increment/decrement/reset commands with granular permission levels (Broadcaster, Mod, VIP, Subscriber, Everyone) and cooldowns.
+  - Direct OBS text file synchronization with custom formatting tokens (`{count}`, `{username}`).
+  - Stream title template integration with intelligent base title preservation (`extractBaseTitle`) to prevent compounding.
+  - Comprehensive activity and audit log with manual rollback controls.
+- **Auto-Replies & Triggers**:
+  - Exact, Prefix, Contains, and Regex matching modes.
+  - Prepared response templates with drag-and-drop placeholder tokens.
+  - Optional AI-assisted replies using Groq (Llama 3.1) or OpenRouter with fallback safety.
+  - Title increase/decrease commands bound directly to counter sequences.
+- **OBS Chat Overlay**:
+  - Real-time broadcast from Twitch IRC to OBS Browser Source.
+  - 5 distinctive themes: Dark, Light, Transparent, Neon Cyber, Warm Ember.
+  - Animation styles: Slide, Fade, Pop Bounce, Glow Pulse, 3D Flip, Off.
+  - Avatar shape and side positioning (Left / Right) with stable non-jumping card structures.
+  - Natural bidirectional (BiDi) Arabic/English text ordering.
+  - In-app preview canvas anchored to top with top-down newest-first testing flow.
+- **Settings & UI**:
+  - Sectioned navigation: General, Twitch Connection, Bot Account, Appearance, and Step-by-Step Setup Guide.
+  - Full English and Arabic localization with Cairo typography and stable LTR shell controls.
 
-## Brand Commitments
-
-- Current name: Streamer Hub (repo evidence; branding has not been made a binding commitment).
-
-## Evidence on Hand
-
-- Complete frontend implementation in this repo, including the browser mock host.
-- `ui-artstic-skill.md` — the design skill file the current UI follows.
-- No real Twitch credentials or endpoints exist in this repo; real chat integration belongs to the C# core, which is not yet in this repo. Future work must not fabricate it.
-
-## Product Principles
-
-- The streamer configures; the chat triggers. All viewer interaction runs through simple chat commands.
-- Simple and solid over feature surface: small tools, dependable behavior.
-- Local by default: everything runs on the streamer's PC, and OBS integration is plain files.
-- The ship loop is first-class: the typed RPC contract plus the browser mock keeps tools testable without the C# host.
-
-## Accessibility & Inclusion
-
-- No product-specific requirements established. The current implementation includes keyboard shortcuts, visible focus states, and reduced-motion support as baseline practice.
