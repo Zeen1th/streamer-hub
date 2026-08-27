@@ -183,6 +183,9 @@ export const Channels = {
   TwitchBotForget: 'twitch/bot-forget',
   SettingsGetState: 'settings/get-state',
   SettingsSave: 'settings/save',
+  ChatOverlayGetState: 'chat-overlay/get-state',
+  ChatOverlaySaveSettings: 'chat-overlay/save-settings',
+  ChatOverlayGetUrl: 'chat-overlay/get-url',
   OpenRouterGetState: 'openrouter/get-state',
   OpenRouterSave: 'openrouter/save',
   AutoRepliesGenerate: 'auto-replies/generate',
@@ -237,6 +240,9 @@ export interface HostApi {
     request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; startupEnabled?: boolean };
     response: { ok: boolean };
   };
+  [Channels.ChatOverlayGetState]: { request: undefined; response: ChatOverlaySettings };
+  [Channels.ChatOverlaySaveSettings]: { request: ChatOverlaySettings; response: { ok: boolean } };
+  [Channels.ChatOverlayGetUrl]: { request: undefined; response: { url: string } };
   [Channels.OpenRouterGetState]: { request: undefined; response: OpenRouterSettingsState };
   [Channels.OpenRouterSave]: { request: { provider: 'openrouter' | 'groq'; apiKey: string | null }; response: { ok: boolean; configured: boolean } };
   [Channels.WindowBeginDrag]: { request: undefined; response: { ok: boolean } };

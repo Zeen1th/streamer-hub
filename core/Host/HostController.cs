@@ -12,6 +12,36 @@ using StreamerHub.Core.Twitch;
 
 namespace StreamerHub.Core.Host;
 
+public sealed class ChatOverlayHostBridge
+{
+    private readonly SettingsStore _settings;
+    private readonly ChatOverlayServer _server;
+
+    public ChatOverlayHostBridge(SettingsStore settings, ChatOverlayServer server)
+    {
+        _settings = settings;
+        _server = server;
+    }
+
+    public ChatOverlaySettings GetState() => _settings.ChatOverlay;
+
+    public string GetUrl() => _server.OverlayUrl?.ToString() ?? string.Empty;
+
+    public async Task<bool> SaveSettingsAsync(ChatOverlaySettings settings, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        _settings.SetChatOverlay(settings);
+        await _server.UpdateSettingsAsync(_settings.ChatOverlay, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> PublishChatMessageAsync(ChatMessage message, CancellationToken cancellationToken = default) =>
+        await _server.PublishChatMessageAsync(message, cancellationToken).ConfigureAwait(false);
+
+    public async Task SetConnectedAsync(bool connected, CancellationToken cancellationToken = default) =>
+        await _server.SetConnectedAsync(connected, cancellationToken).ConfigureAwait(false);
+}
+
 public sealed class HostController : IDisposable
 {
     private sealed record SetCountPayload(string CounterId, int Count, string Source);
@@ -35,7 +65,7 @@ public sealed class HostController : IDisposable
     private readonly WebView2 _webView;
     private readonly CancellationToken _shutdown;
     private readonly SettingsStore _settings;
-    private readonly ChatOverlayServer _chatOverlayServer;
+    private readonly ChatOverlayHostBridge _chatOverlay;
     private readonly ObsFileWriter _obs = new();
     private readonly TokenVault _tokens;
     private readonly TokenVault _botTokens;
@@ -69,7 +99,7 @@ public sealed class HostController : IDisposable
         _webView = webView;
         _shutdown = shutdown;
         _settings = settings;
-        _chatOverlayServer = chatOverlayServer;
+        _chatOverlay = new ChatOverlayHostBridge(settings, chatOverlayServer);
         _tokens = new TokenVault(Path.Combine(appData, "token.bin"));
         _botTokens = new TokenVault(Path.Combine(appData, "bot-token.bin"));
         _openRouterKey = new SecretVault(Path.Combine(appData, "openrouter-key.bin"));
@@ -233,8 +263,17 @@ public sealed class HostController : IDisposable
         });
         _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
             Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, startupEnabled = _settings.StartupEnabled }));
+        _dispatcher.Register(Channels.ChatOverlayGetState, (_, _) =>
+            Task.FromResult<object?>(_chatOverlay.GetState()));
+        _dispatcher.Register(Channels.ChatOverlaySaveSettings, async (payload, ct) =>
+        {
+            var settings = Json.Deserialize<ChatOverlaySettings>(payload ?? default);
+            if (settings is null) return new { ok = false };
+            var ok = await _chatOverlay.SaveSettingsAsync(settings, ct).ConfigureAwait(false);
+            return new { ok };
+        });
         _dispatcher.Register(Channels.ChatOverlayGetUrl, (_, _) =>
-            Task.FromResult<object?>(new { url = _chatOverlayServer.OverlayUrl.ToString() }));
+            Task.FromResult<object?>(new { url = _chatOverlay.GetUrl() }));
         _dispatcher.Register(Channels.SettingsSave, (payload, _) =>
         {
             var request = Json.Deserialize<SaveSettingsPayload>(payload ?? default);
@@ -403,6 +442,34 @@ public sealed class HostController : IDisposable
         }
     }
 
+    private async Task PublishChatOverlayMessageAsync(ChatMessage message)
+    {
+        try
+        {
+            await _chatOverlay.PublishChatMessageAsync(message, _shutdown).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task SetChatOverlayConnectedAsync(bool connected)
+    {
+        try
+        {
+            await _chatOverlay.SetConnectedAsync(connected, _shutdown).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+        }
+    }
+
     private void WireTwitch()
     {
         _twitch.ChatMessageReceived += message =>
@@ -416,6 +483,7 @@ public sealed class HostController : IDisposable
 
             Log("system", CoreStrings.L(Lang, "chat-relayed") + $"{publishedMessage.Username}: {publishedMessage.Message}");
             PostEvent(Events.TwitchChatMessage, publishedMessage);
+            _ = PublishChatOverlayMessageAsync(publishedMessage);
             if (!string.IsNullOrWhiteSpace(message.UserId) && !_twitchUserProfiles.TryGet(message.UserId, out _))
             {
                 _ = ResolveTwitchUserProfileAsync(message.UserId, message.Username);
@@ -444,6 +512,7 @@ public sealed class HostController : IDisposable
             {
                 _authRequired = false;
             }
+            _ = SetChatOverlayConnectedAsync(state == TwitchState.Connected);
             EmitStatus();
         };
     }

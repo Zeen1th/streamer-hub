@@ -1,5 +1,5 @@
-import type { AutoReply, AutoReplySettings, ConnectionStatus, Counter, RpcEnvelope, TwitchSettings } from './contracts';
-import { Events, PROTOCOL_VERSION } from './contracts';
+import type { AutoReply, AutoReplySettings, ChatOverlaySettings, ConnectionStatus, Counter, RpcEnvelope, TwitchSettings } from './contracts';
+import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 
 const STORAGE_KEY = 'streamer-hub-mock-counters';
@@ -7,6 +7,22 @@ const LEGACY_STORAGE_KEY = 'streamer-hub-mock-state';
 const TWITCH_STORAGE_KEY = 'streamer-hub-mock-settings';
 const AUTO_REPLY_STORAGE_KEY = 'streamer-hub-mock-auto-replies';
 const AUTO_REPLY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-auto-reply-settings';
+const CHAT_OVERLAY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-chat-overlay-settings';
+const CHAT_OVERLAY_URL = 'http://127.0.0.1:49178/chat-overlay.html';
+const DEFAULT_CHAT_OVERLAY_SETTINGS: ChatOverlaySettings = {
+  enabled: false,
+  maxMessages: 8,
+  durationSeconds: 20,
+  displayMode: 'stacked',
+  fontSize: 24,
+  avatarSize: 32,
+  spacing: 12,
+  showUsernames: true,
+  showAvatars: true,
+  theme: 'dark',
+  messageStyle: 'rounded',
+  animation: 'slide',
+};
 
 interface MockSettings {
   clientId: string;
@@ -49,6 +65,7 @@ export class MockHost {
   private counters: Counter[];
   private autoReplies: AutoReply[];
   private autoReplySettings: AutoReplySettings;
+  private chatOverlaySettings: ChatOverlaySettings;
   private readonly listeners = new Set<(message: RpcEnvelope) => void>();
   private isMaximized = false;
   private twitchConnected = false;
@@ -58,6 +75,7 @@ export class MockHost {
     this.counters = this.loadCounters();
     this.autoReplies = this.loadAutoReplies();
     this.autoReplySettings = this.loadAutoReplySettings();
+    this.chatOverlaySettings = this.loadChatOverlaySettings();
     this.schedule(() => this.emitStatus(), 350);
     this.schedule(() => {
       this.twitchConnected = true;
@@ -225,6 +243,17 @@ export class MockHost {
         this.respond(request, { ok: true });
         break;
       }
+      case Channels.ChatOverlayGetState:
+        this.respond(request, structuredClone(this.chatOverlaySettings));
+        break;
+      case Channels.ChatOverlaySaveSettings:
+        this.chatOverlaySettings = request.payload as ChatOverlaySettings;
+        localStorage.setItem(CHAT_OVERLAY_SETTINGS_STORAGE_KEY, JSON.stringify(this.chatOverlaySettings));
+        this.respond(request, { ok: true });
+        break;
+      case Channels.ChatOverlayGetUrl:
+        this.respond(request, { url: CHAT_OVERLAY_URL });
+        break;
       case 'openrouter/get-state':
         this.respond(request, { configured: false, groqConfigured: false });
         break;
@@ -264,6 +293,16 @@ export class MockHost {
       twitchChannel: this.twitchConnected ? 'mock_channel' : '',
       authRequired: false,
     };
+  }
+
+  private loadChatOverlaySettings(): ChatOverlaySettings {
+    try {
+      const raw = localStorage.getItem(CHAT_OVERLAY_SETTINGS_STORAGE_KEY);
+      if (raw) return { ...DEFAULT_CHAT_OVERLAY_SETTINGS, ...JSON.parse(raw) } as ChatOverlaySettings;
+    } catch {
+      void 0;
+    }
+    return { ...DEFAULT_CHAT_OVERLAY_SETTINGS };
   }
 
   private loadAutoReplies(): AutoReply[] {
