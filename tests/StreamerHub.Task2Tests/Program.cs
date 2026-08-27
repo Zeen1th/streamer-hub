@@ -1,9 +1,13 @@
 using StreamerHub.Core.Rpc;
+using StreamerHub.Core.Host;
 using StreamerHub.Core.Twitch;
 
 var failures = new List<string>();
 
 await RunAsync("parse_privmsg_extracts_user_id_and_preserves_flags_and_message", ParsePrivmsgExtractsUserIdAndPreservesFlagsAndMessageAsync);
+await RunAsync("parse_privmsg_extracts_emote_ranges", ParsePrivmsgExtractsEmoteRangesAsync);
+await RunAsync("parse_clear_commands", ParseClearCommandsAsync);
+await RunAsync("shutdown_policy_only_diverts_a_user_window_close_to_tray", ShutdownPolicyOnlyDivertsUserCloseAsync);
 await RunAsync("profile_cache_batches_and_reuses_successful_lookups", ProfileCacheBatchesAndReusesSuccessfulLookupsAsync);
 await RunAsync("profile_cache_exposes_warmed_avatar_synchronously", ProfileCacheExposesWarmedAvatarSynchronouslyAsync);
 await RunAsync("profile_cache_logs_failures_once_per_user_session", ProfileCacheLogsFailuresOncePerUserSessionAsync);
@@ -19,7 +23,7 @@ if (failures.Count > 0)
     return;
 }
 
-Console.WriteLine("PASS 4/4");
+Console.WriteLine("PASS 7/7");
 
 async Task RunAsync(string name, Func<Task> test)
 {
@@ -44,14 +48,89 @@ Task ParsePrivmsgExtractsUserIdAndPreservesFlagsAndMessageAsync()
         throw new InvalidOperationException("expected the parser to recognize the PRIVMSG line");
     }
 
-    AssertEqual("streamer", message.Username, "username");
+    // display-name wins over the raw login, so viewers see the casing and
+    // script the user chose rather than the lowercased IRC nick.
+    AssertEqual("Streamer", message.Username, "username");
     AssertEqual("424242", message.UserId, "user-id");
     AssertEqual("hello there :wave", message.Message, "message");
+    AssertEqual("#FF0000", message.Color, "chat colour");
     AssertTrue(message.IsBroadcaster, "broadcaster flag");
     AssertTrue(message.IsMod, "moderator flag");
     AssertTrue(message.IsVip, "vip flag");
     AssertTrue(message.IsSubscriber, "subscriber flag");
     AssertEqual(timestamp.ToString("O"), message.Timestamp, "timestamp");
+    AssertEqual(0, message.Emotes.Count, "empty emotes tag yields no ranges");
+
+    return Task.CompletedTask;
+}
+
+Task ParsePrivmsgExtractsEmoteRangesAsync()
+{
+    const string line = "@display-name=Viewer;emotes=25:0-4,12-16/1902:6-10;id=xyz;user-id=7 :viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #room :Kappa Keepo Kappa";
+
+    if (!TwitchPrivmsgParser.TryParse(line, DateTime.UtcNow, out ChatMessage? message))
+    {
+        throw new InvalidOperationException("expected the parser to recognize the PRIVMSG line");
+    }
+
+    AssertEqual(3, message.Emotes.Count, "emote range count");
+    // Ranges arrive grouped by emote id but must come out ordered by position.
+    AssertEqual("25", message.Emotes[0].Id, "first emote id");
+    AssertEqual(0, message.Emotes[0].Start, "first emote start");
+    AssertEqual(4, message.Emotes[0].End, "first emote end");
+    AssertEqual("1902", message.Emotes[1].Id, "second emote id");
+    AssertEqual(6, message.Emotes[1].Start, "second emote start");
+    AssertEqual("25", message.Emotes[2].Id, "third emote id");
+    AssertEqual(12, message.Emotes[2].Start, "third emote start");
+
+    return Task.CompletedTask;
+}
+
+Task ParseClearCommandsAsync()
+{
+    const string clearMsg = "@login=viewer;room-id=;target-msg-id=abc-123;tmi-sent-ts=1 :tmi.twitch.tv CLEARMSG #room :bad message";
+    if (!TwitchClearParser.TryParse(clearMsg, out ChatClear? deleted))
+    {
+        throw new InvalidOperationException("expected CLEARMSG to parse");
+    }
+    AssertEqual(ChatClearScope.Message, deleted.Scope, "CLEARMSG scope");
+    AssertEqual("abc-123", deleted.Id, "CLEARMSG target");
+
+    const string timeout = "@ban-duration=600;room-id=999;target-user-id=424242;tmi-sent-ts=1 :tmi.twitch.tv CLEARCHAT #room :troll";
+    if (!TwitchClearParser.TryParse(timeout, out ChatClear? banned))
+    {
+        throw new InvalidOperationException("expected CLEARCHAT to parse");
+    }
+    AssertEqual(ChatClearScope.User, banned.Scope, "CLEARCHAT user scope");
+    AssertEqual("424242", banned.Id, "CLEARCHAT target user");
+
+    // A CLEARCHAT with no target clears the whole room.
+    const string clearAll = "@room-id=999;tmi-sent-ts=1 :tmi.twitch.tv CLEARCHAT #room";
+    if (!TwitchClearParser.TryParse(clearAll, out ChatClear? all))
+    {
+        throw new InvalidOperationException("expected a targetless CLEARCHAT to parse");
+    }
+    AssertEqual(ChatClearScope.All, all.Scope, "CLEARCHAT full scope");
+
+    AssertTrue(!TwitchClearParser.TryParse(":tmi.twitch.tv PRIVMSG #room :hello", out _), "PRIVMSG is not a clear");
+
+    return Task.CompletedTask;
+}
+
+Task ShutdownPolicyOnlyDivertsUserCloseAsync()
+{
+    // The user closing the window is the only case the tray may swallow.
+    AssertTrue(ShutdownPolicy.ShouldHideToTray(CloseTrigger.UserClosedWindow, closeToTrayEnabled: true), "user close with tray enabled hides");
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.UserClosedWindow, closeToTrayEnabled: false), "user close with tray disabled exits");
+
+    // An update hands off to a script that waits for this process to exit. If
+    // the close were diverted to the tray the process would stay alive, the
+    // installer would never run, and the update would silently never apply.
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.UpdateRestart, closeToTrayEnabled: true), "update restart must exit even with tray enabled");
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.UpdateRestart, closeToTrayEnabled: false), "update restart exits");
+
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.TrayExit, closeToTrayEnabled: true), "tray exit must exit");
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.System, closeToTrayEnabled: true), "system shutdown must exit");
 
     return Task.CompletedTask;
 }

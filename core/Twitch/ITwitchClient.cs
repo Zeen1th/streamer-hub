@@ -7,6 +7,8 @@ public sealed record TwitchInfo(string Key, string? Arg);
 public interface ITwitchClient : IAsyncDisposable
 {
     event Action<ChatMessage>? ChatMessageReceived;
+    /// <summary>Raised for CLEARMSG and CLEARCHAT so moderated messages leave the overlay.</summary>
+    event Action<ChatClear>? ChatCleared;
     event Action<TwitchState>? StateChanged;
     event Action<TwitchInfo>? Info;
     TwitchState State { get; }

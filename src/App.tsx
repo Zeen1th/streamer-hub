@@ -56,6 +56,14 @@ export default function App() {
       useAutoReplyStore.getState().handleChatMessage(message);
       useChatOverlayStore.getState().addMessage(message);
     });
+    // A viewer's first message is published before their avatar is known, so
+    // the resolved profile arrives separately and patches messages on screen.
+    const offProfile = rpc.on(Events.TwitchUserProfile, (payload) => {
+      useChatOverlayStore.getState().applyProfile(payload.userId, payload.avatarUrl, payload.color);
+    });
+    const offCleared = rpc.on(Events.TwitchChatCleared, (payload) => {
+      useChatOverlayStore.getState().clearByScope(payload.scope, payload.id);
+    });
     const offCoreLog = rpc.on(Events.CoreLog, (payload) => {
       useLogStore.getState().addLocal({ kind: 'system', message: payload.message });
     });
@@ -137,6 +145,8 @@ export default function App() {
       offStatus();
       offMaximized();
       offChat();
+      offProfile();
+      offCleared();
       offCoreLog();
       window.clearInterval(poll);
     };

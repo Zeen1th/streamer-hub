@@ -102,16 +102,30 @@ public static class TwitchAuth
         return await ParseTokenResponseAsync(response, ct).ConfigureAwait(false);
     }
 
-    public static async Task<string?> ValidateLoginAsync(string accessToken, CancellationToken ct = default)
+    public static async Task<string?> ValidateLoginAsync(string accessToken, CancellationToken ct = default) =>
+        (await ValidateAsync(accessToken, ct).ConfigureAwait(false)).Login;
+
+    /// <summary>
+    /// Validates a token and returns both the login and the numeric user id.
+    ///
+    /// The user id is what the third-party emote providers key their channel
+    /// endpoints on, so it is worth reading from the same call.
+    /// </summary>
+    public static async Task<(string? Login, string? UserId)> ValidateAsync(string accessToken, CancellationToken ct = default)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "https://id.twitch.tv/oauth2/validate");
         request.Headers.TryAddWithoutValidation("Authorization", $"OAuth {accessToken}");
         using var response = await Http.SendAsync(request, ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) return null;
+        if (!response.IsSuccessStatusCode) return (null, null);
+
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
-        return doc.RootElement.TryGetProperty("login", out var login)
-            ? login.GetString()?.ToLowerInvariant()
+        var login = doc.RootElement.TryGetProperty("login", out var loginElement)
+            ? loginElement.GetString()?.ToLowerInvariant()
             : null;
+        var userId = doc.RootElement.TryGetProperty("user_id", out var userIdElement)
+            ? userIdElement.GetString()
+            : null;
+        return (login, userId);
     }
 
     public static void OpenBrowser(string url)

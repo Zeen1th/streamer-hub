@@ -1,661 +1,858 @@
-import { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Check,
+  AtSign,
+  Award,
   Copy,
-  ExternalLink,
-  Sliders,
-  Type,
+  Check,
+  Filter,
+  Image as ImageIcon,
+  LayoutGrid,
   Palette,
-  Eye,
-  Radio,
+  Smile,
   Sparkles,
-  Layout,
-  Layers,
-  User,
+  Square,
+  Type,
   Wand2,
 } from 'lucide-react';
-import { t } from '../../../i18n/translations';
-import { useChatOverlayStore } from '../../../store/chatOverlayStore';
+import { CHAT_OVERLAY_LIMITS, defaultBlockForAnchor } from '../../../lib/chatOverlay';
+import { CHAT_OVERLAY_PRESETS } from '../../../lib/chatOverlayPresets';
+import type {
+  ChatOverlayAlignment,
+  ChatOverlaySettings,
+} from '../../../rpc/contracts';
+import type { ChatOverlayPart } from '../../../overlay/ChatMessageCard';
+import { useChatOverlayStore, type DeepPartial } from '../../../store/chatOverlayStore';
 import { useSettingsStore } from '../../../store/settingsStore';
+import { t } from '../../../i18n/translations';
 import { Button } from '../../ui/Button';
-import { Card } from '../../ui/Card';
+import { Field } from '../../ui/Field';
+import { Input } from '../../ui/Input';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Slider } from '../../ui/Slider';
 import { Switch } from '../../ui/Switch';
-import type {
-  ChatOverlayAlignment,
-  ChatOverlayAnimation,
-  ChatOverlayAvatarPosition,
-  ChatOverlayAvatarShape,
-  ChatOverlayDisplayMode,
-  ChatOverlayFontFamily,
-  ChatOverlayMessageStyle,
-  ChatOverlaySettings,
-  ChatOverlayTheme,
-} from '../../../rpc/contracts';
 
-interface Preset {
-  id: string;
-  name: string;
-  nameAr: string;
-  icon: string;
-  settings: Partial<ChatOverlaySettings>;
+type SectionId =
+  | 'presets'
+  | 'layout'
+  | 'bubble'
+  | 'username'
+  | 'text'
+  | 'avatar'
+  | 'badges'
+  | 'emotes'
+  | 'filters'
+  | 'obs';
+
+/** Which panel section a selected message part maps to. */
+const PART_SECTIONS: Record<ChatOverlayPart, SectionId> = {
+  bubble: 'bubble',
+  avatar: 'avatar',
+  username: 'username',
+  badge: 'badges',
+  text: 'text',
+};
+
+interface ChatSettingsPanelProps {
+  selectedPart: ChatOverlayPart | null;
 }
 
-const PRESETS: Preset[] = [
-  {
-    id: 'glass',
-    name: 'Minimal Glass',
-    nameAr: 'زجاجي شفاف',
-    icon: '✨',
-    settings: {
-      theme: 'transparent',
-      backgroundOpacity: 35,
-      textShadow: true,
-      fontFamily: 'barlow',
-      avatarShape: 'circle',
-      messageStyle: 'rounded',
-      animation: 'slide',
-      showBadges: true,
-      compactMode: false,
-    },
-  },
-  {
-    id: 'ember',
-    name: 'Ember RPG',
-    nameAr: 'جمر ملحمي',
-    icon: '🔥',
-    settings: {
-      theme: 'ember',
-      backgroundOpacity: 85,
-      textShadow: true,
-      fontFamily: 'cinzel',
-      avatarShape: 'squircle',
-      messageStyle: 'rounded',
-      animation: 'pop',
-      showBadges: true,
-      compactMode: false,
-    },
-  },
-  {
-    id: 'neon',
-    name: 'Cyberpunk Neon',
-    nameAr: 'نيون سايبر',
-    icon: '⚡',
-    settings: {
-      theme: 'neon',
-      backgroundOpacity: 90,
-      textShadow: true,
-      fontFamily: 'jetbrains-mono',
-      avatarShape: 'square',
-      messageStyle: 'square',
-      animation: 'glow',
-      showBadges: true,
-      compactMode: false,
-    },
-  },
-  {
-    id: 'compact',
-    name: 'Clean Compact',
-    nameAr: 'مدمج وبسيط',
-    icon: '📱',
-    settings: {
-      theme: 'dark',
-      backgroundOpacity: 80,
-      textShadow: true,
-      fontFamily: 'cairo',
-      avatarShape: 'rounded',
-      messageStyle: 'rounded',
-      animation: 'fade',
-      showBadges: true,
-      compactMode: true,
-      fontSize: 20,
-      avatarSize: 28,
-    },
-  },
-  {
-    id: 'light',
-    name: 'Clean Light',
-    nameAr: 'فاتح نقي',
-    icon: '🌸',
-    settings: {
-      theme: 'light',
-      backgroundOpacity: 95,
-      textShadow: false,
-      fontFamily: 'cairo',
-      avatarShape: 'squircle',
-      messageStyle: 'rounded',
-      animation: 'slide',
-      showBadges: true,
-      compactMode: false,
-    },
-  },
-];
-
-export function ChatSettingsPanel() {
+export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
   const store = useChatOverlayStore();
   const settings = store.settings;
-  const overlayUrl = store.overlayUrl;
-  const updateSettings = store.updateSettings;
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
-
+  const sectionRefs = useRef<Partial<Record<SectionId, HTMLElement | null>>>({});
   const [copied, setCopied] = useState(false);
 
-  const handleCopyUrl = async () => {
-    if (!overlayUrl) return;
-    try {
-      await navigator.clipboard.writeText(overlayUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback
+  const patch = (value: DeepPartial<ChatOverlaySettings>) => void store.updateSettings(value);
+
+  // Selecting a part on the canvas scrolls the matching section into view and
+  // highlights it, so clicking the username lands you on username styling.
+  const highlighted = selectedPart ? PART_SECTIONS[selectedPart] : null;
+  useEffect(() => {
+    if (!highlighted) return;
+    sectionRefs.current[highlighted]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [highlighted, selectedPart]);
+
+  const L = CHAT_OVERLAY_LIMITS;
+
+  const section = (id: SectionId, title: string, icon: React.ReactNode, children: React.ReactNode) => (
+    <section
+      ref={(el) => {
+        sectionRefs.current[id] = el;
+      }}
+      className={[
+        'border-t border-ink/15 px-5 py-5 transition-colors duration-300',
+        highlighted === id ? 'bg-primary/10' : '',
+      ].join(' ')}
+    >
+      <h3 className="mb-4 flex items-center gap-2 font-display text-sm uppercase tracking-[0.06em] text-ink">
+        {icon}
+        {title}
+      </h3>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+
+  return (
+    <div className="slab flex h-full flex-col overflow-hidden">
+      <header className="flex items-center justify-between gap-3 px-5 py-3.5">
+        <div className="flex items-center gap-2.5">
+          <Wand2 size={16} className="text-primary" />
+          <h2 className="font-display text-base uppercase tracking-[0.04em] text-ink">
+            {t(lang, 'chat.settings')}
+          </h2>
+        </div>
+        <Switch
+          checked={settings.enabled}
+          onChange={(enabled) => patch({ enabled })}
+          label={t(lang, 'chat.enable')}
+        />
+      </header>
+
+      <div className="flex-1 overflow-y-auto">
+        {/* Presets ------------------------------------------------------- */}
+        {section(
+          'presets',
+          t(lang, 'chat.presets'),
+          <Sparkles size={14} className="text-primary" />,
+          <div className="flex flex-wrap gap-2">
+            {CHAT_OVERLAY_PRESETS.map((preset) => (
+              <Button
+                key={preset.id}
+                variant="outline"
+                size="sm"
+                onClick={() => patch(preset.tokens)}
+              >
+                {preset.name}
+              </Button>
+            ))}
+          </div>,
+        )}
+
+        {/* Layout & flow ------------------------------------------------- */}
+        {section(
+          'layout',
+          t(lang, 'chat.section.layout'),
+          <LayoutGrid size={14} className="text-primary" />,
+          <>
+            <Field label={t(lang, 'chat.alignment')} hint={t(lang, 'chat.anchorHint')}>
+              <SegmentedControl<ChatOverlayAlignment>
+                value={settings.block.anchor}
+                onChange={(anchor) => patch({ block: defaultBlockForAnchor(anchor) })}
+                options={[
+                  { value: 'top-left', label: t(lang, 'chat.alignTopLeft') },
+                  { value: 'top-right', label: t(lang, 'chat.alignTopRight') },
+                  { value: 'bottom-left', label: t(lang, 'chat.alignBottomLeft') },
+                  { value: 'bottom-right', label: t(lang, 'chat.alignBottomRight') },
+                ]}
+              />
+            </Field>
+
+            <Field label={t(lang, 'chat.displayMode')}>
+              <SegmentedControl
+                value={settings.flow.displayMode}
+                onChange={(displayMode) => patch({ flow: { displayMode } })}
+                options={[
+                  { value: 'stacked', label: t(lang, 'chat.modeStacked') },
+                  { value: 'latest', label: t(lang, 'chat.modeLatest') },
+                ]}
+              />
+            </Field>
+
+            <Field label={t(lang, 'chat.flowDirection')} hint={t(lang, 'chat.flowDirectionHint')}>
+              <SegmentedControl
+                value={settings.flow.direction}
+                onChange={(direction) => patch({ flow: { direction } })}
+                options={[
+                  { value: 'up', label: t(lang, 'chat.flowUp') },
+                  { value: 'down', label: t(lang, 'chat.flowDown') },
+                ]}
+              />
+            </Field>
+
+            <NumberRow
+              label={t(lang, 'chat.maxMessages')}
+              value={settings.flow.maxMessages}
+              range={L.maxMessages}
+              onChange={(maxMessages) => patch({ flow: { maxMessages } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.duration')}
+              value={settings.flow.durationSeconds}
+              range={{ min: 0, max: L.durationSeconds.max }}
+              suffix="s"
+              hint={settings.flow.durationSeconds === 0 ? t(lang, 'chat.durationNever') : undefined}
+              onChange={(durationSeconds) => patch({ flow: { durationSeconds } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.spacing')}
+              value={settings.flow.gap}
+              range={L.gap}
+              suffix="px"
+              onChange={(gap) => patch({ flow: { gap } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.sizeScale')}
+              value={settings.flow.sizeScale}
+              range={L.sizeScale}
+              suffix="%"
+              hint={t(lang, 'chat.sizeScaleHint')}
+              onChange={(sizeScale) => patch({ flow: { sizeScale } })}
+            />
+          </>,
+        )}
+
+        {/* Bubble -------------------------------------------------------- */}
+        {section(
+          'bubble',
+          t(lang, 'chat.section.bubble'),
+          <Square size={14} className="text-primary" />,
+          <>
+            <ColorRow
+              label={t(lang, 'chat.bubbleBackground')}
+              value={settings.bubble.background.color}
+              onChange={(color) => patch({ bubble: { background: { color } } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.backgroundOpacity')}
+              value={settings.bubble.background.alpha}
+              range={L.alpha}
+              suffix="%"
+              onChange={(alpha) => patch({ bubble: { background: { alpha } } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.borderWidth')}
+              value={settings.bubble.border.width}
+              range={L.borderWidth}
+              suffix="px"
+              onChange={(width) => patch({ bubble: { border: { width } } })}
+            />
+            <ColorRow
+              label={t(lang, 'chat.borderColor')}
+              value={settings.bubble.border.color}
+              onChange={(color) => patch({ bubble: { border: { color } } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.borderRadius')}
+              value={settings.bubble.border.radius}
+              range={L.borderRadius}
+              suffix="px"
+              onChange={(radius) => patch({ bubble: { border: { radius } } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.paddingX')}
+              value={settings.bubble.padding.x}
+              range={L.padding}
+              suffix="px"
+              onChange={(x) => patch({ bubble: { padding: { x } } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.paddingY')}
+              value={settings.bubble.padding.y}
+              range={L.padding}
+              suffix="px"
+              onChange={(y) => patch({ bubble: { padding: { y } } })}
+            />
+            <Field label={t(lang, 'chat.shadow')}>
+              <SegmentedControl
+                value={settings.bubble.shadow}
+                onChange={(shadow) => patch({ bubble: { shadow } })}
+                options={[
+                  { value: 'off', label: t(lang, 'chat.shadowOff') },
+                  { value: 'soft', label: t(lang, 'chat.shadowSoft') },
+                  { value: 'hard', label: t(lang, 'chat.shadowHard') },
+                ]}
+              />
+            </Field>
+            <NumberRow
+              label={t(lang, 'chat.blur')}
+              value={settings.bubble.blur}
+              range={L.blur}
+              suffix="px"
+              hint={t(lang, 'chat.blurHint')}
+              onChange={(blur) => patch({ bubble: { blur } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.accentWidth')}
+              value={settings.bubble.accent.width}
+              range={L.accentWidth}
+              suffix="px"
+              hint={t(lang, 'chat.accentHint')}
+              onChange={(width) => patch({ bubble: { accent: { width } } })}
+            />
+            <Field label={t(lang, 'chat.accentColorMode')}>
+              <SegmentedControl
+                value={settings.bubble.accent.colorMode}
+                onChange={(colorMode) => patch({ bubble: { accent: { colorMode } } })}
+                options={[
+                  { value: 'role', label: t(lang, 'chat.colorRole') },
+                  { value: 'custom', label: t(lang, 'chat.colorCustom') },
+                ]}
+              />
+            </Field>
+            {settings.bubble.accent.colorMode === 'custom' && (
+              <ColorRow
+                label={t(lang, 'chat.accentColor')}
+                value={settings.bubble.accent.color}
+                onChange={(color) => patch({ bubble: { accent: { color } } })}
+              />
+            )}
+          </>,
+        )}
+
+        {/* Username ------------------------------------------------------ */}
+        {section(
+          'username',
+          t(lang, 'chat.section.username'),
+          <AtSign size={14} className="text-primary" />,
+          <>
+            <ToggleRow
+              label={t(lang, 'chat.showUsernames')}
+              checked={settings.username.show}
+              onChange={(show) => patch({ username: { show } })}
+            />
+            <FontRow
+              lang={lang}
+              value={settings.username.font}
+              onChange={(font) => patch({ username: { font } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.nameSize')}
+              value={settings.username.size}
+              range={L.usernameSize}
+              suffix="px"
+              hint={t(lang, 'chat.nameSizeHint')}
+              onChange={(size) => patch({ username: { size } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.fontWeight')}
+              value={settings.username.weight}
+              range={L.fontWeight}
+              step={100}
+              onChange={(weight) => patch({ username: { weight } })}
+            />
+            <Field label={t(lang, 'chat.nameColorMode')}>
+              <SegmentedControl
+                value={settings.username.colorMode}
+                onChange={(colorMode) => patch({ username: { colorMode } })}
+                options={[
+                  { value: 'role', label: t(lang, 'chat.colorRole') },
+                  { value: 'twitch', label: t(lang, 'chat.colorTwitch') },
+                  { value: 'custom', label: t(lang, 'chat.colorCustom') },
+                ]}
+              />
+            </Field>
+            {settings.username.colorMode === 'custom' && (
+              <ColorRow
+                label={t(lang, 'chat.nameColor')}
+                value={settings.username.color}
+                onChange={(color) => patch({ username: { color } })}
+              />
+            )}
+            <Field label={t(lang, 'chat.namePosition')}>
+              <SegmentedControl
+                value={settings.username.position}
+                onChange={(position) => patch({ username: { position } })}
+                options={[
+                  { value: 'above', label: t(lang, 'chat.namePositionAbove') },
+                  { value: 'inline', label: t(lang, 'chat.namePositionInline') },
+                ]}
+              />
+            </Field>
+            <Field label={t(lang, 'chat.textTransform')}>
+              <SegmentedControl
+                value={settings.username.transform}
+                onChange={(transform) => patch({ username: { transform } })}
+                options={[
+                  { value: 'none', label: t(lang, 'chat.transformNone') },
+                  { value: 'uppercase', label: t(lang, 'chat.transformUpper') },
+                  { value: 'lowercase', label: t(lang, 'chat.transformLower') },
+                ]}
+              />
+            </Field>
+          </>,
+        )}
+
+        {/* Text ---------------------------------------------------------- */}
+        {section(
+          'text',
+          t(lang, 'chat.section.text'),
+          <Type size={14} className="text-primary" />,
+          <>
+            <FontRow lang={lang} value={settings.text.font} onChange={(font) => patch({ text: { font } })} />
+            <NumberRow
+              label={t(lang, 'chat.fontSize')}
+              value={settings.text.size}
+              range={L.fontSize}
+              suffix="px"
+              onChange={(size) => patch({ text: { size } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.fontWeight')}
+              value={settings.text.weight}
+              range={L.fontWeight}
+              step={100}
+              onChange={(weight) => patch({ text: { weight } })}
+            />
+            <ColorRow
+              label={t(lang, 'chat.textColor')}
+              value={settings.text.color}
+              onChange={(color) => patch({ text: { color } })}
+            />
+            <Field label={t(lang, 'chat.wrapMode')} hint={t(lang, 'chat.wrapModeHint')}>
+              <SegmentedControl
+                value={settings.text.wrapMode}
+                onChange={(wrapMode) => patch({ text: { wrapMode } })}
+                options={[
+                  { value: 'normal', label: t(lang, 'chat.wrapNormal') },
+                  { value: 'break-anywhere', label: t(lang, 'chat.wrapAnywhere') },
+                  { value: 'clip', label: t(lang, 'chat.wrapClip') },
+                ]}
+              />
+            </Field>
+            <NumberRow
+              label={t(lang, 'chat.lineHeight')}
+              value={settings.text.lineHeight}
+              range={L.lineHeight}
+              step={0.05}
+              decimals={2}
+              onChange={(lineHeight) => patch({ text: { lineHeight } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.maxWidth')}
+              value={settings.text.maxWidth}
+              range={L.maxWidth}
+              suffix="px"
+              hint={t(lang, 'chat.maxWidthHint')}
+              onChange={(maxWidth) => patch({ text: { maxWidth } })}
+            />
+            <ToggleRow
+              label={t(lang, 'chat.textShadow')}
+              hint={t(lang, 'chat.textShadowHint')}
+              checked={settings.text.shadow}
+              onChange={(shadow) => patch({ text: { shadow } })}
+            />
+          </>,
+        )}
+
+        {/* Avatar -------------------------------------------------------- */}
+        {section(
+          'avatar',
+          t(lang, 'chat.section.avatar'),
+          <ImageIcon size={14} className="text-primary" />,
+          <>
+            <ToggleRow
+              label={t(lang, 'chat.showAvatars')}
+              checked={settings.avatar.show}
+              onChange={(show) => patch({ avatar: { show } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.avatarSize')}
+              value={settings.avatar.size}
+              range={L.avatarSize}
+              suffix="px"
+              onChange={(size) => patch({ avatar: { size } })}
+            />
+            <Field label={t(lang, 'chat.avatarShape')}>
+              <SegmentedControl
+                value={settings.avatar.shape}
+                onChange={(shape) => patch({ avatar: { shape } })}
+                options={[
+                  { value: 'circle', label: t(lang, 'chat.shapeCircle') },
+                  { value: 'squircle', label: t(lang, 'chat.shapeSquircle') },
+                  { value: 'rounded', label: t(lang, 'chat.shapeRounded') },
+                  { value: 'square', label: t(lang, 'chat.shapeSquare') },
+                ]}
+              />
+            </Field>
+            <Field label={t(lang, 'chat.avatarPosition')}>
+              <SegmentedControl
+                value={settings.avatar.position}
+                onChange={(position) => patch({ avatar: { position } })}
+                options={[
+                  { value: 'left', label: t(lang, 'chat.avatarPositionLeft') },
+                  { value: 'right', label: t(lang, 'chat.avatarPositionRight') },
+                ]}
+              />
+            </Field>
+            <NumberRow
+              label={t(lang, 'chat.avatarBorder')}
+              value={settings.avatar.borderWidth}
+              range={L.borderWidth}
+              suffix="px"
+              onChange={(borderWidth) => patch({ avatar: { borderWidth } })}
+            />
+          </>,
+        )}
+
+        {/* Badges -------------------------------------------------------- */}
+        {section(
+          'badges',
+          t(lang, 'chat.section.badges'),
+          <Award size={14} className="text-primary" />,
+          <>
+            <ToggleRow
+              label={t(lang, 'chat.showBadges')}
+              checked={settings.badges.show}
+              onChange={(show) => patch({ badges: { show } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.badgeSize')}
+              value={settings.badges.size}
+              range={L.badgeSize}
+              suffix="px"
+              onChange={(size) => patch({ badges: { size } })}
+            />
+          </>,
+        )}
+
+        {/* Emotes -------------------------------------------------------- */}
+        {section(
+          'emotes',
+          t(lang, 'chat.section.emotes'),
+          <Smile size={14} className="text-primary" />,
+          <>
+            <ToggleRow
+              label={t(lang, 'chat.emoteTwitch')}
+              checked={settings.emotes.twitch}
+              onChange={(twitch) => patch({ emotes: { twitch } })}
+            />
+            <ToggleRow
+              label="BetterTTV"
+              checked={settings.emotes.bttv}
+              onChange={(bttv) => patch({ emotes: { bttv } })}
+            />
+            <ToggleRow
+              label="FrankerFaceZ"
+              checked={settings.emotes.ffz}
+              onChange={(ffz) => patch({ emotes: { ffz } })}
+            />
+            <ToggleRow
+              label="7TV"
+              checked={settings.emotes.sevenTv}
+              onChange={(sevenTv) => patch({ emotes: { sevenTv } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.emoteSize')}
+              value={settings.emotes.sizeScale}
+              range={L.emoteScale}
+              suffix="%"
+              onChange={(sizeScale) => patch({ emotes: { sizeScale } })}
+            />
+            <NumberRow
+              label={t(lang, 'chat.emoteOnlyScale')}
+              value={settings.emotes.emoteOnlyScale}
+              range={L.emoteOnlyScale}
+              suffix="%"
+              hint={t(lang, 'chat.emoteOnlyScaleHint')}
+              onChange={(emoteOnlyScale) => patch({ emotes: { emoteOnlyScale } })}
+            />
+          </>,
+        )}
+
+        {/* Filters ------------------------------------------------------- */}
+        {section(
+          'filters',
+          t(lang, 'chat.section.filters'),
+          <Filter size={14} className="text-primary" />,
+          <>
+            <ListEditor
+              label={t(lang, 'chat.blockedUsernames')}
+              hint={t(lang, 'chat.blockedUsernamesHint')}
+              values={settings.filters.blockedUsernames}
+              placeholder="spambot*"
+              onChange={(blockedUsernames) => patch({ filters: { blockedUsernames } })}
+            />
+            <ToggleRow
+              label={t(lang, 'chat.hideBots')}
+              hint={settings.filters.botList.join(', ')}
+              checked={settings.filters.hideBots}
+              onChange={(hideBots) => patch({ filters: { hideBots } })}
+            />
+            <ToggleRow
+              label={t(lang, 'chat.hideCommands')}
+              hint={t(lang, 'chat.hideCommandsHint')}
+              checked={settings.filters.hideCommands}
+              onChange={(hideCommands) => patch({ filters: { hideCommands } })}
+            />
+            <ListEditor
+              label={t(lang, 'chat.blockedWords')}
+              values={settings.filters.blockedWords}
+              placeholder={t(lang, 'chat.blockedWordsPlaceholder')}
+              onChange={(blockedWords) => patch({ filters: { blockedWords } })}
+            />
+            <Field label={t(lang, 'chat.blockedWordAction')}>
+              <SegmentedControl
+                value={settings.filters.blockedWordAction}
+                onChange={(blockedWordAction) => patch({ filters: { blockedWordAction } })}
+                options={[
+                  { value: 'drop', label: t(lang, 'chat.actionDrop') },
+                  { value: 'mask', label: t(lang, 'chat.actionMask') },
+                ]}
+              />
+            </Field>
+            <NumberRow
+              label={t(lang, 'chat.minLength')}
+              value={settings.filters.minLength}
+              range={L.minLength}
+              hint={t(lang, 'chat.minLengthHint')}
+              onChange={(minLength) => patch({ filters: { minLength } })}
+            />
+          </>,
+        )}
+
+        {/* Animation + OBS ----------------------------------------------- */}
+        {section(
+          'obs',
+          t(lang, 'chat.section.output'),
+          <Palette size={14} className="text-primary" />,
+          <>
+            <Field label={t(lang, 'chat.animation')}>
+              <SegmentedControl
+                value={settings.animation.kind}
+                onChange={(kind) => patch({ animation: { kind } })}
+                options={[
+                  { value: 'slide', label: t(lang, 'chat.animSlide') },
+                  { value: 'fade', label: t(lang, 'chat.animFade') },
+                  { value: 'pop', label: 'Pop' },
+                  { value: 'glow', label: 'Glow' },
+                  { value: 'flip', label: 'Flip' },
+                  { value: 'off', label: t(lang, 'chat.animOff') },
+                ]}
+              />
+            </Field>
+            <NumberRow
+              label={t(lang, 'chat.animationDuration')}
+              value={settings.animation.durationMs}
+              range={L.animationDurationMs}
+              step={10}
+              suffix="ms"
+              onChange={(durationMs) => patch({ animation: { durationMs } })}
+            />
+
+            <Field label={t(lang, 'chat.obsUrl')} hint={t(lang, 'chat.obsUrlHint2')}>
+              <div className="flex gap-2">
+                <Input readOnly value={store.overlayUrl} />
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(store.overlayUrl);
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 1500);
+                  }}
+                  disabled={!store.overlayUrl}
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                </Button>
+              </div>
+            </Field>
+          </>,
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ controls
+
+interface NumberRowProps {
+  label: string;
+  value: number;
+  range: { min: number; max: number };
+  step?: number;
+  decimals?: number;
+  suffix?: string;
+  hint?: string;
+  onChange: (value: number) => void;
+}
+
+function NumberRow({ label, value, range, step = 1, decimals = 0, suffix, hint, onChange }: NumberRowProps) {
+  return (
+    <Field label={label} hint={hint}>
+      <div className="flex items-center gap-3">
+        <Slider
+          value={value}
+          min={range.min}
+          max={range.max}
+          step={step}
+          onChange={onChange}
+          ariaLabel={label}
+        />
+        <span className="w-16 shrink-0 text-end font-mono text-xs text-ink/70">
+          {value.toFixed(decimals)}
+          {suffix}
+        </span>
+      </div>
+    </Field>
+  );
+}
+
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <span className="block font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
+          {label}
+        </span>
+        {hint && <span className="mt-1 block truncate font-sans text-xs text-ink/55">{hint}</span>}
+      </div>
+      <Switch checked={checked} onChange={onChange} label={label} />
+    </div>
+  );
+}
+
+function ColorRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Field label={label}>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value.slice(0, 7)}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-11 w-14 shrink-0 cursor-pointer border border-ink/25 bg-surface-2"
+          aria-label={label}
+        />
+        <Input value={value} onChange={(e) => onChange(e.target.value)} spellCheck={false} />
+      </div>
+    </Field>
+  );
+}
+
+function FontRow({
+  lang,
+  value,
+  onChange,
+}: {
+  lang: 'en' | 'ar';
+  value: ChatOverlaySettings['text']['font'];
+  onChange: (font: ChatOverlaySettings['text']['font']) => void;
+}) {
+  const [available, setAvailable] = useState(true);
+
+  useEffect(() => {
+    if (value.family !== 'custom' || !value.customName) {
+      setAvailable(true);
+      return;
     }
-  };
+    // Reports a missing custom font instead of silently falling back.
+    try {
+      setAvailable(document.fonts.check(`16px "${value.customName}"`));
+    } catch {
+      setAvailable(true);
+    }
+  }, [value.family, value.customName]);
 
-  const handleOpenBrowser = () => {
-    if (!overlayUrl) return;
-    window.open(overlayUrl, '_blank', 'noopener,noreferrer');
-  };
+  return (
+    <Field
+      label={t(lang, 'chat.fontFamily')}
+      hint={!available ? t(lang, 'chat.fontMissing') : undefined}
+    >
+      <div className="space-y-2">
+        <SegmentedControl
+          value={value.family}
+          onChange={(family) => onChange({ ...value, family })}
+          options={[
+            { value: 'barlow', label: 'Barlow' },
+            { value: 'cairo', label: 'Cairo' },
+            { value: 'cinzel', label: 'Cinzel' },
+            { value: 'jetbrains-mono', label: 'Mono' },
+            { value: 'system', label: 'System' },
+            { value: 'custom', label: t(lang, 'chat.fontCustom') },
+          ]}
+        />
+        {value.family === 'custom' && (
+          <Input
+            value={value.customName}
+            placeholder="Inter"
+            spellCheck={false}
+            onChange={(e) => onChange({ ...value, customName: e.target.value })}
+          />
+        )}
+      </div>
+    </Field>
+  );
+}
 
-  const applyPreset = (preset: Preset) => {
-    void updateSettings(preset.settings);
+function ListEditor({
+  label,
+  hint,
+  values,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  values: string[];
+  placeholder?: string;
+  onChange: (values: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+
+  const add = () => {
+    const entry = draft.trim();
+    if (!entry) return;
+    if (values.some((v) => v.toLowerCase() === entry.toLowerCase())) {
+      setDraft('');
+      return;
+    }
+    onChange([...values, entry]);
+    setDraft('');
   };
 
   return (
-    <div className="space-y-6">
-      {/* 1-Click Design Presets */}
-      <Card title={t(lang, 'chat.presets')}>
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-xs text-ink/65">
-            <Wand2 size={13} className="text-primary" />
-            <span>{t(lang, 'chat.presetsHint')}</span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {PRESETS.map((preset) => (
+    <Field label={label} hint={hint}>
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <Input
+            value={draft}
+            placeholder={placeholder}
+            spellCheck={false}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                add();
+              }
+            }}
+          />
+          <Button variant="outline" onClick={add} disabled={!draft.trim()}>
+            +
+          </Button>
+        </div>
+        {values.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {values.map((entry) => (
               <button
-                key={preset.id}
+                key={entry}
                 type="button"
-                onClick={() => applyPreset(preset)}
-                className="slab flex items-center gap-2 px-3 py-2.5 text-start font-sans text-xs font-bold transition-all hover:border-primary hover:bg-ink/5 focus-visible:outline-2 focus-visible:outline-primary"
+                onClick={() => onChange(values.filter((v) => v !== entry))}
+                className="inline-flex items-center gap-1 border border-ink/25 bg-surface-2 px-2 py-0.5 font-mono text-xs text-ink/80 hover:border-danger hover:text-danger"
               >
-                <span className="text-base">{preset.icon}</span>
-                <span className="truncate">{lang === 'ar' ? preset.nameAr : preset.name}</span>
+                {entry} <span aria-hidden>x</span>
               </button>
             ))}
           </div>
-        </div>
-      </Card>
-
-      {/* Master Enable & OBS URL Card */}
-      <Card title={t(lang, 'chat.enable')}>
-        <div className="space-y-5">
-          {/* Master Enable Toggle */}
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <div className="font-sans text-sm font-semibold uppercase tracking-[0.08em] text-ink">
-                {t(lang, 'chat.enable')}
-              </div>
-              <div className="mt-1 font-sans text-xs text-ink/70">
-                {t(lang, 'chat.enableHint')}
-              </div>
-            </div>
-            <Switch
-              checked={settings.enabled}
-              onChange={(enabled) => updateSettings({ enabled })}
-              label={t(lang, 'chat.enable')}
-            />
-          </div>
-
-          {/* OBS Browser Source URL */}
-          <div className="border border-ink/20 bg-surface p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Radio size={14} className="text-primary" />
-                <span className="font-sans text-xs font-bold uppercase tracking-[0.15em] text-ink/70">
-                  {t(lang, 'chat.obsUrl')}
-                </span>
-              </div>
-            </div>
-
-            <div dir="ltr" className="mt-2.5 flex items-center gap-2">
-              <input
-                type="text"
-                readOnly
-                value={overlayUrl || 'http://127.0.0.1:49178/chat-overlay.html'}
-                className="w-full border border-ink/25 bg-surface-2 px-3 py-2 font-mono text-xs text-ink selection:bg-primary/30"
-              />
-              <Button
-                variant={copied ? 'outline' : 'primary'}
-                size="sm"
-                title={copied ? t(lang, 'chat.copied') : t(lang, 'chat.copyUrl')}
-                onClick={handleCopyUrl}
-                className="shrink-0"
-              >
-                {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                {copied ? t(lang, 'chat.copied') : t(lang, 'chat.copyUrl')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                title={t(lang, 'chat.openBrowser')}
-                onClick={handleOpenBrowser}
-                className="shrink-0"
-              >
-                <ExternalLink size={14} />
-              </Button>
-            </div>
-
-            <p className="mt-2.5 font-sans text-xs leading-relaxed text-ink/65">
-              {t(lang, 'chat.obsUrlHint')}
-            </p>
-          </div>
-        </div>
-      </Card>
-
-      {/* Appearance & Themes */}
-      <Card title={t(lang, 'chat.appearance')}>
-        <div className="space-y-5">
-          {/* Theme */}
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <Palette size={14} className="text-primary" />
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.theme')}
-              </span>
-            </div>
-            <SegmentedControl<ChatOverlayTheme>
-              name="chat-theme"
-              value={settings.theme}
-              onChange={(theme) => updateSettings({ theme })}
-              options={[
-                { value: 'dark', label: t(lang, 'chat.themeDark') },
-                { value: 'light', label: t(lang, 'chat.themeLight') },
-                { value: 'transparent', label: t(lang, 'chat.themeTransparent') },
-                { value: 'neon', label: t(lang, 'chat.themeNeon') },
-                { value: 'ember', label: t(lang, 'chat.themeEmber') },
-              ]}
-            />
-          </div>
-
-          {/* Background Opacity */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.backgroundOpacity')}
-              </span>
-              <span className="font-mono text-xs font-bold text-primary">
-                {settings.backgroundOpacity}%
-              </span>
-            </div>
-            <Slider
-              min={0}
-              max={100}
-              step={5}
-              value={settings.backgroundOpacity}
-              onChange={(backgroundOpacity) => updateSettings({ backgroundOpacity })}
-              ariaLabel={t(lang, 'chat.backgroundOpacity')}
-            />
-          </div>
-
-          {/* Message Shape & Text Outline */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <div className="mb-2 font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.messageStyle')}
-              </div>
-              <SegmentedControl<ChatOverlayMessageStyle>
-                name="chat-style"
-                value={settings.messageStyle}
-                onChange={(messageStyle) => updateSettings({ messageStyle })}
-                options={[
-                  { value: 'rounded', label: t(lang, 'chat.styleRounded') },
-                  { value: 'square', label: t(lang, 'chat.styleSquare') },
-                ]}
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between h-full pt-4 sm:pt-0">
-                <div className="flex flex-col">
-                  <span className="font-sans text-xs font-bold uppercase tracking-[0.08em] text-ink">
-                    {t(lang, 'chat.textShadow')}
-                  </span>
-                  <span className="text-[11px] text-ink/60">
-                    {t(lang, 'chat.textShadowHint')}
-                  </span>
-                </div>
-                <Switch
-                  checked={settings.textShadow}
-                  onChange={(textShadow) => updateSettings({ textShadow })}
-                  label={t(lang, 'chat.textShadow')}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/* Typography & Fonts */}
-      <Card title={t(lang, 'chat.typography')}>
-        <div className="space-y-5">
-          {/* Font Family */}
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <Type size={14} className="text-primary" />
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.fontFamily')}
-              </span>
-            </div>
-            <SegmentedControl<ChatOverlayFontFamily>
-              name="chat-font-family"
-              value={settings.fontFamily}
-              onChange={(fontFamily) => updateSettings({ fontFamily })}
-              options={[
-                { value: 'barlow', label: 'Barlow' },
-                { value: 'cairo', label: 'Cairo' },
-                { value: 'cinzel', label: 'Cinzel' },
-                { value: 'jetbrains-mono', label: 'Mono' },
-                { value: 'system', label: 'System' },
-              ]}
-            />
-          </div>
-
-          {/* Font Size */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.fontSize')}
-              </span>
-              <span className="font-mono text-xs font-bold text-primary">
-                {t(lang, 'chat.fontSizePx', { size: settings.fontSize })}
-              </span>
-            </div>
-            <Slider
-              min={12}
-              max={48}
-              step={1}
-              value={settings.fontSize}
-              onChange={(fontSize) => updateSettings({ fontSize })}
-              ariaLabel={t(lang, 'chat.fontSize')}
-            />
-          </div>
-
-          {/* Overall Overlay Scale */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.scale')}
-              </span>
-              <span className="font-mono text-xs font-bold text-primary">
-                {settings.scale}%
-              </span>
-            </div>
-            <Slider
-              min={50}
-              max={150}
-              step={5}
-              value={settings.scale}
-              onChange={(scale) => updateSettings({ scale })}
-              ariaLabel={t(lang, 'chat.scale')}
-            />
-          </div>
-        </div>
-      </Card>
-
-      {/* Avatar & Badges */}
-      <Card title={t(lang, 'chat.avatarAndBadges')}>
-        <div className="space-y-5">
-          {/* Avatar Shape */}
-          <div>
-            <div className="mb-2 font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-              {t(lang, 'chat.avatarShape')}
-            </div>
-            <SegmentedControl<ChatOverlayAvatarShape>
-              name="chat-avatar-shape"
-              value={settings.avatarShape}
-              onChange={(avatarShape) => updateSettings({ avatarShape })}
-              options={[
-                { value: 'circle', label: t(lang, 'chat.shapeCircle') },
-                { value: 'squircle', label: t(lang, 'chat.shapeSquircle') },
-                { value: 'rounded', label: t(lang, 'chat.shapeRounded') },
-                { value: 'square', label: t(lang, 'chat.shapeSquare') },
-              ]}
-            />
-          </div>
-
-          {/* Avatar Size */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Sliders size={14} className="text-primary" />
-                <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                  {t(lang, 'chat.avatarSize')}
-                </span>
-              </div>
-              <span className="font-mono text-xs font-bold text-primary">
-                {t(lang, 'chat.avatarSizePx', { size: settings.avatarSize })}
-              </span>
-            </div>
-            <Slider
-              min={16}
-              max={64}
-              step={2}
-              value={settings.avatarSize}
-              onChange={(avatarSize) => updateSettings({ avatarSize })}
-              ariaLabel={t(lang, 'chat.avatarSize')}
-            />
-          </div>
-
-          {/* Element Visibility Toggles */}
-          <div className="space-y-3.5 border-t border-ink/15 pt-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Eye size={14} className="text-primary" />
-                <span className="font-sans text-sm font-semibold uppercase tracking-[0.08em] text-ink">
-                  {t(lang, 'chat.showAvatars')}
-                </span>
-              </div>
-              <Switch
-                checked={settings.showAvatars}
-                onChange={(showAvatars) => updateSettings({ showAvatars })}
-                label={t(lang, 'chat.showAvatars')}
-              />
-            </div>
-
-            <div className="flex items-center justify-between border-t border-ink/10 pt-3">
-              <div className="flex items-center gap-2">
-                <Eye size={14} className="text-primary" />
-                <span className="font-sans text-sm font-semibold uppercase tracking-[0.08em] text-ink">
-                  {t(lang, 'chat.showUsernames')}
-                </span>
-              </div>
-              <Switch
-                checked={settings.showUsernames}
-                onChange={(showUsernames) => updateSettings({ showUsernames })}
-                label={t(lang, 'chat.showUsernames')}
-              />
-            </div>
-
-            <div className="flex items-center justify-between border-t border-ink/10 pt-3">
-              <div className="flex items-center gap-2">
-                <Sparkles size={14} className="text-primary" />
-                <span className="font-sans text-sm font-semibold uppercase tracking-[0.08em] text-ink">
-                  {t(lang, 'chat.showBadges')}
-                </span>
-              </div>
-              <Switch
-                checked={settings.showBadges}
-                onChange={(showBadges) => updateSettings({ showBadges })}
-                label={t(lang, 'chat.showBadges')}
-              />
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/* Layout, Timing & Animation */}
-      <Card title={t(lang, 'chat.layoutAndAnimation')}>
-        <div className="space-y-5">
-          {/* Display Mode */}
-          <div>
-            <div className="mb-2 font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-              {t(lang, 'chat.displayMode')}
-            </div>
-            <SegmentedControl<ChatOverlayDisplayMode>
-              name="chat-display-mode"
-              value={settings.displayMode}
-              onChange={(displayMode) => updateSettings({ displayMode })}
-              options={[
-                { value: 'stacked', label: t(lang, 'chat.modeStacked'), title: t(lang, 'chat.modeStackedHint') },
-                { value: 'latest', label: t(lang, 'chat.modeLatest'), title: t(lang, 'chat.modeLatestHint') },
-              ]}
-            />
-          </div>
-
-          {/* Compact Mode */}
-          <div className="flex items-center justify-between border-y border-ink/15 py-3">
-            <div className="flex flex-col">
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.08em] text-ink">
-                {t(lang, 'chat.compactMode')}
-              </span>
-              <span className="text-[11px] text-ink/60">
-                {t(lang, 'chat.compactModeHint')}
-              </span>
-            </div>
-            <Switch
-              checked={settings.compactMode}
-              onChange={(compactMode) => updateSettings({ compactMode })}
-              label={t(lang, 'chat.compactMode')}
-            />
-          </div>
-
-          {/* Alignment */}
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <Layout size={14} className="text-primary" />
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.alignment')}
-              </span>
-            </div>
-            <SegmentedControl<ChatOverlayAlignment>
-              name="chat-alignment"
-              value={settings.alignment}
-              onChange={(alignment) => updateSettings({ alignment })}
-              options={[
-                { value: 'bottom-left', label: t(lang, 'chat.alignBottomLeft') },
-                { value: 'bottom-right', label: t(lang, 'chat.alignBottomRight') },
-                { value: 'top-left', label: t(lang, 'chat.alignTopLeft') },
-                { value: 'top-right', label: t(lang, 'chat.alignTopRight') },
-              ]}
-            />
-          </div>
-
-          {/* Avatar Position / Card Layout */}
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <User size={14} className="text-primary" />
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.avatarPosition')}
-              </span>
-            </div>
-            <SegmentedControl<ChatOverlayAvatarPosition>
-              name="chat-avatar-position"
-              value={settings.avatarPosition ?? 'left'}
-              onChange={(avatarPosition) => updateSettings({ avatarPosition })}
-              options={[
-                { value: 'left', label: t(lang, 'chat.avatarPositionLeft') },
-                { value: 'right', label: t(lang, 'chat.avatarPositionRight') },
-              ]}
-            />
-          </div>
-
-          {/* Animation */}
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <Layers size={14} className="text-primary" />
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.animation')}
-              </span>
-            </div>
-            <SegmentedControl<ChatOverlayAnimation>
-              name="chat-animation"
-              value={settings.animation}
-              onChange={(animation) => updateSettings({ animation })}
-              options={[
-                { value: 'slide', label: t(lang, 'chat.animSlide') },
-                { value: 'fade', label: t(lang, 'chat.animFade') },
-                { value: 'pop', label: t(lang, 'chat.animPop') },
-                { value: 'glow', label: t(lang, 'chat.animGlow') },
-                { value: 'flip', label: t(lang, 'chat.animFlip') },
-                { value: 'off', label: t(lang, 'chat.animOff') },
-              ]}
-            />
-          </div>
-
-          {/* Max Messages */}
-          {settings.displayMode === 'stacked' && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                  {t(lang, 'chat.maxMessages')}
-                </span>
-                <span className="font-mono text-xs font-bold text-primary">
-                  {settings.maxMessages}
-                </span>
-              </div>
-              <Slider
-                min={1}
-                max={24}
-                step={1}
-                value={settings.maxMessages}
-                onChange={(maxMessages) => updateSettings({ maxMessages })}
-                ariaLabel={t(lang, 'chat.maxMessages')}
-              />
-            </div>
-          )}
-
-          {/* Duration */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.duration')}
-              </span>
-              <span className="font-mono text-xs font-bold text-primary">
-                {t(lang, 'chat.durationSeconds', { count: settings.durationSeconds })}
-              </span>
-            </div>
-            <Slider
-              min={3}
-              max={120}
-              step={settings.durationSeconds <= 15 ? 1 : 5}
-              value={settings.durationSeconds}
-              onChange={(durationSeconds) => updateSettings({ durationSeconds })}
-              ariaLabel={t(lang, 'chat.duration')}
-            />
-          </div>
-
-          {/* Message Spacing */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                {t(lang, 'chat.spacing')}
-              </span>
-              <span className="font-mono text-xs font-bold text-primary">
-                {t(lang, 'chat.spacingPx', { spacing: settings.spacing })}
-              </span>
-            </div>
-            <Slider
-              min={0}
-              max={32}
-              step={2}
-              value={settings.spacing}
-              onChange={(spacing) => updateSettings({ spacing })}
-              ariaLabel={t(lang, 'chat.spacing')}
-            />
-          </div>
-        </div>
-      </Card>
-    </div>
+        )}
+      </div>
+    </Field>
   );
 }

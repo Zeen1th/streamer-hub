@@ -40,6 +40,17 @@ public sealed class ChatOverlayHostBridge
 
     public async Task SetConnectedAsync(bool connected, CancellationToken cancellationToken = default) =>
         await _server.SetConnectedAsync(connected, cancellationToken).ConfigureAwait(false);
+
+    public async Task PublishProfileAsync(string userId, string? avatarUrl, string? color, CancellationToken cancellationToken = default) =>
+        await _server.PublishProfileAsync(userId, avatarUrl, color, cancellationToken).ConfigureAwait(false);
+
+    public async Task PublishClearAsync(ChatClear clear, CancellationToken cancellationToken = default) =>
+        await _server.PublishClearAsync(clear, cancellationToken).ConfigureAwait(false);
+
+    public async Task PublishEmotesAsync(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> providers,
+        CancellationToken cancellationToken = default) =>
+        await _server.PublishEmotesAsync(providers, cancellationToken).ConfigureAwait(false);
 }
 
 public sealed class HostController : IDisposable
@@ -77,6 +88,13 @@ public sealed class HostController : IDisposable
     private readonly ITwitchClient _twitch = new TwitchIrcClient();
     private readonly ITwitchClient _botTwitch = new TwitchIrcClient();
     private readonly TwitchUserProfileCache _twitchUserProfiles = new();
+    private readonly EmoteRegistry _emotes = new();
+    private const int ProfileBatchSize = 100;
+    private const int ProfileFlushDelayMs = 200;
+    private readonly object _profileQueueLock = new();
+    private readonly HashSet<string> _pendingProfileIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _pendingProfileNames = new(StringComparer.Ordinal);
+    private System.Threading.Timer? _profileFlushTimer;
     private readonly RpcDispatcher _dispatcher = new();
     private readonly string _logPath;
 
@@ -433,21 +451,118 @@ public sealed class HostController : IDisposable
         });
     }
 
-    private async Task ResolveTwitchUserProfileAsync(string userId, string username)
+    /// <summary>
+    /// Queues a profile lookup instead of issuing one request per chatter.
+    ///
+    /// The cache batches up to 100 ids per Helix call, but resolving one user at
+    /// a time threw that away - during a raid every new chatter produced its own
+    /// HTTP request. Ids accumulate here and flush on a short debounce, or
+    /// immediately once a full batch is waiting.
+    /// </summary>
+    private void QueueTwitchUserProfile(string userId, string username)
     {
+        lock (_profileQueueLock)
+        {
+            if (!_pendingProfileIds.Add(userId)) return;
+            _pendingProfileNames[userId] = username;
+
+            if (_pendingProfileIds.Count >= ProfileBatchSize)
+            {
+                _profileFlushTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                _ = FlushTwitchUserProfilesAsync();
+                return;
+            }
+
+            _profileFlushTimer ??= new System.Threading.Timer(
+                _ => _ = FlushTwitchUserProfilesAsync(), null, Timeout.Infinite, Timeout.Infinite);
+            _profileFlushTimer.Change(ProfileFlushDelayMs, Timeout.Infinite);
+        }
+    }
+
+    private async Task FlushTwitchUserProfilesAsync()
+    {
+        string[] batch;
+        Dictionary<string, string> names;
+        lock (_profileQueueLock)
+        {
+            if (_pendingProfileIds.Count == 0) return;
+            batch = _pendingProfileIds.Take(ProfileBatchSize).ToArray();
+            names = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var id in batch)
+            {
+                _pendingProfileIds.Remove(id);
+                if (_pendingProfileNames.Remove(id, out var name)) names[id] = name;
+            }
+        }
+
         try
         {
-            var results = await _twitchUserProfiles.ResolveAsync(
-                    new[] { userId },
-                    _twitch.GetUserProfileImagesAsync,
-                    _shutdown)
+            var results = await _twitchUserProfiles
+                .ResolveAsync(batch, _twitch.GetUserProfileImagesAsync, _shutdown)
                 .ConfigureAwait(false);
-            if (results.Count == 1 && results[0].ShouldLogFailure)
+
+            foreach (var result in results)
             {
-                Log("system", $"TWITCH AVATAR LOOKUP FAILED · {username}");
+                if (result.ShouldLogFailure)
+                {
+                    var name = names.TryGetValue(result.UserId, out var value) ? value : result.UserId;
+                    Log("system", $"TWITCH AVATAR LOOKUP FAILED · {name}");
+                }
+                if (string.IsNullOrWhiteSpace(result.AvatarUrl)) continue;
+
+                // Patch the avatar onto messages that were already published
+                // without one, in the app and on the overlay alike.
+                PostEvent(Events.TwitchUserProfile, new { userId = result.UserId, avatarUrl = result.AvatarUrl });
+                await _chatOverlay.PublishProfileAsync(result.UserId, result.AvatarUrl, null, _shutdown).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+        }
+
+        // More arrived while this batch was in flight.
+        bool more;
+        lock (_profileQueueLock) more = _pendingProfileIds.Count > 0;
+        if (more) _profileFlushTimer?.Change(ProfileFlushDelayMs, Timeout.Infinite);
+    }
+
+    /// <summary>
+    /// Loads third-party emote sets and pushes them to the overlay.
+    ///
+    /// Best effort by design: if every provider is unreachable the overlay keeps
+    /// whatever map it already had and those emotes simply render as text.
+    /// </summary>
+    private async Task RefreshEmotesAsync(string broadcasterUserId)
+    {
+        try
+        {
+            var providers = await _emotes.RefreshAsync(broadcasterUserId, _shutdown).ConfigureAwait(false);
+            if (providers.Count == 0) return;
+            await _chatOverlay.PublishEmotesAsync(providers, _shutdown).ConfigureAwait(false);
+            Log("system", $"EMOTES LOADED · {string.Join(", ", providers.Select(p => $"{p.Key} {p.Value.Count}"))}");
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task PublishChatClearAsync(ChatClear clear)
+    {
+        try
+        {
+            PostEvent(Events.TwitchChatCleared, new { scope = clear.Scope.ToString().ToLowerInvariant(), id = clear.Id });
+            await _chatOverlay.PublishClearAsync(clear, _shutdown).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+        }
+        catch
         {
         }
     }
@@ -496,9 +611,10 @@ public sealed class HostController : IDisposable
             _ = PublishChatOverlayMessageAsync(publishedMessage);
             if (!string.IsNullOrWhiteSpace(message.UserId) && !_twitchUserProfiles.TryGet(message.UserId, out _))
             {
-                _ = ResolveTwitchUserProfileAsync(message.UserId, message.Username);
+                QueueTwitchUserProfile(message.UserId, message.Username);
             }
         };
+        _twitch.ChatCleared += clear => _ = PublishChatClearAsync(clear);
         _twitch.Info += info =>
         {
             var message = info.Key switch
@@ -647,9 +763,21 @@ public sealed class HostController : IDisposable
             var script = string.Join(Environment.NewLine, new[]
             {
                 "$ErrorActionPreference = 'Stop'",
-                $"while (Get-Process -Id {currentPid} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 500 }}",
-                $"Start-Process -FilePath {PsQuote(installerPath)} -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS' -Wait",
-                $"Start-Process -FilePath {PsQuote(appPath)}",
+                // Bounded wait. An unbounded loop meant that any failure to exit
+                // hung the update forever and left this script running with it.
+                // If the app somehow outlives the deadline, carry on anyway -
+                // /CLOSEAPPLICATIONS lets the installer deal with it.
+                "$deadline = (Get-Date).AddSeconds(60)",
+                $"while ((Get-Process -Id {currentPid} -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {{ Start-Sleep -Milliseconds 250 }}",
+                "try {",
+                $"  Start-Process -FilePath {PsQuote(installerPath)} -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS' -Wait",
+                "} catch {",
+                "} finally {",
+                // The app is restarted whether the installer succeeded or not,
+                // so a failed update never leaves the user with nothing running.
+                $"  Start-Process -FilePath {PsQuote(appPath)}",
+                "}",
+                $"Remove-Item -LiteralPath {PsQuote(installerPath)} -Force -ErrorAction SilentlyContinue",
                 "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue",
             });
             await File.WriteAllTextAsync(updaterPath, script, ct).ConfigureAwait(false);
@@ -669,7 +797,10 @@ public sealed class HostController : IDisposable
                 {
                     closeTimer.Stop();
                     closeTimer.Dispose();
-                    _form.Close();
+                    // Not Close(): with close-to-tray enabled that is cancelled
+                    // in favour of hiding, the process stays alive, and the
+                    // updater waits forever for it to exit.
+                    _form.ExitForUpdate();
                 };
                 closeTimer.Start();
             });
@@ -702,9 +833,10 @@ public sealed class HostController : IDisposable
         }
 
         var login = tokens.Login;
+        var (validatedLogin, broadcasterUserId) = await TwitchAuth.ValidateAsync(tokens.AccessToken).ConfigureAwait(false);
         if (string.IsNullOrEmpty(login))
         {
-            login = await TwitchAuth.ValidateLoginAsync(tokens.AccessToken).ConfigureAwait(false);
+            login = validatedLogin;
             if (login is null)
             {
                 _authRequired = true;
@@ -719,6 +851,10 @@ public sealed class HostController : IDisposable
         _authRequired = false;
         EmitStatus();
         _twitch.Connect(tokens.AccessToken, login);
+        if (!string.IsNullOrWhiteSpace(broadcasterUserId))
+        {
+            _ = RefreshEmotesAsync(broadcasterUserId);
+        }
         if (_settings.BotAccountEnabled)
         {
             var botTokens = _botTokens.Load();

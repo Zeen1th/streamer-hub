@@ -58,6 +58,8 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     private CancellationTokenSource? _serverCancellation;
     private Task? _acceptLoop;
     private ChatOverlaySettings _settings;
+    private IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> _emoteProviders =
+        new Dictionary<string, IReadOnlyDictionary<string, string>>();
     private bool _connected;
     private int _disposed;
 
@@ -143,6 +145,31 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         await BroadcastAsync(ChatOverlayProtocol.ChatMessage(message with { Id = id }), cancellationToken)
             .ConfigureAwait(false);
         return true;
+    }
+
+    /// <summary>
+    /// Pushes a resolved avatar to the overlay so it can patch messages that
+    /// were already published without one.
+    /// </summary>
+    public async Task PublishProfileAsync(string userId, string? avatarUrl, string? color, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId)) return;
+        await BroadcastAsync(ChatOverlayProtocol.Profile(userId.Trim(), avatarUrl, color), cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PublishClearAsync(ChatClear clear, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(clear);
+        await BroadcastAsync(ChatOverlayProtocol.Clear(clear), cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PublishEmotesAsync(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> providers,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(providers);
+        lock (_stateLock) _emoteProviders = providers;
+        await BroadcastAsync(ChatOverlayProtocol.Emotes(providers), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task UpdateSettingsAsync(ChatOverlaySettings settings, CancellationToken cancellationToken = default)
@@ -343,14 +370,22 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         {
             ChatOverlaySettings settings;
             bool connected;
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emotes;
             lock (_stateLock)
             {
                 settings = _settings;
                 connected = _connected;
+                emotes = _emoteProviders;
             }
 
             await client.SendAsync(ChatOverlayProtocol.Hello(settings, connected), cancellationToken).ConfigureAwait(false);
             await client.SendAsync(ChatOverlayProtocol.Settings(settings), cancellationToken).ConfigureAwait(false);
+            // A reconnecting overlay needs the emote map replayed; it is not
+            // resent otherwise until the next registry refresh.
+            if (emotes.Count > 0)
+            {
+                await client.SendAsync(ChatOverlayProtocol.Emotes(emotes), cancellationToken).ConfigureAwait(false);
+            }
             await client.SendAsync(
                 connected ? ChatOverlayProtocol.Connected() : ChatOverlayProtocol.Disconnected(),
                 cancellationToken).ConfigureAwait(false);

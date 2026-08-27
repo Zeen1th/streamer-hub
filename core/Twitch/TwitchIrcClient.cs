@@ -21,6 +21,7 @@ public sealed class TwitchIrcClient : ITwitchClient
 {
     private static readonly HttpClient Helix = new();
     public event Action<ChatMessage>? ChatMessageReceived;
+    public event Action<ChatClear>? ChatCleared;
     public event Action<TwitchState>? StateChanged;
     public event Action<TwitchInfo>? Info;
 
@@ -315,6 +316,14 @@ public sealed class TwitchIrcClient : ITwitchClient
             Info?.Invoke(new TwitchInfo("notice", colon >= 0 ? line[(colon + 1)..] : line));
             return;
         }
+        if (line.Contains(" CLEARMSG ", StringComparison.Ordinal) || line.Contains(" CLEARCHAT ", StringComparison.Ordinal))
+        {
+            if (TwitchClearParser.TryParse(line, out var clear))
+            {
+                ChatCleared?.Invoke(clear);
+            }
+            return;
+        }
         if (line.Contains(" PRIVMSG ", StringComparison.Ordinal))
         {
             if (!_sawMessage)
@@ -403,6 +412,8 @@ public static class TwitchPrivmsgParser
         string? userId = null;
         string? messageId = null;
         string? displayName = null;
+        string? color = null;
+        IReadOnlyList<EmoteRange> emotes = Array.Empty<EmoteRange>();
         var isBroadcaster = false;
         var isMod = false;
         var isVip = false;
@@ -428,6 +439,14 @@ public static class TwitchPrivmsgParser
                 else if (string.Equals(key, "display-name", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(val))
                 {
                     displayName = val.Trim();
+                }
+                else if (string.Equals(key, "color", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(val))
+                {
+                    color = val.Trim();
+                }
+                else if (string.Equals(key, "emotes", StringComparison.OrdinalIgnoreCase))
+                {
+                    emotes = ParseEmotes(val);
                 }
                 else if (string.Equals(key, "mod", StringComparison.OrdinalIgnoreCase) && val == "1")
                 {
@@ -481,7 +500,99 @@ public static class TwitchPrivmsgParser
             IsSubscriber = isSubscriber,
             Message = messageText,
             Timestamp = timestamp.ToString("O"),
+            Emotes = emotes,
+            Color = color,
         };
         return true;
+    }
+
+    /// <summary>
+    /// Parses the IRC <c>emotes</c> tag, formatted as
+    /// <c>id:start-end,start-end/id2:start-end</c>.
+    ///
+    /// Offsets are code point indices into the message and are passed through
+    /// unchanged; it is the renderer's job to slice by text element.
+    /// </summary>
+    internal static IReadOnlyList<EmoteRange> ParseEmotes(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return Array.Empty<EmoteRange>();
+
+        var ranges = new List<EmoteRange>();
+        foreach (var group in value.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var colon = group.IndexOf(':');
+            if (colon <= 0 || colon == group.Length - 1) continue;
+
+            var id = group[..colon].Trim();
+            if (id.Length == 0) continue;
+
+            foreach (var span in group[(colon + 1)..].Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var dash = span.IndexOf('-');
+                if (dash <= 0) continue;
+                if (!int.TryParse(span[..dash], out var start)) continue;
+                if (!int.TryParse(span[(dash + 1)..], out var end)) continue;
+                if (start < 0 || end < start) continue;
+                ranges.Add(new EmoteRange(id, start, end));
+            }
+        }
+
+        ranges.Sort((a, b) => a.Start.CompareTo(b.Start));
+        return ranges;
+    }
+}
+
+public static class TwitchClearParser
+{
+    /// <summary>
+    /// Parses the moderation commands Twitch sends on the same connection:
+    /// CLEARMSG deletes a single message, CLEARCHAT times out or bans a user
+    /// (or clears the whole room when it carries no target).
+    /// </summary>
+    public static bool TryParse(string line, [NotNullWhen(true)] out ChatClear? clear)
+    {
+        clear = null;
+        if (string.IsNullOrEmpty(line)) return false;
+
+        var isClearMsg = line.Contains(" CLEARMSG ", StringComparison.Ordinal);
+        var isClearChat = line.Contains(" CLEARCHAT ", StringComparison.Ordinal);
+        if (!isClearMsg && !isClearChat) return false;
+
+        var tags = ParseTags(line);
+
+        if (isClearMsg)
+        {
+            // target-msg-id names the single message that was deleted.
+            if (!tags.TryGetValue("target-msg-id", out var messageId) || string.IsNullOrWhiteSpace(messageId)) return false;
+            clear = new ChatClear(ChatClearScope.Message, messageId.Trim());
+            return true;
+        }
+
+        if (tags.TryGetValue("target-user-id", out var userId) && !string.IsNullOrWhiteSpace(userId))
+        {
+            clear = new ChatClear(ChatClearScope.User, userId.Trim());
+            return true;
+        }
+
+        // A CLEARCHAT with no target clears the entire room.
+        clear = new ChatClear(ChatClearScope.All, null);
+        return true;
+    }
+
+    private static Dictionary<string, string> ParseTags(string line)
+    {
+        var tags = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!line.StartsWith('@')) return tags;
+
+        var space = line.IndexOf(' ');
+        if (space <= 1) return tags;
+
+        foreach (var tag in line[1..space].Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = tag.IndexOf('=');
+            if (eq <= 0) continue;
+            tags[tag[..eq]] = tag[(eq + 1)..];
+        }
+        return tags;
     }
 }

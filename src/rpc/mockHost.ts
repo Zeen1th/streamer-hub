@@ -1,6 +1,7 @@
 import type { AutoReply, AutoReplySettings, ChatOverlaySettings, ConnectionStatus, Counter, RpcEnvelope, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
+import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
 
 const STORAGE_KEY = 'streamer-hub-mock-counters';
 const LEGACY_STORAGE_KEY = 'streamer-hub-mock-state';
@@ -9,29 +10,7 @@ const AUTO_REPLY_STORAGE_KEY = 'streamer-hub-mock-auto-replies';
 const AUTO_REPLY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-auto-reply-settings';
 const CHAT_OVERLAY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-chat-overlay-settings';
 const CHAT_OVERLAY_URL = 'http://127.0.0.1:49178/chat-overlay.html';
-const DEFAULT_CHAT_OVERLAY_SETTINGS: ChatOverlaySettings = {
-  enabled: false,
-  maxMessages: 8,
-  durationSeconds: 20,
-  displayMode: 'stacked',
-  fontSize: 24,
-  avatarSize: 32,
-  spacing: 12,
-  showUsernames: true,
-  showAvatars: true,
-  theme: 'dark',
-  messageStyle: 'rounded',
-  animation: 'slide',
-  backgroundOpacity: 85,
-  textShadow: true,
-  fontFamily: 'barlow',
-  avatarShape: 'circle',
-  showBadges: true,
-  compactMode: false,
-  alignment: 'bottom-left',
-  avatarPosition: 'left',
-  scale: 100,
-};
+const DEFAULT_CHAT_OVERLAY_SETTINGS: ChatOverlaySettings = createDefaultChatOverlaySettings();
 
 interface MockSettings {
   clientId: string;

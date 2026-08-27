@@ -5,13 +5,25 @@ public sealed record TwitchUserProfileResult(string UserId, string? AvatarUrl, b
 public sealed class TwitchUserProfileCache
 {
     private const int HelixMaxBatchSize = 100;
-    private readonly Dictionary<string, string?> _avatarUrls = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How long a failed lookup is remembered before it is retried.
+    ///
+    /// Without this, one transient Helix error would cache a null permanently
+    /// and that viewer would have no avatar until the app restarted.
+    /// </summary>
+    private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromMinutes(5);
+
+    private readonly record struct CacheEntry(string? AvatarUrl, DateTimeOffset ResolvedAt);
+
+    private readonly Dictionary<string, CacheEntry> _avatarUrls = new(StringComparer.Ordinal);
     private readonly object _cacheLock = new();
     private readonly HashSet<string> _loggedFailures = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _resolveLock = new(1, 1);
     private readonly int _maxBatchSize;
+    private readonly Func<DateTimeOffset> _clock;
 
-    public TwitchUserProfileCache(int maxBatchSize = HelixMaxBatchSize)
+    public TwitchUserProfileCache(int maxBatchSize = HelixMaxBatchSize, Func<DateTimeOffset>? clock = null)
     {
         if (maxBatchSize is < 1 or > HelixMaxBatchSize)
         {
@@ -19,21 +31,26 @@ public sealed class TwitchUserProfileCache
         }
 
         _maxBatchSize = maxBatchSize;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
     public bool TryGet(string userId, out string? avatarUrl)
     {
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            avatarUrl = null;
-            return false;
-        }
+        avatarUrl = null;
+        if (string.IsNullOrWhiteSpace(userId)) return false;
 
         lock (_cacheLock)
         {
-            return _avatarUrls.TryGetValue(userId.Trim(), out avatarUrl);
+            if (!_avatarUrls.TryGetValue(userId.Trim(), out var entry)) return false;
+            if (IsExpired(entry)) return false;
+            avatarUrl = entry.AvatarUrl;
+            return true;
         }
     }
+
+    /// <summary>Successful lookups are kept indefinitely; failures expire so they are retried.</summary>
+    private bool IsExpired(CacheEntry entry) =>
+        entry.AvatarUrl is null && _clock() - entry.ResolvedAt >= NegativeCacheTtl;
 
     public async Task<IReadOnlyList<TwitchUserProfileResult>> ResolveAsync(
         IEnumerable<string> userIds,
@@ -57,7 +74,9 @@ public sealed class TwitchUserProfileCache
             string[] missingIds;
             lock (_cacheLock)
             {
-                missingIds = requestedIds.Where(userId => !_avatarUrls.ContainsKey(userId)).ToArray();
+                missingIds = requestedIds
+                    .Where(userId => !_avatarUrls.TryGetValue(userId, out var entry) || IsExpired(entry))
+                    .ToArray();
             }
             foreach (var batch in missingIds.Chunk(_maxBatchSize))
             {
@@ -76,13 +95,15 @@ public sealed class TwitchUserProfileCache
                     resolved = new Dictionary<string, string?>(StringComparer.Ordinal);
                 }
 
+                var now = _clock();
                 lock (_cacheLock)
                 {
                     foreach (var userId in batch)
                     {
-                        _avatarUrls[userId] = resolved.TryGetValue(userId, out var avatarUrl) && !string.IsNullOrWhiteSpace(avatarUrl)
-                            ? avatarUrl
+                        var avatarUrl = resolved.TryGetValue(userId, out var candidate) && !string.IsNullOrWhiteSpace(candidate)
+                            ? candidate
                             : null;
+                        _avatarUrls[userId] = new CacheEntry(avatarUrl, now);
                     }
                 }
             }
@@ -92,7 +113,7 @@ public sealed class TwitchUserProfileCache
                 return requestedIds
                     .Select(userId =>
                     {
-                        var avatarUrl = _avatarUrls[userId];
+                        var avatarUrl = _avatarUrls.TryGetValue(userId, out var entry) ? entry.AvatarUrl : null;
                         var shouldLogFailure = avatarUrl is null && _loggedFailures.Add(userId);
                         return new TwitchUserProfileResult(userId, avatarUrl, shouldLogFailure);
                     })

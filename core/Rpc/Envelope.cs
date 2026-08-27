@@ -70,6 +70,10 @@ public static class Events
 {
     public const string CoreStatusChanged = "core/status-changed";
     public const string TwitchChatMessage = "twitch/chat-message";
+    /// <summary>A profile resolved after its message was already published.</summary>
+    public const string TwitchUserProfile = "twitch/user-profile";
+    /// <summary>A moderator deleted a message, timed out a user, or cleared chat.</summary>
+    public const string TwitchChatCleared = "twitch/chat-cleared";
     public const string WindowMaximizedChanged = "window/maximized-changed";
     public const string CoreLog = "core/log";
 }
