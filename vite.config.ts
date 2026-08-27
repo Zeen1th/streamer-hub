@@ -8,6 +8,7 @@ export default defineConfig({
   build: {
     target: 'chrome120',
     outDir: 'dist',
+    manifest: true,
     rollupOptions: {
       input: {
         app: 'index.html',

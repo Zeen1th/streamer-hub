@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using StreamerHub.Core.Rpc;
 
 namespace StreamerHub.Core.Overlay;
@@ -10,6 +11,7 @@ namespace StreamerHub.Core.Overlay;
 public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
 {
     private const int DuplicateWindowSize = 2048;
+    public const int DefaultPort = 49178;
 
     private sealed class ClientConnection : IDisposable
     {
@@ -45,11 +47,13 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     }
 
     private readonly string _assetRoot;
+    private readonly int _preferredPort;
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
     private readonly ConcurrentDictionary<Guid, ClientConnection> _clients = new();
     private readonly object _stateLock = new();
     private readonly HashSet<string> _seenMessageIds = new(StringComparer.Ordinal);
     private readonly Queue<string> _seenMessageOrder = new();
+    private HashSet<string> _allowedAssetPaths = new(StringComparer.Ordinal);
     private HttpListener? _listener;
     private CancellationTokenSource? _serverCancellation;
     private Task? _acceptLoop;
@@ -57,12 +61,18 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     private bool _connected;
     private int _disposed;
 
-    public ChatOverlayServer(string assetRoot, ChatOverlaySettings settings, bool connected = false)
+    public ChatOverlayServer(
+        string assetRoot,
+        ChatOverlaySettings settings,
+        bool connected = false,
+        int preferredPort = DefaultPort)
     {
         if (string.IsNullOrWhiteSpace(assetRoot)) throw new ArgumentException("An overlay asset root is required.", nameof(assetRoot));
+        if (preferredPort is < 0 or > 65535) throw new ArgumentOutOfRangeException(nameof(preferredPort));
         _assetRoot = Path.GetFullPath(assetRoot);
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _connected = connected;
+        _preferredPort = preferredPort;
     }
 
     public int Port { get; private set; }
@@ -80,11 +90,14 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             if (_listener?.IsListening == true) return;
 
             Directory.CreateDirectory(_assetRoot);
+            _allowedAssetPaths = LoadOverlayAssetAllowlist();
             Exception? lastError = null;
             for (var attempt = 0; attempt < 10; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var port = FindAvailableLoopbackPort();
+                var port = attempt == 0 && _preferredPort != 0
+                    ? _preferredPort
+                    : FindAvailableLoopbackPort();
                 var listener = new HttpListener();
                 listener.Prefixes.Add($"http://127.0.0.1:{port}/");
                 try
@@ -266,6 +279,18 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             }
 
             var path = context.Request.Url?.AbsolutePath ?? "/";
+            if (string.Equals(path, "/chat-overlay-health", StringComparison.Ordinal))
+            {
+                context.Response.StatusCode = (int)HttpStatusCode.NoContent;
+                context.Response.Headers[HttpResponseHeader.CacheControl] = "no-store";
+                context.Response.Close();
+                return;
+            }
+            if (string.Equals(path, "/chat-overlay-sw.js", StringComparison.Ordinal))
+            {
+                await ServeRecoveryServiceWorkerAsync(context.Response).ConfigureAwait(false);
+                return;
+            }
             if (string.Equals(path, "/ws", StringComparison.Ordinal))
             {
                 if (!context.Request.IsWebSocketRequest)
@@ -360,9 +385,17 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
 
     private async Task ServeAssetAsync(HttpListenerResponse response, string requestPath, CancellationToken cancellationToken)
     {
-        var relativePath = requestPath is "/" or "/chat-overlay.html"
+        var isOverlayEntry = requestPath is "/" or "/chat-overlay.html";
+        var relativePath = isOverlayEntry
             ? OverlayEntryPath()
-            : Uri.UnescapeDataString(requestPath.TrimStart('/')).Replace('/', Path.DirectorySeparatorChar);
+            : Uri.UnescapeDataString(requestPath.TrimStart('/')).Replace('\\', '/');
+        if (!isOverlayEntry && !_allowedAssetPaths.Contains(relativePath))
+        {
+            await CloseResponseAsync(response, HttpStatusCode.NotFound, "Overlay asset not found.").ConfigureAwait(false);
+            return;
+        }
+
+        relativePath = relativePath.Replace('/', Path.DirectorySeparatorChar);
         var fullPath = Path.GetFullPath(Path.Combine(_assetRoot, relativePath));
         var rootPrefix = _assetRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
         if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath))
@@ -375,7 +408,9 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         response.ContentType = ContentTypeFor(fullPath);
         response.Headers[HttpResponseHeader.CacheControl] = "no-store";
         response.Headers["X-Content-Type-Options"] = "nosniff";
-        var bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
+        var bytes = isOverlayEntry
+            ? Encoding.UTF8.GetBytes(InjectRecoveryRegistration(await File.ReadAllTextAsync(fullPath, cancellationToken).ConfigureAwait(false)))
+            : await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
         response.ContentLength64 = bytes.Length;
         await response.OutputStream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
         response.Close();
@@ -408,6 +443,128 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         File.Exists(Path.Combine(_assetRoot, "chat-overlay.html"))
             ? "chat-overlay.html"
             : Path.Combine("src", "chat-overlay.html");
+
+    private HashSet<string> LoadOverlayAssetAllowlist()
+    {
+        var allowed = new HashSet<string>(StringComparer.Ordinal);
+        var manifestPath = Path.Combine(_assetRoot, ".vite", "manifest.json");
+        if (!File.Exists(manifestPath)) return allowed;
+
+        try
+        {
+            using var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath));
+            var root = manifest.RootElement;
+            var entryKey = root.TryGetProperty("src/chat-overlay.html", out _)
+                ? "src/chat-overlay.html"
+                : root.EnumerateObject()
+                    .FirstOrDefault(property =>
+                        property.Value.TryGetProperty("src", out var source) &&
+                        string.Equals(source.GetString(), "src/chat-overlay.html", StringComparison.Ordinal))
+                    .Name;
+            if (string.IsNullOrEmpty(entryKey)) return allowed;
+
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+
+            void Visit(string key)
+            {
+                if (!visited.Add(key) || !root.TryGetProperty(key, out var entry)) return;
+                AddFile(entry, "file");
+                AddFiles(entry, "css");
+                AddFiles(entry, "assets");
+                VisitEntries(entry, "imports");
+                VisitEntries(entry, "dynamicImports");
+            }
+
+            void AddFile(JsonElement entry, string propertyName)
+            {
+                if (entry.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String)
+                    AddAllowed(value.GetString());
+            }
+
+            void AddFiles(JsonElement entry, string propertyName)
+            {
+                if (!entry.TryGetProperty(propertyName, out var values) || values.ValueKind != JsonValueKind.Array) return;
+                foreach (var value in values.EnumerateArray())
+                    if (value.ValueKind == JsonValueKind.String) AddAllowed(value.GetString());
+            }
+
+            void VisitEntries(JsonElement entry, string propertyName)
+            {
+                if (!entry.TryGetProperty(propertyName, out var values) || values.ValueKind != JsonValueKind.Array) return;
+                foreach (var value in values.EnumerateArray())
+                    if (value.ValueKind == JsonValueKind.String && value.GetString() is { } key) Visit(key);
+            }
+
+            void AddAllowed(string? relativePath)
+            {
+                if (string.IsNullOrWhiteSpace(relativePath)) return;
+                var normalized = relativePath.Replace('\\', '/').TrimStart('/');
+                if (!normalized.StartsWith("assets/", StringComparison.Ordinal) || normalized.Contains("..", StringComparison.Ordinal)) return;
+                var fullPath = Path.GetFullPath(Path.Combine(_assetRoot, normalized.Replace('/', Path.DirectorySeparatorChar)));
+                var rootPrefix = _assetRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath))
+                    allowed.Add(normalized);
+            }
+
+            Visit(entryKey);
+        }
+        catch (JsonException)
+        {
+        }
+
+        return allowed;
+    }
+
+    private static string InjectRecoveryRegistration(string html)
+    {
+        const string registration = "<script>if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/chat-overlay-sw.js').catch(() => {}); }</script>";
+        return html.Contains("</body>", StringComparison.OrdinalIgnoreCase)
+            ? html.Replace("</body>", registration + "</body>", StringComparison.OrdinalIgnoreCase)
+            : html + registration;
+    }
+
+    private static async Task ServeRecoveryServiceWorkerAsync(HttpListenerResponse response)
+    {
+        var bytes = Encoding.UTF8.GetBytes(RecoveryServiceWorker);
+        response.StatusCode = (int)HttpStatusCode.OK;
+        response.ContentType = "text/javascript; charset=utf-8";
+        response.Headers[HttpResponseHeader.CacheControl] = "no-cache";
+        response.Headers["Service-Worker-Allowed"] = "/";
+        response.Headers["X-Content-Type-Options"] = "nosniff";
+        response.ContentLength64 = bytes.Length;
+        await response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+        response.Close();
+    }
+
+    private const string RecoveryServiceWorker = """
+        const recoveryHtml = `<!doctype html>
+        <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Streamer Hub is not running</title><style>
+        html,body{height:100%;margin:0;background:transparent;color:#f7f4ee;font-family:system-ui,sans-serif}
+        body{display:flex;align-items:flex-end;padding:32px;box-sizing:border-box}
+        main{max-width:520px;padding:18px 20px;border:1px solid rgba(255,255,255,.12);border-left:4px solid #8b5cf6;border-radius:12px;background:rgba(16,18,24,.9);box-shadow:0 12px 32px rgba(0,0,0,.28)}
+        h1{margin:0 0 5px;font-size:18px}p{margin:0;color:#b9bec8;font-size:14px;line-height:1.4}
+        </style></head><body><main role="status"><h1>Streamer Hub is not running</h1>
+        <p>Open Streamer Hub to restore this chat overlay. This page will reconnect automatically.</p></main>
+        <script>setInterval(async()=>{try{const response=await fetch('/chat-overlay-health',{cache:'no-store'});if(response.status===204)location.reload()}catch{}},2000)</script>
+        </body></html>`;
+
+        self.addEventListener('install', () => self.skipWaiting());
+        self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+        self.addEventListener('fetch', event => {
+          const url = new URL(event.request.url);
+          if (event.request.mode === 'navigate' && url.origin === self.location.origin &&
+              (url.pathname === '/' || url.pathname === '/chat-overlay.html')) {
+            event.respondWith(fetch(event.request).then(response => {
+              if (response.ok) return response;
+              throw new Error('overlay unavailable');
+            }).catch(() => new Response(recoveryHtml, {
+              status: 200,
+              headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+            })));
+          }
+        });
+        """;
 
     private static string ContentTypeFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {

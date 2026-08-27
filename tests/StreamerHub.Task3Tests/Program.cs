@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -14,6 +15,9 @@ await RunAsync("broadcasts_chat_settings_and_connection_changes", BroadcastsChat
 await RunAsync("reconnect_gets_state_without_replaying_messages", ReconnectGetsStateWithoutReplayingMessagesAsync);
 await RunAsync("duplicate_chat_message_ids_are_suppressed", DuplicateChatMessageIdsAreSuppressedAsync);
 await RunAsync("server_stops_accepting_requests", ServerStopsAcceptingRequestsAsync);
+await RunAsync("overlay_bootstrap_installs_offline_recovery", OverlayBootstrapInstallsOfflineRecoveryAsync);
+await RunAsync("static_routes_only_serve_overlay_manifest_assets", StaticRoutesOnlyServeOverlayManifestAssetsAsync);
+await RunAsync("existing_obs_url_recovers_after_server_restart", ExistingObsUrlRecoversAfterServerRestartAsync);
 
 if (failures.Count > 0)
 {
@@ -142,6 +146,70 @@ async Task ServerStopsAcceptingRequestsAsync()
     }
 }
 
+async Task OverlayBootstrapInstallsOfflineRecoveryAsync()
+{
+    await using var fixture = await ServerFixture.StartAsync();
+    using var overlay = await fixture.Http.GetAsync(fixture.Server.OverlayUrl);
+    var overlayHtml = await overlay.Content.ReadAsStringAsync();
+    AssertContains(overlayHtml, "navigator.serviceWorker.register('/chat-overlay-sw.js')", "service worker registration");
+
+    using var worker = await fixture.Http.GetAsync(new Uri(fixture.Server.OverlayUrl, "/chat-overlay-sw.js"));
+    AssertEqual(HttpStatusCode.OK, worker.StatusCode, "recovery service worker status");
+    var workerScript = await worker.Content.ReadAsStringAsync();
+    AssertContains(workerScript, "Streamer Hub is not running", "offline recovery message");
+    AssertContains(workerScript, "/chat-overlay-health", "recovery health probe");
+    AssertContains(workerScript, "event.request.mode === 'navigate'", "navigation fallback");
+
+    using var health = await fixture.Http.GetAsync(new Uri(fixture.Server.OverlayUrl, "/chat-overlay-health"));
+    AssertEqual(HttpStatusCode.NoContent, health.StatusCode, "recovery health status");
+}
+
+async Task StaticRoutesOnlyServeOverlayManifestAssetsAsync()
+{
+    await using var fixture = await ServerFixture.StartAsync();
+    using var requiredAsset = await fixture.Http.GetAsync(new Uri(fixture.Server.OverlayUrl, "/assets/chatOverlay-required.js"));
+    AssertEqual(HttpStatusCode.OK, requiredAsset.StatusCode, "required overlay asset");
+
+    using var appIndex = await fixture.Http.GetAsync(new Uri(fixture.Server.OverlayUrl, "/index.html"));
+    AssertEqual(HttpStatusCode.NotFound, appIndex.StatusCode, "main app index must not be exposed");
+
+    using var unrelatedAsset = await fixture.Http.GetAsync(new Uri(fixture.Server.OverlayUrl, "/assets/unrelated.js"));
+    AssertEqual(HttpStatusCode.NotFound, unrelatedAsset.StatusCode, "unrelated asset must not be exposed");
+
+    using var manifest = await fixture.Http.GetAsync(new Uri(fixture.Server.OverlayUrl, "/.vite/manifest.json"));
+    AssertEqual(HttpStatusCode.NotFound, manifest.StatusCode, "build manifest must not be exposed");
+}
+
+async Task ExistingObsUrlRecoversAfterServerRestartAsync()
+{
+    var preferredPort = FindAvailableTestPort();
+    await using var fixture = await ServerFixture.StartAsync(preferredPort);
+    var originalUrl = fixture.Server.OverlayUrl;
+    AssertEqual(preferredPort, fixture.Server.Port, "preferred loopback port");
+    await fixture.Server.StopAsync();
+
+    await using var restarted = new ChatOverlayServer(
+        fixture.AssetRoot,
+        new ChatOverlaySettings(),
+        preferredPort: preferredPort);
+    await restarted.StartAsync();
+    AssertEqual(originalUrl, restarted.OverlayUrl, "OBS overlay URL after app restart");
+
+    using var recoveredOverlay = await fixture.Http.GetAsync(originalUrl);
+    AssertEqual(HttpStatusCode.OK, recoveredOverlay.StatusCode, "existing OBS URL after app restart");
+    AssertContains(
+        await recoveredOverlay.Content.ReadAsStringAsync(),
+        "overlay-bootstrap",
+        "overlay content after app restart");
+}
+
+static int FindAvailableTestPort()
+{
+    using var listener = new TcpListener(IPAddress.Loopback, 0);
+    listener.Start();
+    return ((IPEndPoint)listener.LocalEndpoint).Port;
+}
+
 static ChatMessage SampleMessage(string id) => new()
 {
     Id = id,
@@ -252,13 +320,39 @@ sealed class ServerFixture : IAsyncDisposable
 
     public ChatOverlayServer Server { get; }
     public HttpClient Http { get; }
+    public string AssetRoot => _assetRoot;
 
-    public static async Task<ServerFixture> StartAsync()
+    public static async Task<ServerFixture> StartAsync(int? preferredPort = null)
     {
         var assetRoot = Path.Combine(Path.GetTempPath(), $"streamer-hub-overlay-tests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(assetRoot);
+        Directory.CreateDirectory(Path.Combine(assetRoot, "assets"));
+        Directory.CreateDirectory(Path.Combine(assetRoot, ".vite"));
         await File.WriteAllTextAsync(Path.Combine(assetRoot, "chat-overlay.html"), "<!doctype html><div id=\"overlay-bootstrap\">overlay-bootstrap</div>");
-        var server = new ChatOverlayServer(assetRoot, new ChatOverlaySettings());
+        await File.WriteAllTextAsync(Path.Combine(assetRoot, "index.html"), "<!doctype html><div>main app</div>");
+        await File.WriteAllTextAsync(Path.Combine(assetRoot, "assets", "chatOverlay-required.js"), "export const overlay = true;");
+        await File.WriteAllTextAsync(Path.Combine(assetRoot, "assets", "unrelated.js"), "export const unrelated = true;");
+        await File.WriteAllTextAsync(
+            Path.Combine(assetRoot, ".vite", "manifest.json"),
+            """
+            {
+              "src/chat-overlay.html": {
+                "file": "assets/chatOverlay-required.js",
+                "name": "chatOverlay",
+                "src": "src/chat-overlay.html",
+                "isEntry": true
+              },
+              "index.html": {
+                "file": "assets/unrelated.js",
+                "name": "app",
+                "src": "index.html",
+                "isEntry": true
+              }
+            }
+            """);
+        var server = preferredPort.HasValue
+            ? new ChatOverlayServer(assetRoot, new ChatOverlaySettings(), preferredPort: preferredPort.Value)
+            : new ChatOverlayServer(assetRoot, new ChatOverlaySettings());
         await server.StartAsync();
         return new ServerFixture(assetRoot, server);
     }
