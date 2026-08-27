@@ -100,28 +100,136 @@ export type ChatOverlayAlignment = 'bottom-left' | 'bottom-right' | 'top-left' |
 
 export type ChatOverlayAvatarPosition = 'left' | 'right';
 
-export interface ChatOverlaySettings {
-  enabled: boolean;
+/** The reference coordinate space the overlay is designed in. */
+export const CHAT_OVERLAY_CANVAS = { width: 1920, height: 1080 } as const;
+
+export type ChatOverlayFlowDirection = 'up' | 'down';
+export type ChatOverlayShadow = 'off' | 'soft' | 'hard';
+export type ChatOverlayColorMode = 'role' | 'custom';
+export type ChatOverlayUsernameColorMode = 'role' | 'twitch' | 'custom';
+export type ChatOverlayTextTransform = 'none' | 'uppercase' | 'lowercase';
+export type ChatOverlayUsernamePosition = 'above' | 'inline';
+export type ChatOverlayWrapMode = 'normal' | 'break-anywhere' | 'clip';
+export type ChatOverlayBadgeStyle = 'text' | 'icon';
+export type ChatOverlayBlockedWordAction = 'drop' | 'mask';
+
+export interface ChatOverlayFontChoice {
+  family: ChatOverlayFontFamily | 'custom';
+  /** Only meaningful when `family` is 'custom'. Passed through to CSS font-family. */
+  customName: string;
+}
+
+export interface ChatOverlayBlock {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  anchor: ChatOverlayAlignment;
+}
+
+export interface ChatOverlayFlow {
   maxMessages: number;
+  /** 0 means messages never expire. Otherwise 3..600. */
   durationSeconds: number;
   displayMode: ChatOverlayDisplayMode;
-  fontSize: number;
-  avatarSize: number;
-  spacing: number;
-  showUsernames: boolean;
-  showAvatars: boolean;
-  theme: ChatOverlayTheme;
-  messageStyle: ChatOverlayMessageStyle;
-  animation: ChatOverlayAnimation;
-  backgroundOpacity: number;
-  textShadow: boolean;
-  fontFamily: ChatOverlayFontFamily;
-  avatarShape: ChatOverlayAvatarShape;
-  showBadges: boolean;
-  compactMode: boolean;
-  alignment: ChatOverlayAlignment;
-  avatarPosition: ChatOverlayAvatarPosition;
-  scale: number;
+  direction: ChatOverlayFlowDirection;
+  gap: number;
+  /** Percent. Multiplies every pixel dimension before it reaches CSS. */
+  sizeScale: number;
+}
+
+export interface ChatOverlayBubble {
+  background: { color: string; alpha: number };
+  border: { width: number; color: string; radius: number };
+  padding: { x: number; y: number };
+  shadow: ChatOverlayShadow;
+  shadowColor: string;
+  /** Backdrop blur in px. 0 disables the filter entirely. */
+  blur: number;
+  accent: { width: number; colorMode: ChatOverlayColorMode; color: string };
+}
+
+export interface ChatOverlayUsernameStyle {
+  show: boolean;
+  font: ChatOverlayFontChoice;
+  size: number;
+  weight: number;
+  letterSpacing: number;
+  colorMode: ChatOverlayUsernameColorMode;
+  color: string;
+  transform: ChatOverlayTextTransform;
+  position: ChatOverlayUsernamePosition;
+}
+
+export interface ChatOverlayTextStyle {
+  font: ChatOverlayFontChoice;
+  size: number;
+  weight: number;
+  color: string;
+  lineHeight: number;
+  letterSpacing: number;
+  shadow: boolean;
+  wrapMode: ChatOverlayWrapMode;
+  /** 0 fills the block width. */
+  maxWidth: number;
+}
+
+export interface ChatOverlayAvatarStyle {
+  show: boolean;
+  size: number;
+  shape: ChatOverlayAvatarShape;
+  position: ChatOverlayAvatarPosition;
+  borderWidth: number;
+  borderColorMode: ChatOverlayColorMode;
+  borderColor: string;
+}
+
+export interface ChatOverlayBadgeStyleSettings {
+  show: boolean;
+  style: ChatOverlayBadgeStyle;
+  size: number;
+}
+
+export interface ChatOverlayEmoteSettings {
+  twitch: boolean;
+  bttv: boolean;
+  ffz: boolean;
+  sevenTv: boolean;
+  /** Percent, relative to text size. */
+  sizeScale: number;
+  /** Percent, extra scale applied when a message contains only emotes. */
+  emoteOnlyScale: number;
+}
+
+export interface ChatOverlayFilterSettings {
+  blockedUsernames: string[];
+  hideCommands: boolean;
+  hideBots: boolean;
+  botList: string[];
+  blockedWords: string[];
+  blockedWordAction: ChatOverlayBlockedWordAction;
+  /** 0 disables the check. */
+  minLength: number;
+}
+
+export interface ChatOverlayAnimationSettings {
+  kind: ChatOverlayAnimation;
+  durationMs: number;
+}
+
+export interface ChatOverlaySettings {
+  version: 2;
+  enabled: boolean;
+  block: ChatOverlayBlock;
+  flow: ChatOverlayFlow;
+  bubble: ChatOverlayBubble;
+  username: ChatOverlayUsernameStyle;
+  text: ChatOverlayTextStyle;
+  avatar: ChatOverlayAvatarStyle;
+  badges: ChatOverlayBadgeStyleSettings;
+  emotes: ChatOverlayEmoteSettings;
+  filters: ChatOverlayFilterSettings;
+  animation: ChatOverlayAnimationSettings;
 }
 
 export interface UpdateState {
@@ -131,6 +239,17 @@ export interface UpdateState {
   releaseUrl: string;
   downloadUrl?: string;
   releaseNotes?: string;
+}
+
+/**
+ * A Twitch emote occurrence from the IRC `emotes` tag.
+ * `start` and `end` are INCLUSIVE code-point offsets into the message, not
+ * UTF-16 code-unit offsets. Slicing must iterate `[...text]`.
+ */
+export interface EmoteRange {
+  id: string;
+  start: number;
+  end: number;
 }
 
 export interface ChatMessage {
@@ -144,6 +263,10 @@ export interface ChatMessage {
   isSubscriber: boolean;
   message: string;
   timestamp: string;
+  /** From the IRC `emotes` tag. Absent or empty when the message has none. */
+  emotes?: EmoteRange[];
+  /** From the IRC `color` tag. Absent when the user has not set one. */
+  color?: string;
 }
 
 export interface ConnectionStatus {

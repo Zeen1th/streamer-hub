@@ -1,12 +1,24 @@
+import { useState } from 'react';
 import { Tv } from 'lucide-react';
 import { t } from '../../../i18n/translations';
 import { useSettingsStore } from '../../../store/settingsStore';
-import { ChatPreview } from './ChatPreview';
+import type { ChatOverlayPart } from '../../../overlay/ChatMessageCard';
+import { ChatCanvas, type CanvasMode } from './ChatCanvas';
 import { ChatSettingsPanel } from './ChatSettingsPanel';
+import { useSettingsHistory } from './useSettingsHistory';
 
 export function ChatView() {
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
+
+  const [mode, setMode] = useState<CanvasMode>('preview');
+  const [selectedPart, setSelectedPart] = useState<ChatOverlayPart | null>(null);
+  const { undo, redo, canUndo, canRedo } = useSettingsHistory();
+
+  const changeMode = (next: CanvasMode) => {
+    setMode(next);
+    if (next === 'preview') setSelectedPart(null);
+  };
 
   return (
     <div>
@@ -26,14 +38,21 @@ export function ChatView() {
       </header>
 
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-12">
-        {/* Live Preview Panel */}
-        <div className="xl:col-span-7 flex flex-col min-h-[520px]">
-          <ChatPreview />
+        <div className="xl:col-span-7 flex flex-col min-h-[560px]">
+          <ChatCanvas
+            mode={mode}
+            onModeChange={changeMode}
+            selectedPart={selectedPart}
+            onSelectPart={setSelectedPart}
+            onUndo={undo}
+            onRedo={redo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+          />
         </div>
 
-        {/* Customization & Settings Panel */}
-        <div className="xl:col-span-5">
-          <ChatSettingsPanel />
+        <div className="xl:col-span-5 max-h-[calc(100vh-14rem)]">
+          <ChatSettingsPanel selectedPart={selectedPart} />
         </div>
       </div>
     </div>

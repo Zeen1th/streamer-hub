@@ -1,0 +1,287 @@
+/*
+ * The one overlay stylesheet, shared by the OBS renderer and the in-app editor.
+ *
+ * RULE: no literal colours, sizes, radii, or shadows below. Every visual value
+ * reads a custom property emitted by tokens.ts. The only exception is the role
+ * palette, which is a fixed semantic scale rather than a user setting.
+ */
+
+.co-canvas {
+  --co-role-broadcaster: #f43f5e;
+  --co-role-moderator: #22c55e;
+  --co-role-vip: #ec4899;
+  --co-role-subscriber: #38bdf8;
+  --co-role-viewer: #8b5cf6;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.co-block {
+  display: flex;
+  overflow: hidden;
+}
+
+/* Message flow ------------------------------------------------------------ */
+
+.co-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--co-gap);
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* New messages enter at the bottom and push older ones up. */
+.co-block[data-direction='up'] .co-list {
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+.co-block[data-direction='down'] .co-list {
+  justify-content: flex-start;
+  margin-bottom: auto;
+}
+
+/* Message card ------------------------------------------------------------ */
+
+.co-message {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--co-bubble-pad-x);
+  align-items: center;
+  padding: var(--co-bubble-pad-y) var(--co-bubble-pad-x);
+  overflow: hidden;
+  border: var(--co-bubble-border-width) solid var(--co-bubble-border-color);
+  border-radius: var(--co-bubble-radius);
+  background: var(--co-bubble-bg);
+  box-shadow: var(--co-bubble-shadow);
+  backdrop-filter: var(--co-bubble-blur);
+}
+
+.co-message[data-role='broadcaster'] { --co-role-color: var(--co-role-broadcaster); }
+.co-message[data-role='moderator'] { --co-role-color: var(--co-role-moderator); }
+.co-message[data-role='vip'] { --co-role-color: var(--co-role-vip); }
+.co-message[data-role='subscriber'] { --co-role-color: var(--co-role-subscriber); }
+.co-message[data-role='viewer'] { --co-role-color: var(--co-role-viewer); }
+
+/* Avatar on the right flips the grid rather than reordering the DOM, so the
+   reading order stays username-then-message for assistive tech. */
+.co-message[data-avatar='right'] { grid-template-columns: minmax(0, 1fr) auto; }
+.co-message[data-avatar='right'] .co-avatar { order: 2; }
+.co-message[data-avatar='none'] { grid-template-columns: minmax(0, 1fr); }
+
+.co-accent {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: var(--co-accent-width);
+  background: var(--co-accent-color);
+  pointer-events: none;
+}
+
+.co-message[data-card-dir='rtl'] { direction: rtl; text-align: right; }
+.co-message[data-card-dir='ltr'] { direction: ltr; text-align: left; }
+
+/* Avatar ------------------------------------------------------------------ */
+
+.co-avatar {
+  width: var(--co-avatar-size);
+  height: var(--co-avatar-size);
+  border: var(--co-avatar-border-width) solid var(--co-avatar-border-color);
+  border-radius: var(--co-avatar-radius);
+  object-fit: cover;
+  flex-shrink: 0;
+  transition: opacity 220ms ease;
+}
+
+/* Avatars arrive after the message when a viewer chats for the first time. */
+.co-avatar[data-pending='true'] { opacity: 0.55; }
+
+/* Copy -------------------------------------------------------------------- */
+
+.co-copy {
+  min-width: 0;
+  unicode-bidi: isolate;
+}
+
+.co-copy[data-dir='rtl'] { direction: rtl; text-align: right; }
+.co-copy[data-dir='ltr'] { direction: ltr; text-align: left; }
+
+.co-header {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--co-bubble-pad-x) * 0.4);
+  flex-wrap: wrap;
+  unicode-bidi: isolate;
+}
+
+.co-username {
+  font-family: var(--co-username-font);
+  font-size: var(--co-username-size);
+  font-weight: var(--co-username-weight);
+  letter-spacing: var(--co-username-spacing);
+  text-transform: var(--co-username-transform);
+  color: var(--co-username-color);
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+  display: inline-block;
+}
+
+.co-badge {
+  font-family: var(--co-username-font);
+  font-size: var(--co-badge-size);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.1em 0.5em;
+  border-radius: 0.4em;
+  border: 1px solid var(--co-role-color);
+  color: var(--co-role-color);
+  background: transparent;
+  line-height: 1.2;
+  unicode-bidi: isolate;
+  display: inline-block;
+}
+
+.co-text {
+  margin: 0;
+  max-width: var(--co-text-max-width);
+  font-family: var(--co-text-font);
+  font-size: var(--co-text-size);
+  font-weight: var(--co-text-weight);
+  color: var(--co-text-color);
+  line-height: var(--co-text-line-height);
+  letter-spacing: var(--co-text-spacing);
+  unicode-bidi: isolate;
+}
+
+.co-text[data-dir='rtl'] { direction: rtl; text-align: right; }
+.co-text[data-dir='ltr'] { direction: ltr; text-align: left; }
+
+/* Wrap modes -------------------------------------------------------------- */
+
+.co-block[data-wrap='normal'] .co-text { overflow-wrap: normal; word-break: normal; text-wrap: pretty; }
+.co-block[data-wrap='break-anywhere'] .co-text { overflow-wrap: anywhere; word-break: break-word; }
+.co-block[data-wrap='clip'] .co-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Inline username sits before the text rather than on its own line. */
+.co-block[data-username-position='inline'] .co-header {
+  display: inline;
+  margin-inline-end: 0.4em;
+}
+.co-block[data-username-position='inline'] .co-username::after { content: ':'; }
+
+.co-body { unicode-bidi: isolate; display: inline; }
+
+.co-block[data-text-shadow='true'] .co-username,
+.co-block[data-text-shadow='true'] .co-text {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+/* Emotes ------------------------------------------------------------------ */
+
+.co-emote {
+  height: var(--co-emote-size);
+  width: auto;
+  vertical-align: middle;
+  /* Keeps emotes from being reordered inside right-to-left message text. */
+  unicode-bidi: isolate;
+  display: inline-block;
+  object-fit: contain;
+}
+
+.co-text[data-emote-only='true'] .co-emote {
+  height: calc(var(--co-emote-size) * var(--co-emote-only-scale));
+}
+
+/* Animations -------------------------------------------------------------- */
+
+.co-message[data-animation='slide'] {
+  animation: co-slide var(--co-anim-duration) cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+.co-message[data-animation='fade'] {
+  animation: co-fade var(--co-anim-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.co-message[data-animation='pop'] {
+  animation: co-pop var(--co-anim-duration) cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.co-message[data-animation='glow'] {
+  animation: co-glow var(--co-anim-duration) ease-out both;
+}
+.co-message[data-animation='flip'] {
+  animation: co-flip var(--co-anim-duration) cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.co-message[data-animation='off'] { animation: none !important; }
+
+@keyframes co-slide {
+  0% { opacity: 0; transform: translate3d(-90px, 0, 0) scale(0.85); }
+  70% { opacity: 1; transform: translate3d(8px, 0, 0) scale(1.02); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes co-fade {
+  0% { opacity: 0; filter: blur(12px); transform: translateY(32px); }
+  100% { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+
+@keyframes co-pop {
+  0% { opacity: 0; transform: scale(0.1); }
+  55% { opacity: 1; transform: scale(1.22); }
+  80% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+@keyframes co-glow {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.9);
+    filter: brightness(2.6) drop-shadow(0 0 35px var(--co-role-color));
+  }
+  60% { opacity: 1; filter: brightness(1.8) drop-shadow(0 0 20px var(--co-role-color)); }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: brightness(1) drop-shadow(0 0 0 transparent);
+  }
+}
+
+@keyframes co-flip {
+  0% {
+    opacity: 0;
+    transform: perspective(800px) rotateX(-80deg) translateY(-30px);
+    transform-origin: top center;
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(800px) rotateX(0deg) translateY(0);
+    transform-origin: top center;
+  }
+}
+
+.co-message[data-leaving='true'] {
+  animation: co-leave 200ms ease-in both;
+}
+
+@keyframes co-leave {
+  to { opacity: 0; transform: scale(0.96); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .co-message { animation: none !important; }
+}
