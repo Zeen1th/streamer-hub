@@ -84,7 +84,7 @@
   inset-block: 0;
   inset-inline-start: 0;
   width: var(--co-accent-width);
-  background: var(--co-accent-color);
+  background: var(--co-accent-custom, var(--co-role-color));
   pointer-events: none;
 }
 
@@ -96,7 +96,7 @@
 .co-avatar {
   width: var(--co-avatar-size);
   height: var(--co-avatar-size);
-  border: var(--co-avatar-border-width) solid var(--co-avatar-border-color);
+  border: var(--co-avatar-border-width) solid var(--co-avatar-border-custom, var(--co-role-color));
   border-radius: var(--co-avatar-radius);
   object-fit: cover;
   flex-shrink: 0;
@@ -130,7 +130,7 @@
   font-weight: var(--co-username-weight);
   letter-spacing: var(--co-username-spacing);
   text-transform: var(--co-username-transform);
-  color: var(--co-username-color);
+  color: var(--co-username-custom, var(--co-role-color));
   line-height: 1.1;
   overflow: hidden;
   text-overflow: ellipsis;

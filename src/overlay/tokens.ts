@@ -94,22 +94,31 @@ export function settingsToCssVars(settings: ChatOverlaySettings): CSSProperties 
   const s = settings.flow.sizeScale / 100;
   const px = (value: number) => `${round(value * s)}px`;
 
-  const accentColor =
-    settings.bubble.accent.colorMode === 'role'
-      ? 'var(--co-role-color)'
-      : settings.bubble.accent.color;
+  /*
+   * Role colours are NOT referenced from here.
+   *
+   * `--co-role-color` is defined per message (it depends on data-role), while
+   * these tokens are declared on the canvas. A custom property's value is
+   * substituted at its own declaration site, so `--co-x: var(--co-role-color)`
+   * written here resolves against the canvas - where the role colour does not
+   * exist - and computes to the guaranteed-invalid value, silently falling back
+   * to inherited text colour.
+   *
+   * Instead each "custom" override is emitted only when the user actually chose
+   * one, and the stylesheet expresses the fallback at the point of use:
+   *   color: var(--co-username-custom, var(--co-role-color))
+   * which resolves inside the message, where the role colour is in scope.
+   */
+  const accentCustom =
+    settings.bubble.accent.colorMode === 'custom' ? settings.bubble.accent.color : undefined;
 
-  const avatarBorderColor =
-    settings.avatar.borderColorMode === 'role'
-      ? 'var(--co-role-color)'
-      : settings.avatar.borderColor;
+  const avatarBorderCustom =
+    settings.avatar.borderColorMode === 'custom' ? settings.avatar.borderColor : undefined;
 
-  // 'twitch' resolves per-message (the user's chat colour), so it falls back to
-  // the role colour here and is overridden on the element when available.
-  const usernameColor =
-    settings.username.colorMode === 'custom'
-      ? settings.username.color
-      : 'var(--co-role-color)';
+  // 'twitch' resolves per message from the user's own chat colour, applied
+  // inline on the element, so it needs no token here.
+  const usernameCustom =
+    settings.username.colorMode === 'custom' ? settings.username.color : undefined;
 
   return {
     '--co-gap': px(settings.flow.gap),
@@ -124,13 +133,13 @@ export function settingsToCssVars(settings: ChatOverlaySettings): CSSProperties 
     '--co-bubble-blur': settings.bubble.blur > 0 ? `blur(${px(settings.bubble.blur)})` : 'none',
 
     '--co-accent-width': px(settings.bubble.accent.width),
-    '--co-accent-color': accentColor,
+    '--co-accent-custom': accentCustom,
 
     '--co-username-font': resolveFontStack(settings.username.font),
     '--co-username-size': px(settings.username.size),
     '--co-username-weight': `${settings.username.weight}`,
     '--co-username-spacing': `${round(settings.username.letterSpacing, 3)}em`,
-    '--co-username-color': usernameColor,
+    '--co-username-custom': usernameCustom,
     '--co-username-transform': settings.username.transform,
 
     '--co-text-font': resolveFontStack(settings.text.font),
@@ -144,7 +153,7 @@ export function settingsToCssVars(settings: ChatOverlaySettings): CSSProperties 
     '--co-avatar-size': px(settings.avatar.size),
     '--co-avatar-radius': AVATAR_RADII[settings.avatar.shape] ?? '50%',
     '--co-avatar-border-width': px(settings.avatar.borderWidth),
-    '--co-avatar-border-color': avatarBorderColor,
+    '--co-avatar-border-custom': avatarBorderCustom,
 
     '--co-badge-size': px(settings.badges.size),
 

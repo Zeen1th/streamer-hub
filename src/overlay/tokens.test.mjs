@@ -68,16 +68,38 @@ test('the block rect is placement, so it is not affected by sizeScale', () => {
 
 // --- colour modes ----------------------------------------------------------
 
-test('role colour modes defer to the per-message role variable', () => {
+/**
+ * Role colours must never be referenced from a token declared on the canvas.
+ * `--co-x: var(--co-role-color)` is substituted at its own declaration site,
+ * where the per-message role colour is not in scope, so it computes to the
+ * guaranteed-invalid value and the property silently falls back to inherited.
+ * The stylesheet expresses the fallback at the point of use instead.
+ */
+test('role colour modes emit no token at all, leaving the CSS fallback to apply', () => {
   const settings = base();
   settings.bubble.accent.colorMode = 'role';
   settings.avatar.borderColorMode = 'role';
   settings.username.colorMode = 'role';
 
   const vars = settingsToCssVars(settings);
-  assert.equal(vars['--co-accent-color'], 'var(--co-role-color)');
-  assert.equal(vars['--co-avatar-border-color'], 'var(--co-role-color)');
-  assert.equal(vars['--co-username-color'], 'var(--co-role-color)');
+  assert.equal(vars['--co-accent-custom'], undefined);
+  assert.equal(vars['--co-avatar-border-custom'], undefined);
+  assert.equal(vars['--co-username-custom'], undefined);
+});
+
+test('no token may reference the per-message role colour', () => {
+  const settings = base();
+  settings.bubble.accent.colorMode = 'role';
+  settings.username.colorMode = 'role';
+  settings.avatar.borderColorMode = 'role';
+
+  for (const [name, value] of Object.entries(settingsToCssVars(settings))) {
+    assert.equal(
+      String(value).includes('--co-role-color'),
+      false,
+      `${name} references the role colour from the canvas, where it is out of scope`,
+    );
+  }
 });
 
 test('custom colour modes emit the literal colour', () => {
@@ -86,17 +108,19 @@ test('custom colour modes emit the literal colour', () => {
   settings.bubble.accent.color = '#123456';
   settings.username.colorMode = 'custom';
   settings.username.color = '#abcdef';
+  settings.avatar.borderColorMode = 'custom';
+  settings.avatar.borderColor = '#fedcba';
 
   const vars = settingsToCssVars(settings);
-  assert.equal(vars['--co-accent-color'], '#123456');
-  assert.equal(vars['--co-username-color'], '#abcdef');
+  assert.equal(vars['--co-accent-custom'], '#123456');
+  assert.equal(vars['--co-username-custom'], '#abcdef');
+  assert.equal(vars['--co-avatar-border-custom'], '#fedcba');
 });
 
-test('twitch username colour falls back to the role variable at the token level', () => {
+test('twitch username colour emits no token; it is applied per message', () => {
   const settings = base();
   settings.username.colorMode = 'twitch';
-  // The per-message colour is applied on the element, not here.
-  assert.equal(settingsToCssVars(settings)['--co-username-color'], 'var(--co-role-color)');
+  assert.equal(settingsToCssVars(settings)['--co-username-custom'], undefined);
 });
 
 // --- switching things off --------------------------------------------------

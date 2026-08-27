@@ -1,4 +1,8 @@
 import React from 'react';
+// The stylesheet is imported by the component that owns the markup, not by each
+// host. Leaving it to the hosts is how the in-app canvas ended up rendering
+// completely unstyled while the OBS overlay looked correct.
+import './overlay.css';
 import type { NormalizedChatOverlayMessage } from '../lib/chatOverlay';
 import type { ThirdPartyEmoteMap } from '../lib/chatEmotes';
 import type { ChatOverlaySettings } from '../rpc/contracts';

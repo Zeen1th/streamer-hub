@@ -44,6 +44,8 @@ interface DragState {
   startRect: Rect;
   startPointer: { x: number; y: number };
   altKey: boolean;
+  /** Latest rect from this gesture, so the commit does not read React state. */
+  latest: Rect;
 }
 
 export function ChatCanvas({
@@ -137,6 +139,7 @@ export function ChatCanvas({
           ? snapRect(moved, CHAT_OVERLAY_CANVAS, { ...DEFAULT_SNAP, disabled: event.altKey })
           : { rect: moved, guides: [] };
 
+      drag.latest = snapped.rect;
       setDraftRect(snapped.rect);
       setGuides(snapped.guides);
     };
@@ -145,11 +148,11 @@ export function ChatCanvas({
       const drag = dragRef.current;
       dragRef.current = null;
       setGuides([]);
-      if (!drag) return;
-      setDraftRect((current) => {
-        if (current) commitRect(current);
-        return null;
-      });
+      setDraftRect(null);
+      // Committed from the gesture's own record rather than from inside a state
+      // updater: writing to the store during React's update phase triggers a
+      // "cannot update a component while rendering another" warning.
+      if (drag) commitRect(drag.latest);
     };
 
     window.addEventListener('pointermove', onMove);
@@ -175,6 +178,7 @@ export function ChatCanvas({
       startRect: blockRect,
       startPointer: screenToCanvas({ x: event.clientX, y: event.clientY }, origin, scale),
       altKey: event.altKey,
+      latest: blockRect,
     };
   };
 
