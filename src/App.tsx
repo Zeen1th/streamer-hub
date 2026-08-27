@@ -27,7 +27,7 @@ export default function App() {
 
   useEffect(() => {
     const lang = language === 'ar' ? 'ar' : 'en';
-    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.dir = 'ltr';
     document.documentElement.lang = lang;
   }, [language]);
 
@@ -105,7 +105,7 @@ export default function App() {
         if (!disposed) {
           useSettingsStore
             .getState()
-            .hydrate(settings.twitch.clientId, settings.twitch.clientSecret, settings.language, settings.botAccountEnabled, settings.startupEnabled);
+            .hydrate(settings.twitch.clientId, settings.twitch.clientSecret, settings.language, settings.botAccountEnabled, settings.startupEnabled, settings.closeToTray);
         }
       } catch {
         void 0;

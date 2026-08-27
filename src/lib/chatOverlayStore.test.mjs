@@ -15,6 +15,15 @@ const savedSettings = {
   theme: 'transparent',
   messageStyle: 'square',
   animation: 'fade',
+  backgroundOpacity: 85,
+  textShadow: true,
+  fontFamily: 'barlow',
+  avatarShape: 'circle',
+  showBadges: true,
+  compactMode: false,
+  alignment: 'bottom-left',
+  avatarPosition: 'left',
+  scale: 100,
 };
 
 function message(id, text = id) {
@@ -125,9 +134,23 @@ test('persists normalized settings while updating the preview immediately', asyn
 
   await store.getState().updateSettings({ maxMessages: 99, displayMode: 'latest' });
 
-  assert.equal(store.getState().settings.maxMessages, 12);
+  assert.equal(store.getState().settings.maxMessages, 24);
   assert.equal(store.getState().settings.displayMode, 'latest');
   assert.equal(saved.length, 1);
   assert.deepEqual(saved[0], store.getState().settings);
   assert.equal(store.getState().saveState, 'saved');
 });
+
+test('correctly identifies RTL direction for Arabic and mixed Arabic/English messages', async () => {
+  const { isRtlText, formatBidiText } = await import('./chatOverlay.ts');
+
+  assert.equal(isRtlText('انا لعبت BG3 و كانت اسطوريه'), true);
+  assert.equal(isRtlText('@zeen1_th انا لعبت BG3 و كانت اسطوريه'), true);
+  assert.equal(isRtlText('Today I played BG3 and it was epic'), false);
+  assert.equal(isRtlText('Hello world'), false);
+
+  const formatted = formatBidiText('انا لعبت BG3 و كانت اسطوريه', true);
+  assert.equal(formatted.startsWith('\u2067'), true);
+  assert.equal(formatted.endsWith('\u2069'), true);
+});
+

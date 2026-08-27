@@ -37,6 +37,9 @@ public sealed class TwitchIrcClient : ITwitchClient
     private bool _sawJoin;
     private bool _sawMessage;
 
+    private string? _cachedBroadcasterId;
+    private string? _lastKnownTitle;
+
     public TwitchState State => _state;
 
     public void Connect(string accessToken, string login, string? channel = null)
@@ -46,6 +49,8 @@ public sealed class TwitchIrcClient : ITwitchClient
             _accessToken = accessToken;
             _login = login.ToLowerInvariant();
             _channel = string.IsNullOrWhiteSpace(channel) ? _login : channel.Trim().ToLowerInvariant();
+            _cachedBroadcasterId = null;
+            _lastKnownTitle = null;
             if (_loop is { IsCompleted: false })
             {
                 _cts.Cancel();
@@ -72,6 +77,8 @@ public sealed class TwitchIrcClient : ITwitchClient
     public void Disconnect()
     {
         _cts.Cancel();
+        _cachedBroadcasterId = null;
+        _lastKnownTitle = null;
         try
         {
             _tcp?.Close();
@@ -89,30 +96,79 @@ public sealed class TwitchIrcClient : ITwitchClient
         return await SendAsync($"PRIVMSG #{_channel} :{trimmed}").ConfigureAwait(false);
     }
 
-    public async Task<(bool Ok, string? Error)> UpdateChannelTitleAsync(string title)
+    private async Task<(string? Id, string? Error)> GetBroadcasterIdAsync()
     {
-        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(_login) || string.IsNullOrWhiteSpace(_accessToken)) return (false, "TWITCH SESSION IS NOT READY");
+        if (!string.IsNullOrWhiteSpace(_cachedBroadcasterId)) return (_cachedBroadcasterId, null);
+        if (string.IsNullOrWhiteSpace(_login) || string.IsNullOrWhiteSpace(_accessToken)) return (null, "TWITCH SESSION IS NOT READY");
+
         try
         {
             using var userRequest = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?login={Uri.EscapeDataString(_login)}");
             AddHelixHeaders(userRequest);
             using var userResponse = await Helix.SendAsync(userRequest).ConfigureAwait(false);
-            if (!userResponse.IsSuccessStatusCode) return (false, await ReadHelixErrorAsync(userResponse).ConfigureAwait(false));
+            if (!userResponse.IsSuccessStatusCode) return (null, await ReadHelixErrorAsync(userResponse).ConfigureAwait(false));
             using var userDoc = JsonDocument.Parse(await userResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
             var users = userDoc.RootElement.GetProperty("data");
-            if (users.GetArrayLength() == 0) return (false, "BROADCASTER USER NOT FOUND");
+            if (users.GetArrayLength() == 0) return (null, "BROADCASTER USER NOT FOUND");
             var userId = users[0].GetProperty("id").GetString();
-            if (string.IsNullOrWhiteSpace(userId)) return (false, "BROADCASTER ID NOT FOUND");
+            if (string.IsNullOrWhiteSpace(userId)) return (null, "BROADCASTER ID NOT FOUND");
+            _cachedBroadcasterId = userId;
+            return (userId, null);
+        }
+        catch (Exception ex)
+        {
+            return (null, ex.Message);
+        }
+    }
 
+    public async Task<(bool Ok, string? Title, string? Error)> GetChannelTitleAsync()
+    {
+        var (userId, error) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(userId)) return (false, null, error ?? "BROADCASTER ID NOT FOUND");
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/channels?broadcaster_id={Uri.EscapeDataString(userId)}");
+            AddHelixHeaders(request);
+            using var response = await Helix.SendAsync(request).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return (false, null, await ReadHelixErrorAsync(response).ConfigureAwait(false));
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+            var data = doc.RootElement.GetProperty("data");
+            if (data.GetArrayLength() == 0) return (false, null, "CHANNEL NOT FOUND");
+            var title = data[0].TryGetProperty("title", out var titleProp) ? titleProp.GetString() : null;
+            if (title is not null) _lastKnownTitle = title;
+            return (true, title, null);
+        }
+        catch (Exception ex)
+        {
+            return (false, null, ex.Message);
+        }
+    }
+
+    public async Task<(bool Ok, string? Error)> UpdateChannelTitleAsync(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return (false, "EMPTY TITLE");
+        var trimmed = title.Trim();
+        if (trimmed.Length > 140) trimmed = trimmed[..140];
+        if (string.Equals(_lastKnownTitle, trimmed, StringComparison.Ordinal)) return (true, null);
+
+        var (userId, error) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(userId)) return (false, error ?? "BROADCASTER ID NOT FOUND");
+
+        try
+        {
             using var updateRequest = new HttpRequestMessage(HttpMethod.Patch, $"https://api.twitch.tv/helix/channels?broadcaster_id={Uri.EscapeDataString(userId)}")
             {
-                Content = new StringContent(JsonSerializer.Serialize(new { title = title.Trim()[..Math.Min(title.Trim().Length, 140)] }), Encoding.UTF8, "application/json"),
+                Content = new StringContent(JsonSerializer.Serialize(new { title = trimmed }), Encoding.UTF8, "application/json"),
             };
             AddHelixHeaders(updateRequest);
             using var updateResponse = await Helix.SendAsync(updateRequest).ConfigureAwait(false);
-            return updateResponse.IsSuccessStatusCode
-                ? (true, null)
-                : (false, await ReadHelixErrorAsync(updateResponse).ConfigureAwait(false));
+            if (updateResponse.IsSuccessStatusCode)
+            {
+                _lastKnownTitle = trimmed;
+                return (true, null);
+            }
+            return (false, await ReadHelixErrorAsync(updateResponse).ConfigureAwait(false));
         }
         catch (Exception ex)
         {
@@ -345,41 +401,79 @@ public static class TwitchPrivmsgParser
         }
 
         string? userId = null;
+        string? messageId = null;
+        string? displayName = null;
         var isBroadcaster = false;
         var isMod = false;
         var isVip = false;
         var isSubscriber = false;
+
         if (prefix.StartsWith('@'))
         {
             foreach (var tag in prefix[1..].Split(';'))
             {
-                if (tag.StartsWith("user-id=", StringComparison.Ordinal))
-                {
-                    userId = tag[8..];
-                    continue;
-                }
+                var eq = tag.IndexOf('=');
+                if (eq < 0) continue;
+                var key = tag[..eq];
+                var val = tag[(eq + 1)..];
 
-                if (!tag.StartsWith("badges=", StringComparison.Ordinal)) continue;
-                foreach (var badge in tag[7..].Split(','))
+                if (string.Equals(key, "user-id", StringComparison.OrdinalIgnoreCase))
                 {
-                    var parts = badge.Split('/');
-                    if (parts.Length != 2) continue;
-                    if (!int.TryParse(parts[1], out var version) || version <= 0) continue;
-                    switch (parts[0])
+                    userId = val;
+                }
+                else if (string.Equals(key, "id", StringComparison.OrdinalIgnoreCase))
+                {
+                    messageId = val;
+                }
+                else if (string.Equals(key, "display-name", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(val))
+                {
+                    displayName = val.Trim();
+                }
+                else if (string.Equals(key, "mod", StringComparison.OrdinalIgnoreCase) && val == "1")
+                {
+                    isMod = true;
+                }
+                else if (string.Equals(key, "user-type", StringComparison.OrdinalIgnoreCase) && string.Equals(val, "mod", StringComparison.OrdinalIgnoreCase))
+                {
+                    isMod = true;
+                }
+                else if (string.Equals(key, "badges", StringComparison.OrdinalIgnoreCase) || string.Equals(key, "badge-info", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var badge in val.Split(','))
                     {
-                        case "broadcaster": isBroadcaster = true; break;
-                        case "moderator": isMod = true; break;
-                        case "vip": isVip = true; break;
-                        case "subscriber": isSubscriber = true; break;
+                        var slash = badge.IndexOf('/');
+                        var badgeName = slash >= 0 ? badge[..slash].Trim() : badge.Trim();
+                        if (string.IsNullOrEmpty(badgeName)) continue;
+
+                        switch (badgeName.ToLowerInvariant())
+                        {
+                            case "broadcaster":
+                                isBroadcaster = true;
+                                break;
+                            case "moderator":
+                            case "lead_moderator":
+                            case "lead-moderator":
+                                isMod = true;
+                                break;
+                            case "vip":
+                                isVip = true;
+                                break;
+                            case "subscriber":
+                            case "founder":
+                                isSubscriber = true;
+                                break;
+                        }
                     }
                 }
             }
         }
 
+        var effectiveUsername = !string.IsNullOrWhiteSpace(displayName) ? displayName : sender;
+
         message = new ChatMessage
         {
-            Id = Guid.NewGuid().ToString(),
-            Username = sender,
+            Id = !string.IsNullOrWhiteSpace(messageId) ? messageId : Guid.NewGuid().ToString(),
+            Username = effectiveUsername,
             UserId = string.IsNullOrWhiteSpace(userId) ? null : userId,
             IsBroadcaster = isBroadcaster,
             IsMod = isMod,

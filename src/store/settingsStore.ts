@@ -13,10 +13,11 @@ interface SettingsState {
   theme: Theme;
   botAccountEnabled: boolean;
   startupEnabled: boolean;
+  closeToTray: boolean;
   loaded: boolean;
   openRouterConfigured: boolean;
   groqConfigured: boolean;
-  hydrate(clientId: string, clientSecret: string, language: string, botAccountEnabled?: boolean, startupEnabled?: boolean): void;
+  hydrate(clientId: string, clientSecret: string, language: string, botAccountEnabled?: boolean, startupEnabled?: boolean, closeToTray?: boolean): void;
   hydrateOpenRouter(configured: boolean, groqConfigured: boolean): void;
   saveOpenRouterKey(provider: 'openrouter' | 'groq', apiKey: string): Promise<boolean>;
   removeOpenRouterKey(provider: 'openrouter' | 'groq'): Promise<boolean>;
@@ -26,16 +27,18 @@ interface SettingsState {
   setTheme(theme: Theme): void;
   setBotAccountEnabled(enabled: boolean): void;
   setStartupEnabled(enabled: boolean): void;
+  setCloseToTray(enabled: boolean): void;
 }
 
 function persist(get: () => SettingsState) {
-  const { clientId, clientSecret, language, botAccountEnabled, startupEnabled } = get();
+  const { clientId, clientSecret, language, botAccountEnabled, startupEnabled, closeToTray } = get();
   rpc
     .invoke(Channels.SettingsSave, {
       twitch: { clientId: clientId.trim(), clientSecret: clientSecret.trim() },
       language: language || 'en',
       botAccountEnabled,
       startupEnabled,
+      closeToTray,
     })
     .catch(() => undefined);
 }
@@ -47,16 +50,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   theme: (localStorage.getItem('streamer-hub-theme') === 'dark' ? 'dark' : 'light') as Theme,
   botAccountEnabled: false,
   startupEnabled: true,
+  closeToTray: true,
   loaded: false,
   openRouterConfigured: false,
   groqConfigured: false,
-  hydrate: (clientId, clientSecret, language, botAccountEnabled, startupEnabled) =>
+  hydrate: (clientId, clientSecret, language, botAccountEnabled, startupEnabled, closeToTray) =>
     set({
       clientId,
       clientSecret,
       language: language === 'ar' ? 'ar' : language === 'en' ? 'en' : '',
       botAccountEnabled: botAccountEnabled ?? false,
       startupEnabled: startupEnabled ?? true,
+      closeToTray: closeToTray ?? true,
       loaded: true,
     }),
   hydrateOpenRouter: (configured, groqConfigured) => set({ openRouterConfigured: configured, groqConfigured }),
@@ -92,6 +97,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   setStartupEnabled: (enabled) => {
     set({ startupEnabled: enabled });
+    persist(get);
+  },
+  setCloseToTray: (enabled) => {
+    set({ closeToTray: enabled });
     persist(get);
   },
   setBotAccountEnabled: (enabled) => {

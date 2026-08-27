@@ -263,17 +263,26 @@ public sealed class SettingsStore : IDisposable
         return new ChatOverlaySettings
         {
             Enabled = settings?.Enabled ?? false,
-            MaxMessages = Clamp(settings?.MaxMessages ?? 8, 1, 12),
-            DurationSeconds = Clamp(settings?.DurationSeconds ?? 20, 5, 120),
+            MaxMessages = Clamp(settings?.MaxMessages ?? 8, 1, 24),
+            DurationSeconds = Clamp(settings?.DurationSeconds ?? 20, 3, 120),
             DisplayMode = NormalizeChoice(settings?.DisplayMode, "stacked", "stacked", "latest"),
-            FontSize = Clamp(settings?.FontSize ?? 24, 12, 32),
+            FontSize = Clamp(settings?.FontSize ?? 24, 12, 48),
             AvatarSize = Clamp(settings?.AvatarSize ?? 32, 16, 64),
-            Spacing = Clamp(settings?.Spacing ?? 12, 0, 24),
+            Spacing = Clamp(settings?.Spacing ?? 12, 0, 32),
             ShowUsernames = settings?.ShowUsernames ?? true,
             ShowAvatars = settings?.ShowAvatars ?? true,
-            Theme = NormalizeChoice(settings?.Theme, "dark", "light", "dark", "transparent"),
+            Theme = NormalizeChoice(settings?.Theme, "dark", "light", "dark", "transparent", "neon", "ember"),
             MessageStyle = NormalizeChoice(settings?.MessageStyle, "rounded", "rounded", "square"),
-            Animation = NormalizeChoice(settings?.Animation, "slide", "slide", "fade", "off"),
+            Animation = NormalizeChoice(settings?.Animation, "slide", "slide", "fade", "pop", "glow", "flip", "off"),
+            BackgroundOpacity = Clamp(settings?.BackgroundOpacity ?? 85, 0, 100),
+            TextShadow = settings?.TextShadow ?? true,
+            FontFamily = NormalizeChoice(settings?.FontFamily, "barlow", "barlow", "cairo", "cinzel", "jetbrains-mono", "system"),
+            AvatarShape = NormalizeChoice(settings?.AvatarShape, "circle", "circle", "rounded", "square", "squircle"),
+            ShowBadges = settings?.ShowBadges ?? true,
+            CompactMode = settings?.CompactMode ?? false,
+            Alignment = NormalizeChoice(settings?.Alignment, "bottom-left", "bottom-left", "bottom-right", "top-left", "top-right"),
+            AvatarPosition = NormalizeChoice(settings?.AvatarPosition, "left", "left", "right"),
+            Scale = Clamp(settings?.Scale ?? 100, 50, 200),
         };
     }
 

@@ -101,6 +101,15 @@ public sealed record ChatOverlaySettings
     public string Theme { get; init; } = "dark";
     public string MessageStyle { get; init; } = "rounded";
     public string Animation { get; init; } = "slide";
+    public int BackgroundOpacity { get; init; } = 85;
+    public bool TextShadow { get; init; } = true;
+    public string FontFamily { get; init; } = "barlow";
+    public string AvatarShape { get; init; } = "circle";
+    public bool ShowBadges { get; init; } = true;
+    public bool CompactMode { get; init; } = false;
+    public string Alignment { get; init; } = "bottom-left";
+    public string AvatarPosition { get; init; } = "left";
+    public int Scale { get; init; } = 100;
 }
 
 public sealed record ChatMessage

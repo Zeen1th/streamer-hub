@@ -41,6 +41,45 @@ export function cooldownRemainingSeconds(
   return remaining > 0 ? remaining : null;
 }
 
-export function renderTemplate(template: string, count: number, username: string | null): string {
-  return template.replaceAll('{count}', String(count)).replaceAll('{username}', username ?? '');
+export function renderTemplate(template: string, count: number, username: string | null, currentTitle?: string | null): string {
+  const base = currentTitle ? extractBaseTitle(currentTitle, template) : '';
+  return template
+    .replaceAll('{count}', String(count))
+    .replaceAll('{username}', username ?? '')
+    .replaceAll('{current_title}', base)
+    .replaceAll('{title}', base);
+}
+
+/**
+ * Strips any prior counter suffix/prefix formatted from the given template out of the live stream title,
+ * ensuring that the streamer's base title is preserved cleanly across counter increments without compounding.
+ */
+export function extractBaseTitle(rawTitle: string, template: string): string {
+  if (!rawTitle) return '';
+  if (!template || (!template.includes('{title}') && !template.includes('{current_title}'))) {
+    return rawTitle;
+  }
+
+  try {
+    const placeholder = '___BASE_TITLE___';
+    const escaped = template
+      .replaceAll('{title}', placeholder)
+      .replaceAll('{current_title}', placeholder)
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\\\{count\\\}/g, '\\d+')
+      .replace(/\\\{username\\\}/g, '[^\\s]+');
+
+    if (escaped.startsWith(placeholder)) {
+      const suffixPattern = escaped.slice(placeholder.length);
+      const regex = new RegExp(`${suffixPattern}$`, 'i');
+      return rawTitle.replace(regex, '').trim();
+    } else if (escaped.endsWith(placeholder)) {
+      const prefixPattern = escaped.slice(0, -placeholder.length);
+      const regex = new RegExp(`^${prefixPattern}`, 'i');
+      return rawTitle.replace(regex, '').trim();
+    }
+  } catch {
+    // fallback to original string on regex error
+  }
+  return rawTitle;
 }

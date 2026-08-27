@@ -135,6 +135,15 @@ test('hydrates saved chat overlay settings through rpc', async () => {
     theme: 'transparent',
     messageStyle: 'square',
     animation: 'fade',
+    backgroundOpacity: 85,
+    textShadow: true,
+    fontFamily: 'barlow',
+    avatarShape: 'circle',
+    showBadges: true,
+    compactMode: false,
+    alignment: 'bottom-left',
+    avatarPosition: 'left',
+    scale: 100,
   }));
 
   const host = new MockHost();
@@ -153,6 +162,15 @@ test('hydrates saved chat overlay settings through rpc', async () => {
     theme: 'transparent',
     messageStyle: 'square',
     animation: 'fade',
+    backgroundOpacity: 85,
+    textShadow: true,
+    fontFamily: 'barlow',
+    avatarShape: 'circle',
+    showBadges: true,
+    compactMode: false,
+    alignment: 'bottom-left',
+    avatarPosition: 'left',
+    scale: 100,
   });
 });
 
@@ -174,6 +192,14 @@ test('saves chat overlay settings and returns the updated state', async () => {
     theme: 'light',
     messageStyle: 'rounded',
     animation: 'off',
+    backgroundOpacity: 70,
+    textShadow: false,
+    fontFamily: 'cairo',
+    avatarShape: 'squircle',
+    showBadges: false,
+    compactMode: true,
+    alignment: 'top-right',
+    scale: 120,
   };
 
   const result = await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlaySaveSettings, next);

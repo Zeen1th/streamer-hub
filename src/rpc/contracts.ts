@@ -91,9 +91,14 @@ export interface OpenRouterSettingsState {
 }
 
 export type ChatOverlayDisplayMode = 'stacked' | 'latest';
-export type ChatOverlayTheme = 'light' | 'dark' | 'transparent';
+export type ChatOverlayTheme = 'light' | 'dark' | 'transparent' | 'neon' | 'ember';
 export type ChatOverlayMessageStyle = 'rounded' | 'square';
-export type ChatOverlayAnimation = 'slide' | 'fade' | 'off';
+export type ChatOverlayAnimation = 'slide' | 'fade' | 'pop' | 'glow' | 'flip' | 'off';
+export type ChatOverlayFontFamily = 'barlow' | 'cairo' | 'cinzel' | 'jetbrains-mono' | 'system';
+export type ChatOverlayAvatarShape = 'circle' | 'rounded' | 'square' | 'squircle';
+export type ChatOverlayAlignment = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
+
+export type ChatOverlayAvatarPosition = 'left' | 'right';
 
 export interface ChatOverlaySettings {
   enabled: boolean;
@@ -108,6 +113,15 @@ export interface ChatOverlaySettings {
   theme: ChatOverlayTheme;
   messageStyle: ChatOverlayMessageStyle;
   animation: ChatOverlayAnimation;
+  backgroundOpacity: number;
+  textShadow: boolean;
+  fontFamily: ChatOverlayFontFamily;
+  avatarShape: ChatOverlayAvatarShape;
+  showBadges: boolean;
+  compactMode: boolean;
+  alignment: ChatOverlayAlignment;
+  avatarPosition: ChatOverlayAvatarPosition;
+  scale: number;
 }
 
 export interface UpdateState {
@@ -196,6 +210,7 @@ export const Channels = {
   AutoRepliesSave: 'auto-replies/save',
   AutoRepliesDelete: 'auto-replies/delete',
   TwitchSendChatMessage: 'twitch/send-chat-message',
+  TwitchGetTitle: 'twitch/get-title',
   TwitchUpdateTitle: 'twitch/update-title',
   UpdateCheck: 'update/check',
   UpdateInstall: 'update/install',
@@ -235,9 +250,9 @@ export interface HostApi {
   [Channels.TwitchForget]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchBotAuthorize]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchBotForget]: { request: undefined; response: { ok: boolean } };
-  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; startupEnabled?: boolean } };
+  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; startupEnabled?: boolean; closeToTray?: boolean } };
   [Channels.SettingsSave]: {
-    request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; startupEnabled?: boolean };
+    request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; startupEnabled?: boolean; closeToTray?: boolean };
     response: { ok: boolean };
   };
   [Channels.ChatOverlayGetState]: { request: undefined; response: ChatOverlaySettings };
@@ -253,6 +268,7 @@ export interface HostApi {
   [Channels.AutoRepliesDelete]: { request: { ruleId: string }; response: { ok: boolean } };
   [Channels.AutoRepliesGenerate]: { request: { ruleId: string; message: ChatMessage; send?: boolean }; response: { ok: boolean; message?: string; usedFallback?: boolean; error?: string } };
   [Channels.TwitchSendChatMessage]: { request: { message: string }; response: { ok: boolean; error?: string } };
+  [Channels.TwitchGetTitle]: { request: undefined; response: { ok: boolean; title?: string | null; error?: string } };
   [Channels.TwitchUpdateTitle]: { request: { title: string }; response: { ok: boolean; error?: string } };
   [Channels.UpdateCheck]: { request: undefined; response: UpdateState };
   [Channels.UpdateInstall]: { request: { downloadUrl: string }; response: { ok: boolean; error?: string } };

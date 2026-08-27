@@ -1,4 +1,4 @@
-import { ChevronRight, Flame, MessageSquare, Tally5, Timer } from 'lucide-react';
+import { ChevronRight, Flame, MessageSquare, Tally5 } from 'lucide-react';
 import { t } from '../../../i18n/translations';
 import { rpc } from '../../../rpc';
 import { Channels } from '../../../rpc/contracts';
@@ -144,9 +144,8 @@ export function HomeView() {
           </div>
         </Card>
 
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:col-span-12">
+        <div className="grid grid-cols-1 gap-6 xl:col-span-12">
           {[
-            { icon: Timer, name: t(lang, 'nav.timer'), note: t(lang, 'home.timerNote') },
             { icon: MessageSquare, name: t(lang, 'nav.alerts'), note: t(lang, 'home.alertsNote') },
           ].map((tool) => (
             <button

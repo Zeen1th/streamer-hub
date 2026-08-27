@@ -9,6 +9,8 @@ tests/**/obj/
 *.log
 *.bin
 deaths.txt
+chat-overlay-write-test.txt
+release/
 
 .impeccable/
 *.tsbuildinfo

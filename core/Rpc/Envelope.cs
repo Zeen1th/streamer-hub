@@ -59,6 +59,7 @@ public static class Channels
     public const string AutoRepliesSave = "auto-replies/save";
     public const string AutoRepliesDelete = "auto-replies/delete";
     public const string TwitchSendChatMessage = "twitch/send-chat-message";
+    public const string TwitchGetTitle = "twitch/get-title";
     public const string TwitchUpdateTitle = "twitch/update-title";
     public const string AutoRepliesGenerate = "auto-replies/generate";
     public const string UpdateCheck = "update/check";

@@ -54,7 +54,6 @@ public sealed class MainForm : Form
     private bool _lastMaximized;
     private bool _webViewRefreshPending;
     private bool _exitingFromTray;
-    private bool _closePromptOpen;
     private int _initialized;
 
     public MainForm()
@@ -220,43 +219,6 @@ public sealed class MainForm : Form
         Show();
         WindowState = FormWindowState.Normal;
         Activate();
-    }
-
-    private async Task ShowCloseChoiceAsync()
-    {
-        _closePromptOpen = true;
-        try
-        {
-            var darkTheme = false;
-            try
-            {
-                var theme = await _webView.CoreWebView2.ExecuteScriptAsync("localStorage.getItem(\"streamer-hub-theme\")");
-                darkTheme = theme.Contains("dark", StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-            }
-
-            using var dialog = new CloseChoiceDialog(darkTheme);
-            var choice = dialog.ShowDialog(this);
-            if (choice == DialogResult.Cancel) return;
-
-            var closeToTray = choice == DialogResult.Yes;
-            _settings?.SetCloseToTray(closeToTray);
-            if (closeToTray)
-            {
-                HideToTray();
-            }
-            else
-            {
-                _exitingFromTray = true;
-                Close();
-            }
-        }
-        finally
-        {
-            _closePromptOpen = false;
-        }
     }
 
     private void HideToTray()
@@ -471,15 +433,8 @@ public sealed class MainForm : Form
     {
         if (e.CloseReason == CloseReason.UserClosing && !_exitingFromTray)
         {
-            var closeToTray = _settings?.CloseToTray;
-            if (closeToTray is null)
-            {
-                e.Cancel = true;
-                if (!_closePromptOpen) _ = ShowCloseChoiceAsync();
-                return;
-            }
-
-            if (closeToTray.Value)
+            var closeToTray = _settings?.CloseToTray ?? true;
+            if (closeToTray)
             {
                 e.Cancel = true;
                 HideToTray();
@@ -507,60 +462,6 @@ public sealed class MainForm : Form
         {
         }
         base.OnFormClosing(e);
-    }
-}
-internal sealed class CloseChoiceDialog : Form
-{
-    public CloseChoiceDialog(bool darkTheme)
-    {
-        Text = "Streamer Hub";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        StartPosition = FormStartPosition.CenterParent;
-        ShowInTaskbar = false;
-        MinimizeBox = false;
-        MaximizeBox = false;
-        ClientSize = new Size(470, 220);
-        BackColor = darkTheme ? Color.FromArgb(0x1D, 0x1A, 0x17) : Color.FromArgb(0xF4, 0xEF, 0xE4);
-        ForeColor = darkTheme ? Color.FromArgb(0xF2, 0xEC, 0xDF) : Color.FromArgb(0x2E, 0x27, 0x20);
-
-        var title = new Label
-        {
-            Text = "Keep Streamer Hub in the tray?",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 14, FontStyle.Bold),
-            Location = new Point(28, 26),
-        };
-        var message = new Label
-        {
-            Text = "Choose what should happen when you close the app.\nYou can change this later in settings.",
-            AutoSize = true,
-            Font = new Font("Segoe UI", 10),
-            Location = new Point(30, 70),
-        };
-        var tray = CreateButton("Keep in tray", darkTheme, 28, 148);
-        tray.DialogResult = DialogResult.Yes;
-        var close = CreateButton("Close app", darkTheme, 160, 148);
-        close.DialogResult = DialogResult.No;
-        var cancel = CreateButton("Cancel", darkTheme, 292, 148);
-        cancel.DialogResult = DialogResult.Cancel;
-        Controls.AddRange(new Control[] { title, message, tray, close, cancel });
-        AcceptButton = tray;
-        CancelButton = cancel;
-    }
-
-    private static Button CreateButton(string text, bool darkTheme, int x, int y)
-    {
-        var button = new Button
-        {
-            Text = text,
-            Location = new Point(x, y),
-            Size = new Size(120, 36),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = darkTheme ? Color.FromArgb(0x8E, 0x4F, 0x20) : Color.FromArgb(0x9A, 0x5A, 0x20),
-            ForeColor = Color.White,
-        };
-        button.FlatAppearance.BorderColor = darkTheme ? Color.FromArgb(0xB9, 0x78, 0x42) : Color.FromArgb(0x7A, 0x43, 0x19);
-        return button;
     }
 }
 

@@ -22,6 +22,15 @@ const DEFAULT_CHAT_OVERLAY_SETTINGS: ChatOverlaySettings = {
   theme: 'dark',
   messageStyle: 'rounded',
   animation: 'slide',
+  backgroundOpacity: 85,
+  textShadow: true,
+  fontFamily: 'barlow',
+  avatarShape: 'circle',
+  showBadges: true,
+  compactMode: false,
+  alignment: 'bottom-left',
+  avatarPosition: 'left',
+  scale: 100,
 };
 
 interface MockSettings {
@@ -199,6 +208,9 @@ export class MockHost {
       case 'twitch/send-chat-message':
         this.respond(request, { ok: this.twitchConnected });
         break;
+      case 'twitch/get-title':
+        this.respond(request, { ok: this.twitchConnected, title: 'Live Streamer Hub Gaming' });
+        break;
       case 'twitch/update-title':
         this.respond(request, { ok: this.twitchConnected });
         break;
@@ -222,11 +234,11 @@ export class MockHost {
         break;
       case 'settings/get-state': {
         const settings = this.loadSettings();
-        this.respond(request, { twitch: { clientId: settings.clientId, clientSecret: settings.clientSecret }, language: settings.language });
+        this.respond(request, { twitch: { clientId: settings.clientId, clientSecret: settings.clientSecret }, language: settings.language, closeToTray: true });
         break;
       }
       case 'settings/save': {
-        const payload = request.payload as { twitch?: TwitchSettings; language?: string };
+        const payload = request.payload as { twitch?: TwitchSettings; language?: string; closeToTray?: boolean };
         if (payload?.twitch || payload?.language) {
           try {
             const current = this.loadSettings();

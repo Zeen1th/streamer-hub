@@ -1,11 +1,23 @@
-import type { ChatMessage, ChatOverlayAnimation, ChatOverlayDisplayMode, ChatOverlayMessageStyle, ChatOverlaySettings, ChatOverlayTheme } from '../rpc/contracts';
+import type {
+  ChatOverlayAlignment,
+  ChatOverlayAnimation,
+  ChatOverlayAvatarShape,
+  ChatOverlayDisplayMode,
+  ChatOverlayFontFamily,
+  ChatMessage,
+  ChatOverlayMessageStyle,
+  ChatOverlaySettings,
+  ChatOverlayTheme,
+} from '../rpc/contracts';
 
 export const CHAT_OVERLAY_LIMITS = {
-  maxMessages: { min: 1, max: 12 },
-  durationSeconds: { min: 5, max: 120 },
-  fontSize: { min: 12, max: 32 },
+  maxMessages: { min: 1, max: 24 },
+  durationSeconds: { min: 3, max: 120 },
+  fontSize: { min: 12, max: 48 },
   avatarSize: { min: 16, max: 64 },
-  spacing: { min: 0, max: 24 },
+  spacing: { min: 0, max: 32 },
+  backgroundOpacity: { min: 0, max: 100 },
+  scale: { min: 50, max: 200 },
 } as const;
 
 export const CHAT_OVERLAY_AVATAR_FALLBACK = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Crect width="64" height="64" rx="32" fill="%23334155"/%3E%3Ccircle cx="32" cy="24" r="12" fill="%23cbd5e1"/%3E%3Cpath d="M14 54c2.8-10 10.3-16 18-16s15.2 6 18 16" fill="%23cbd5e1"/%3E%3C/svg%3E';
@@ -23,6 +35,15 @@ export const DEFAULT_CHAT_OVERLAY_SETTINGS: ChatOverlaySettings = {
   theme: 'dark',
   messageStyle: 'rounded',
   animation: 'slide',
+  backgroundOpacity: 85,
+  textShadow: true,
+  fontFamily: 'barlow',
+  avatarShape: 'circle',
+  showBadges: true,
+  compactMode: false,
+  alignment: 'bottom-left',
+  avatarPosition: 'left',
+  scale: 100,
 };
 
 export interface NormalizedChatOverlayMessage {
@@ -50,9 +71,18 @@ export function normalizeChatOverlaySettings(value: Partial<ChatOverlaySettings>
     spacing: clampNumber(input.spacing, CHAT_OVERLAY_LIMITS.spacing.min, CHAT_OVERLAY_LIMITS.spacing.max, DEFAULT_CHAT_OVERLAY_SETTINGS.spacing),
     showUsernames: typeof input.showUsernames === 'boolean' ? input.showUsernames : DEFAULT_CHAT_OVERLAY_SETTINGS.showUsernames,
     showAvatars: typeof input.showAvatars === 'boolean' ? input.showAvatars : DEFAULT_CHAT_OVERLAY_SETTINGS.showAvatars,
-    theme: oneOf(input.theme, ['light', 'dark', 'transparent'], DEFAULT_CHAT_OVERLAY_SETTINGS.theme),
+    theme: oneOf(input.theme, ['light', 'dark', 'transparent', 'neon', 'ember'], DEFAULT_CHAT_OVERLAY_SETTINGS.theme),
     messageStyle: oneOf(input.messageStyle, ['rounded', 'square'], DEFAULT_CHAT_OVERLAY_SETTINGS.messageStyle),
-    animation: oneOf(input.animation, ['slide', 'fade', 'off'], DEFAULT_CHAT_OVERLAY_SETTINGS.animation),
+    animation: oneOf(input.animation, ['slide', 'fade', 'pop', 'glow', 'flip', 'off'], DEFAULT_CHAT_OVERLAY_SETTINGS.animation),
+    backgroundOpacity: clampNumber(input.backgroundOpacity, CHAT_OVERLAY_LIMITS.backgroundOpacity.min, CHAT_OVERLAY_LIMITS.backgroundOpacity.max, DEFAULT_CHAT_OVERLAY_SETTINGS.backgroundOpacity),
+    textShadow: typeof input.textShadow === 'boolean' ? input.textShadow : DEFAULT_CHAT_OVERLAY_SETTINGS.textShadow,
+    fontFamily: oneOf(input.fontFamily, ['barlow', 'cairo', 'cinzel', 'jetbrains-mono', 'system'], DEFAULT_CHAT_OVERLAY_SETTINGS.fontFamily),
+    avatarShape: oneOf(input.avatarShape, ['circle', 'rounded', 'square', 'squircle'], DEFAULT_CHAT_OVERLAY_SETTINGS.avatarShape),
+    showBadges: typeof input.showBadges === 'boolean' ? input.showBadges : DEFAULT_CHAT_OVERLAY_SETTINGS.showBadges,
+    compactMode: typeof input.compactMode === 'boolean' ? input.compactMode : DEFAULT_CHAT_OVERLAY_SETTINGS.compactMode,
+    alignment: oneOf(input.alignment, ['bottom-left', 'bottom-right', 'top-left', 'top-right'], DEFAULT_CHAT_OVERLAY_SETTINGS.alignment),
+    avatarPosition: oneOf(input.avatarPosition, ['left', 'right'], DEFAULT_CHAT_OVERLAY_SETTINGS.avatarPosition),
+    scale: clampNumber(input.scale, CHAT_OVERLAY_LIMITS.scale.min, CHAT_OVERLAY_LIMITS.scale.max, DEFAULT_CHAT_OVERLAY_SETTINGS.scale),
   };
 }
 
@@ -111,7 +141,7 @@ function buildFallbackMessageId(): string {
 }
 
 export function isChatOverlayTheme(value: string): value is ChatOverlayTheme {
-  return ['light', 'dark', 'transparent'].includes(value);
+  return ['light', 'dark', 'transparent', 'neon', 'ember'].includes(value);
 }
 
 export function isChatOverlayDisplayMode(value: string): value is ChatOverlayDisplayMode {
@@ -123,5 +153,61 @@ export function isChatOverlayMessageStyle(value: string): value is ChatOverlayMe
 }
 
 export function isChatOverlayAnimation(value: string): value is ChatOverlayAnimation {
-  return ['slide', 'fade', 'off'].includes(value);
+  return ['slide', 'fade', 'pop', 'glow', 'flip', 'off'].includes(value);
 }
+
+export function isChatOverlayFontFamily(value: string): value is ChatOverlayFontFamily {
+  return ['barlow', 'cairo', 'cinzel', 'jetbrains-mono', 'system'].includes(value);
+}
+
+export function isChatOverlayAvatarShape(value: string): value is ChatOverlayAvatarShape {
+  return ['circle', 'rounded', 'square', 'squircle'].includes(value);
+}
+
+export function isChatOverlayAlignment(value: string): value is ChatOverlayAlignment {
+  return ['bottom-left', 'bottom-right', 'top-left', 'top-right'].includes(value);
+}
+
+/**
+ * Detects whether a chat message should be treated as Right-to-Left (e.g. Arabic, Hebrew).
+ * Strips leading @mentions, badges, punctuation, and emojis to test the true message content.
+ */
+export function isRtlText(text: string): boolean {
+  if (!text) return false;
+  // Remove leading @username mentions and command prefixes
+  const stripped = text.replace(/^(@\w+\s*)+/, '').replace(/^![a-zA-Z0-9_-]+\s*/, '').trim();
+  if (!stripped) return false;
+
+  const rtlRegex = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/;
+  const ltrRegex = /[A-Za-z\u00C0-\u024F\u0370-\u052F]/;
+
+  let rtlCount = 0;
+  let ltrCount = 0;
+  let firstStrong: 'rtl' | 'ltr' | null = null;
+
+  for (let i = 0; i < stripped.length; i++) {
+    const char = stripped[i];
+    if (rtlRegex.test(char)) {
+      rtlCount++;
+      if (!firstStrong) firstStrong = 'rtl';
+    } else if (ltrRegex.test(char)) {
+      ltrCount++;
+      if (!firstStrong) firstStrong = 'ltr';
+    }
+  }
+
+  return firstStrong === 'rtl' || rtlCount > ltrCount;
+}
+
+/**
+ * Ensures mixed BiDi text (e.g. Arabic with English words or numbers) maintains
+ * strictly isolated bidirectional embedding so words are not swapped by the browser.
+ */
+export function formatBidiText(text: string, isRtl: boolean): string {
+  if (!text) return '';
+  if (!isRtl) return text;
+  // \u2067 is Right-to-Left Isolate (RLI), \u2069 is Pop Directional Isolate (PDI)
+  return `\u2067${text}\u2069`;
+}
+
+

@@ -49,7 +49,7 @@ public sealed class HostController : IDisposable
     private sealed record DeleteCounterPayload(string CounterId);
     private sealed record ObsWritePayload(string FilePath, string Content);
     private sealed record SaveFilePayload(string DefaultName);
-    private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null, bool? StartupEnabled = null);
+    private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null, bool? StartupEnabled = null, bool? CloseToTray = null);
     private sealed record SaveAutoReplyPayload(AutoReply? Rule);
     private sealed record SaveAutoReplySettingsPayload(AutoReplySettings? Settings);
     private sealed record DeleteAutoReplyPayload(string RuleId);
@@ -262,7 +262,7 @@ public sealed class HostController : IDisposable
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
-            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, startupEnabled = _settings.StartupEnabled }));
+            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, startupEnabled = _settings.StartupEnabled, closeToTray = _settings.CloseToTray ?? true }));
         _dispatcher.Register(Channels.ChatOverlayGetState, (_, _) =>
             Task.FromResult<object?>(_chatOverlay.GetState()));
         _dispatcher.Register(Channels.ChatOverlaySaveSettings, async (payload, ct) =>
@@ -284,6 +284,10 @@ public sealed class HostController : IDisposable
             {
                 _settings.SetStartupEnabled(request.StartupEnabled.Value);
                 _form.SetStartupEnabled(request.StartupEnabled.Value);
+            }
+            if (request.CloseToTray.HasValue)
+            {
+                _settings.SetCloseToTray(request.CloseToTray.Value);
             }
             if (request.BotAccountEnabled.HasValue)
             {
@@ -376,6 +380,12 @@ public sealed class HostController : IDisposable
                 return new { ok = false, error = "EMPTY MESSAGE" };
             var ok = await SendChatMessageCoreAsync(request.Message).ConfigureAwait(false);
             return new { ok, error = ok ? null : "TWITCH CHAT IS NOT CONNECTED" };
+        });
+        _dispatcher.Register(Channels.TwitchGetTitle, async (_, _) =>
+        {
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.GetChannelTitleAsync().ConfigureAwait(false);
+            return new { ok = result.Ok, title = result.Title, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchUpdateTitle, async (payload, _) =>
         {
