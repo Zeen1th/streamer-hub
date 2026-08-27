@@ -344,6 +344,10 @@ export type ChannelName = (typeof Channels)[keyof typeof Channels];
 export const Events = {
   CoreStatusChanged: 'core/status-changed',
   TwitchChatMessage: 'twitch/chat-message',
+  /** A profile resolved after its message was already published. */
+  TwitchUserProfile: 'twitch/user-profile',
+  /** A moderator deleted a message, timed out a user, or cleared chat. */
+  TwitchChatCleared: 'twitch/chat-cleared',
   WindowMaximizedChanged: 'window/maximized-changed',
   CoreLog: 'core/log',
 } as const;
@@ -400,6 +404,8 @@ export interface HostApi {
 export interface EventMap {
   [Events.CoreStatusChanged]: ConnectionStatus;
   [Events.TwitchChatMessage]: ChatMessage;
+  [Events.TwitchUserProfile]: { userId: string; avatarUrl: string; color?: string };
+  [Events.TwitchChatCleared]: { scope: 'message' | 'user' | 'all'; id?: string };
   [Events.WindowMaximizedChanged]: { isMaximized: boolean };
   [Events.CoreLog]: { message: string };
 }

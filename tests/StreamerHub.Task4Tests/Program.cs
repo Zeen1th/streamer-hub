@@ -24,28 +24,39 @@ try
     await ReceiveAsync(socket);
     AssertEqual("disconnected", Kind(await ReceiveAsync(socket)), "safe initial disconnected state");
 
-    var requested = new ChatOverlaySettings
+    // Settings are owned and validated by the UI; the host carries them
+    // verbatim. What matters here is round-trip fidelity - an arbitrary nested
+    // payload must survive save and broadcast with nothing dropped.
+    const string settingsJson = """
     {
-        Enabled = true,
-        MaxMessages = 99,
-        DurationSeconds = 1,
-        DisplayMode = "latest",
-        FontSize = 18,
-        AvatarSize = 28,
-        Spacing = 10,
-        ShowUsernames = false,
-        ShowAvatars = true,
-        Theme = "transparent",
-        MessageStyle = "square",
-        Animation = "fade",
-    };
+      "version": 2,
+      "enabled": true,
+      "block": { "x": 48, "y": 492, "width": 760, "height": 540, "anchor": "bottom-left" },
+      "flow": { "maxMessages": 99, "durationSeconds": 0, "displayMode": "latest", "sizeScale": 250 },
+      "text": { "wrapMode": "break-anywhere", "color": "#ff00ff" },
+      "filters": { "blockedUsernames": ["spam*", "troll"], "hideBots": true },
+      "futureFieldTheHostHasNeverHeardOf": { "nested": [1, 2, 3] }
+    }
+    """;
+    var requested = JsonSerializer.Deserialize<ChatOverlaySettings>(settingsJson, Json.Options)!;
+
     AssertTrue(await bridge.SaveSettingsAsync(requested), "settings save result");
-    AssertEqual(12, bridge.GetState().MaxMessages, "normalized maximum messages");
-    AssertEqual(5, bridge.GetState().DurationSeconds, "normalized duration");
+
+    var stored = bridge.GetState();
+    AssertTrue(stored.Values.ContainsKey("version"), "version survives the round trip");
+    AssertEqual(99, stored.Values["flow"].GetProperty("maxMessages").GetInt32(), "nested value is untouched");
+    AssertEqual(0, stored.Values["flow"].GetProperty("durationSeconds").GetInt32(), "zero duration is not coerced away");
+    AssertEqual("break-anywhere", stored.Values["text"].GetProperty("wrapMode").GetString(), "nested string survives");
+    AssertEqual(2, stored.Values["filters"].GetProperty("blockedUsernames").GetArrayLength(), "arrays survive");
+    AssertTrue(stored.Values.ContainsKey("futureFieldTheHostHasNeverHeardOf"), "unknown fields are not dropped");
+
     using (var settingsEvent = JsonDocument.Parse(await ReceiveAsync(socket)))
     {
         AssertEqual("settings", settingsEvent.RootElement.GetProperty("kind").GetString(), "settings event kind");
-        AssertEqual(12, settingsEvent.RootElement.GetProperty("payload").GetProperty("maxMessages").GetInt32(), "broadcast normalized maximum");
+        var payload = settingsEvent.RootElement.GetProperty("payload");
+        AssertEqual(99, payload.GetProperty("flow").GetProperty("maxMessages").GetInt32(), "broadcast carries nested settings");
+        AssertEqual(250, payload.GetProperty("flow").GetProperty("sizeScale").GetInt32(), "broadcast carries sizeScale");
+        AssertTrue(payload.TryGetProperty("futureFieldTheHostHasNeverHeardOf", out _), "broadcast keeps unknown fields");
     }
 
     await bridge.SetConnectedAsync(true);
@@ -72,6 +83,48 @@ try
         AssertEqual("https://cdn.example/avatar.png", payload.GetProperty("avatarUrl").GetString(), "chat avatar");
         AssertTrue(payload.GetProperty("isMod").GetBoolean(), "chat role");
         AssertEqual("hello overlay", payload.GetProperty("message").GetString(), "chat text");
+    }
+
+    // A profile resolved after its message was published must reach the overlay
+    // so the first message from a viewer stops showing the fallback avatar.
+    await bridge.PublishProfileAsync("100", "https://cdn.example/real-avatar.png", "#00ff00");
+    using (var profileEvent = JsonDocument.Parse(await ReceiveAsync(socket)))
+    {
+        var payload = profileEvent.RootElement.GetProperty("payload");
+        AssertEqual("profile", profileEvent.RootElement.GetProperty("kind").GetString(), "profile event kind");
+        AssertEqual("100", payload.GetProperty("userId").GetString(), "profile user ID");
+        AssertEqual("https://cdn.example/real-avatar.png", payload.GetProperty("avatarUrl").GetString(), "profile avatar");
+        AssertEqual("#00ff00", payload.GetProperty("color").GetString(), "profile colour");
+    }
+
+    await bridge.PublishClearAsync(new ChatClear(ChatClearScope.Message, "task4-message"));
+    using (var clearEvent = JsonDocument.Parse(await ReceiveAsync(socket)))
+    {
+        var payload = clearEvent.RootElement.GetProperty("payload");
+        AssertEqual("clear", clearEvent.RootElement.GetProperty("kind").GetString(), "clear event kind");
+        AssertEqual("message", payload.GetProperty("scope").GetString(), "clear scope");
+        AssertEqual("task4-message", payload.GetProperty("id").GetString(), "clear target");
+    }
+
+    await bridge.PublishClearAsync(new ChatClear(ChatClearScope.All, null));
+    using (var clearEvent = JsonDocument.Parse(await ReceiveAsync(socket)))
+    {
+        AssertEqual("all", clearEvent.RootElement.GetProperty("payload").GetProperty("scope").GetString(), "full clear scope");
+    }
+
+    var emotes = new Dictionary<string, IReadOnlyDictionary<string, string>>
+    {
+        ["bttv"] = new Dictionary<string, string> { ["catJAM"] = "https://cdn.betterttv.net/emote/x/3x" },
+    };
+    await bridge.PublishEmotesAsync(emotes);
+    using (var emoteEvent = JsonDocument.Parse(await ReceiveAsync(socket)))
+    {
+        var payload = emoteEvent.RootElement.GetProperty("payload");
+        AssertEqual("emotes", emoteEvent.RootElement.GetProperty("kind").GetString(), "emote event kind");
+        AssertEqual(
+            "https://cdn.betterttv.net/emote/x/3x",
+            payload.GetProperty("providers").GetProperty("bttv").GetProperty("catJAM").GetString(),
+            "emote map contents");
     }
 
     await bridge.SetConnectedAsync(false);

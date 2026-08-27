@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace StreamerHub.Core.Rpc;
 
 public sealed record CounterCommandConfig
@@ -87,30 +90,31 @@ public sealed record OpenRouterSettingsState
     public bool GroqConfigured { get; init; }
 }
 
+/// <summary>
+/// Chat overlay settings, carried verbatim.
+///
+/// The shape is owned by the UI, which holds the authoritative normalizer,
+/// the version migration, and the tests for both. The host never reads an
+/// individual field - it only persists the blob and forwards it to the overlay
+/// - so mirroring the schema here would buy nothing and guarantee drift: any
+/// field the C# record did not know about would be silently dropped on the next
+/// save. Extension data round-trips the whole object untouched instead.
+/// </summary>
 public sealed record ChatOverlaySettings
 {
-    public bool Enabled { get; init; }
-    public int MaxMessages { get; init; } = 8;
-    public int DurationSeconds { get; init; } = 20;
-    public string DisplayMode { get; init; } = "stacked";
-    public int FontSize { get; init; } = 24;
-    public int AvatarSize { get; init; } = 32;
-    public int Spacing { get; init; } = 12;
-    public bool ShowUsernames { get; init; } = true;
-    public bool ShowAvatars { get; init; } = true;
-    public string Theme { get; init; } = "dark";
-    public string MessageStyle { get; init; } = "rounded";
-    public string Animation { get; init; } = "slide";
-    public int BackgroundOpacity { get; init; } = 85;
-    public bool TextShadow { get; init; } = true;
-    public string FontFamily { get; init; } = "barlow";
-    public string AvatarShape { get; init; } = "circle";
-    public bool ShowBadges { get; init; } = true;
-    public bool CompactMode { get; init; } = false;
-    public string Alignment { get; init; } = "bottom-left";
-    public string AvatarPosition { get; init; } = "left";
-    public int Scale { get; init; } = 100;
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Values { get; init; } = new();
 }
+
+/// <summary>
+/// One emote occurrence from the IRC <c>emotes</c> tag.
+///
+/// <para><see cref="Start"/> and <see cref="End"/> are INCLUSIVE code point
+/// offsets into the message, not UTF-16 code unit offsets. Consumers must slice
+/// by enumerating text elements, or any message containing an astral-plane
+/// character before the emote will be cut in the wrong place.</para>
+/// </summary>
+public sealed record EmoteRange(string Id, int Start, int End);
 
 public sealed record ChatMessage
 {
@@ -124,7 +128,20 @@ public sealed record ChatMessage
     public bool IsSubscriber { get; init; }
     public string Message { get; init; } = string.Empty;
     public string Timestamp { get; init; } = string.Empty;
+    public IReadOnlyList<EmoteRange> Emotes { get; init; } = Array.Empty<EmoteRange>();
+    /// <summary>The user's chosen Twitch chat colour, when they have set one.</summary>
+    public string? Color { get; init; }
 }
+
+public enum ChatClearScope
+{
+    Message,
+    User,
+    All,
+}
+
+/// <summary>A moderator action that removes messages already on the overlay.</summary>
+public sealed record ChatClear(ChatClearScope Scope, string? Id);
 
 public sealed record ConnectionStatus
 {

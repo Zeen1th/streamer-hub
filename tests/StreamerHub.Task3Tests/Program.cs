@@ -76,11 +76,17 @@ async Task BroadcastsChatSettingsAndConnectionChangesAsync()
     using var socket = await fixture.ConnectAsync();
     await DrainBootstrapAsync(socket);
 
-    var settings = new ChatOverlaySettings { Enabled = true, MaxMessages = 4, Theme = "transparent" };
+    // Settings are an opaque, UI-owned blob here; the server forwards them as-is.
+    var settings = JsonSerializer.Deserialize<ChatOverlaySettings>(
+        """{ "version": 2, "enabled": true, "flow": { "maxMessages": 4 } }""",
+        Json.Options)!;
     await fixture.Server.UpdateSettingsAsync(settings);
     using var settingsEnvelope = JsonDocument.Parse(await ReceiveAsync(socket));
     AssertEqual("settings", KindDocument(settingsEnvelope), "settings event");
-    AssertEqual(4, settingsEnvelope.RootElement.GetProperty("payload").GetProperty("maxMessages").GetInt32(), "updated maximum");
+    AssertEqual(
+        4,
+        settingsEnvelope.RootElement.GetProperty("payload").GetProperty("flow").GetProperty("maxMessages").GetInt32(),
+        "updated maximum");
 
     await fixture.Server.SetConnectedAsync(true);
     AssertEqual("connected", Kind(await ReceiveAsync(socket)), "connected event");
