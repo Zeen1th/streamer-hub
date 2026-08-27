@@ -6,6 +6,7 @@ import { CounterView } from './components/tools/counter/CounterView';
 import { HomeView } from './components/tools/home/HomeView';
 import { SettingsView } from './components/tools/settings/SettingsView';
 import { AutoRepliesView } from './components/tools/auto-replies/AutoRepliesView';
+import { ChatView } from './components/tools/chat/ChatView';
 import { ActivityLog } from './components/tools/counter/ActivityLog';
 import { t } from './i18n/translations';
 import { rpc } from './rpc';
@@ -13,6 +14,7 @@ import { Channels, Events } from './rpc/contracts';
 import { useConnectionStore } from './store/connectionStore';
 import { useCounterStore } from './store/counterStore';
 import { useAutoReplyStore } from './store/autoReplyStore';
+import { useChatOverlayStore } from './store/chatOverlayStore';
 import { useLogStore } from './store/logStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useToolStore } from './store/toolStore';
@@ -43,6 +45,7 @@ export default function App() {
 
     const offStatus = rpc.on(Events.CoreStatusChanged, (status) => {
       useConnectionStore.getState().setStatus(status);
+      useChatOverlayStore.getState().setCoreConnected(status.coreConnected);
     });
     const offMaximized = rpc.on(Events.WindowMaximizedChanged, (payload) => {
       useConnectionStore.getState().setMaximized(payload.isMaximized);
@@ -51,6 +54,7 @@ export default function App() {
       useLogStore.getState().addLocal({ kind: 'chat', message: message.message, username: message.username });
       useCounterStore.getState().handleChatMessage(message);
       useAutoReplyStore.getState().handleChatMessage(message);
+      useChatOverlayStore.getState().addMessage(message);
     });
     const offCoreLog = rpc.on(Events.CoreLog, (payload) => {
       useLogStore.getState().addLocal({ kind: 'system', message: payload.message });
@@ -59,9 +63,15 @@ export default function App() {
     const boot = async () => {
       try {
         const status = await rpc.invoke(Channels.CoreGetStatus);
-        if (!disposed) useConnectionStore.getState().setStatus(status);
+        if (!disposed) {
+          useConnectionStore.getState().setStatus(status);
+          useChatOverlayStore.getState().setCoreConnected(status.coreConnected);
+        }
       } catch {
-        if (!disposed) useConnectionStore.getState().setCoreConnected(false);
+        if (!disposed) {
+          useConnectionStore.getState().setCoreConnected(false);
+          useChatOverlayStore.getState().setCoreConnected(false);
+        }
       }
       try {
         const maximized = await rpc.invoke(Channels.WindowIsMaximized);
@@ -80,6 +90,13 @@ export default function App() {
         if (!disposed) useAutoReplyStore.getState().hydrate(rules);
         const autoReplySettings = await rpc.invoke(Channels.AutoRepliesSettingsGet);
         if (!disposed) useAutoReplyStore.getState().hydrateGlobalSettings(autoReplySettings);
+      } catch {
+        void 0;
+      }
+      try {
+        if (!disposed) {
+          await useChatOverlayStore.getState().load();
+        }
       } catch {
         void 0;
       }
@@ -107,9 +124,11 @@ export default function App() {
         .invoke(Channels.CoreGetStatus)
         .then((status) => {
           useConnectionStore.getState().setStatus(status);
+          useChatOverlayStore.getState().setCoreConnected(status.coreConnected);
         })
         .catch(() => {
           useConnectionStore.getState().setCoreConnected(false);
+          useChatOverlayStore.getState().setCoreConnected(false);
         });
     }, 10000);
 
@@ -163,6 +182,7 @@ export default function App() {
             {activeTool === 'home' && <HomeView />}
             {activeTool === 'counter' && <CounterView />}
             {activeTool === 'autoReplies' && <AutoRepliesView />}
+            {activeTool === 'chat' && <ChatView />}
             {activeTool === 'feed' && <ActivityLog className="w-full" />}
             {activeTool === 'settings' && <SettingsView />}
           </div>

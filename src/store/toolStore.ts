@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ToolId = 'home' | 'counter' | 'autoReplies' | 'feed' | 'settings';
+export type ToolId = 'home' | 'counter' | 'autoReplies' | 'chat' | 'feed' | 'settings';
 
 interface ToolState {
   activeTool: ToolId;

@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { Home, List, MessageSquare, Settings, Tally5, Timer } from 'lucide-react';
+import { Home, List, MessageSquare, Settings, Tally5, Timer, Tv } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { t } from '../../i18n/translations';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -71,6 +71,12 @@ export function Sidebar() {
           label={t(lang, 'nav.autoReplies')}
           active={activeTool === 'autoReplies'}
           onClick={() => setActiveTool('autoReplies')}
+        />
+        <NavItem
+          icon={Tv}
+          label={t(lang, 'nav.chat')}
+          active={activeTool === 'chat'}
+          onClick={() => setActiveTool('chat')}
         />
         <NavItem icon={Timer} label={t(lang, 'nav.timer')} soon />
         <NavItem

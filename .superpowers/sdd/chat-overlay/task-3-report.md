@@ -148,3 +148,75 @@ Task 3 provides the server APIs for chat/settings/connection broadcasts and the 
 
 - A fresh browser navigation cannot render an HTTP recovery page after the desktop process has exited because no process remains to answer the local URL. An already-loaded OBS browser source detects the WebSocket close, shows the explicit recovery message, and reconnects automatically when Streamer Hub returns.
 - The workspace editing helper intermittently failed during implementation; the authorized direct-workspace fallback was used. Verification confirms the resulting files and builds are valid.
+
+## Fix round 1
+
+Date: 2026-08-27
+
+### Findings addressed
+
+1. **Overlay recovery within the local in-process boundary**
+   - The server now prefers stable loopback port `49178`, while retaining the available-port fallback when that port cannot be bound.
+   - The overlay bootstrap registers `/chat-overlay-sw.js`. Once installed, the service worker returns a clear “Streamer Hub is not running” recovery page for failed overlay navigations, polls `/chat-overlay-health`, and reloads when the server returns.
+   - Focused lifecycle coverage stops the server, starts a replacement on the same preferred port, and requests the original OBS URL. The request returns `200 OK` with the overlay bootstrap content.
+
+2. **Overlay-only HTTP routing**
+   - Vite now emits `.vite/manifest.json`.
+   - At startup, the server derives an allowlist by walking only the `src/chat-overlay.html` manifest entry and its `file`, `css`, `assets`, `imports`, and `dynamicImports`.
+   - `/` and `/chat-overlay.html` remain the only document routes. `/ws`, `/chat-overlay-health`, and `/chat-overlay-sw.js` are explicit protocol/recovery routes. Main-app files, unrelated generated assets, the manifest, and unsupported paths return `404 Not Found`.
+   - Focused routing coverage proves the overlay asset is served while `/index.html`, `/assets/unrelated.js`, and `/.vite/manifest.json` are rejected.
+
+### Verification evidence
+
+Task 3 server tests:
+
+```text
+dotnet run --project tests\StreamerHub.Task3Tests\StreamerHub.Task3Tests.csproj --no-restore
+
+PASS protocol_messages_are_versioned_and_identified
+PASS http_bootstrap_is_loopback_only
+PASS websocket_connect_receives_current_state
+PASS broadcasts_chat_settings_and_connection_changes
+PASS reconnect_gets_state_without_replaying_messages
+PASS duplicate_chat_message_ids_are_suppressed
+PASS server_stops_accepting_requests
+PASS overlay_bootstrap_installs_offline_recovery
+PASS static_routes_only_serve_overlay_manifest_assets
+PASS existing_obs_url_recovers_after_server_restart
+All Task 3 overlay server tests passed.
+EXIT=0
+```
+
+Frontend production build:
+
+```text
+npm run build
+
+vite v6.4.3 building for production...
+✓ 1624 modules transformed.
+dist/.vite/manifest.json                                         30.13 kB │ gzip:  2.59 kB
+dist/assets/chatOverlay-C3dyablP.css                              2.32 kB │ gzip:  0.54 kB
+dist/assets/chatOverlay-ns7nKSyP.js                              10.16 kB │ gzip:  3.88 kB
+dist/assets/client-BkkJlpkL.js                                  194.55 kB │ gzip: 60.83 kB
+✓ built in 2.32s
+```
+
+The generated manifest resolves the overlay entry through 2 manifest records to 15 required files; the main-app entry file is not in that allowlist.
+
+Native build:
+
+```text
+dotnet build core\StreamerHub.csproj --no-restore -p:OutputPath=bin\ChatOverlayBuild\ -p:UseAppHost=false
+
+StreamerHub -> core\bin\ChatOverlayBuild\StreamerHub.dll
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+Time Elapsed 00:00:00.50
+EXIT=0
+```
+
+### Remaining architectural limits
+
+- A service worker can only provide the offline recovery page after the overlay has loaded successfully at least once and registered it.
+- If another process occupies port `49178`, the server intentionally falls back to another available loopback port. In that exceptional case, the existing OBS URL cannot follow the process to the fallback port; the app must expose the newly selected URL.

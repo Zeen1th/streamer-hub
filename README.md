@@ -11,6 +11,16 @@ Streamer Hub is a beta desktop companion for Twitch streamers. It includes count
 
 The Windows WebView2 Runtime is required. Most current Windows installations already have it. If the app asks for it, install the Microsoft WebView2 Runtime and reopen Streamer Hub.
 
+## Chat Overlay (OBS Browser Source)
+
+Streamer Hub includes a local, customizable Twitch chat overlay:
+
+1. Open **Chat Overlay** in the app sidebar and toggle **Enable Overlay Server**.
+2. Copy the **OBS Browser Source URL** (e.g. `http://127.0.0.1:49178/chat-overlay.html`).
+3. In OBS Studio, add a new **Browser Source**, paste the copied URL, and set your desired dimensions (e.g., width 800, height 600).
+4. Customize themes (Dark, Light, Transparent), message shape, animations, typography, avatar sizing, and display modes directly in Streamer Hub — changes update your stream overlay in real time.
+5. The overlay binds exclusively to loopback (`127.0.0.1`) for privacy and security.
+
 This is beta software. Please report problems with the app version and the details shown in Feed.
 
 
