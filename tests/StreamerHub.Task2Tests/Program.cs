@@ -1,4 +1,5 @@
 using StreamerHub.Core.Rpc;
+using StreamerHub.Core.Host;
 using StreamerHub.Core.Twitch;
 
 var failures = new List<string>();
@@ -6,6 +7,7 @@ var failures = new List<string>();
 await RunAsync("parse_privmsg_extracts_user_id_and_preserves_flags_and_message", ParsePrivmsgExtractsUserIdAndPreservesFlagsAndMessageAsync);
 await RunAsync("parse_privmsg_extracts_emote_ranges", ParsePrivmsgExtractsEmoteRangesAsync);
 await RunAsync("parse_clear_commands", ParseClearCommandsAsync);
+await RunAsync("shutdown_policy_only_diverts_a_user_window_close_to_tray", ShutdownPolicyOnlyDivertsUserCloseAsync);
 await RunAsync("profile_cache_batches_and_reuses_successful_lookups", ProfileCacheBatchesAndReusesSuccessfulLookupsAsync);
 await RunAsync("profile_cache_exposes_warmed_avatar_synchronously", ProfileCacheExposesWarmedAvatarSynchronouslyAsync);
 await RunAsync("profile_cache_logs_failures_once_per_user_session", ProfileCacheLogsFailuresOncePerUserSessionAsync);
@@ -21,7 +23,7 @@ if (failures.Count > 0)
     return;
 }
 
-Console.WriteLine("PASS 6/6");
+Console.WriteLine("PASS 7/7");
 
 async Task RunAsync(string name, Func<Task> test)
 {
@@ -111,6 +113,24 @@ Task ParseClearCommandsAsync()
     AssertEqual(ChatClearScope.All, all.Scope, "CLEARCHAT full scope");
 
     AssertTrue(!TwitchClearParser.TryParse(":tmi.twitch.tv PRIVMSG #room :hello", out _), "PRIVMSG is not a clear");
+
+    return Task.CompletedTask;
+}
+
+Task ShutdownPolicyOnlyDivertsUserCloseAsync()
+{
+    // The user closing the window is the only case the tray may swallow.
+    AssertTrue(ShutdownPolicy.ShouldHideToTray(CloseTrigger.UserClosedWindow, closeToTrayEnabled: true), "user close with tray enabled hides");
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.UserClosedWindow, closeToTrayEnabled: false), "user close with tray disabled exits");
+
+    // An update hands off to a script that waits for this process to exit. If
+    // the close were diverted to the tray the process would stay alive, the
+    // installer would never run, and the update would silently never apply.
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.UpdateRestart, closeToTrayEnabled: true), "update restart must exit even with tray enabled");
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.UpdateRestart, closeToTrayEnabled: false), "update restart exits");
+
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.TrayExit, closeToTrayEnabled: true), "tray exit must exit");
+    AssertTrue(!ShutdownPolicy.ShouldHideToTray(CloseTrigger.System, closeToTrayEnabled: true), "system shutdown must exit");
 
     return Task.CompletedTask;
 }

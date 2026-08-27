@@ -763,9 +763,21 @@ public sealed class HostController : IDisposable
             var script = string.Join(Environment.NewLine, new[]
             {
                 "$ErrorActionPreference = 'Stop'",
-                $"while (Get-Process -Id {currentPid} -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 500 }}",
-                $"Start-Process -FilePath {PsQuote(installerPath)} -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS' -Wait",
-                $"Start-Process -FilePath {PsQuote(appPath)}",
+                // Bounded wait. An unbounded loop meant that any failure to exit
+                // hung the update forever and left this script running with it.
+                // If the app somehow outlives the deadline, carry on anyway -
+                // /CLOSEAPPLICATIONS lets the installer deal with it.
+                "$deadline = (Get-Date).AddSeconds(60)",
+                $"while ((Get-Process -Id {currentPid} -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {{ Start-Sleep -Milliseconds 250 }}",
+                "try {",
+                $"  Start-Process -FilePath {PsQuote(installerPath)} -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS' -Wait",
+                "} catch {",
+                "} finally {",
+                // The app is restarted whether the installer succeeded or not,
+                // so a failed update never leaves the user with nothing running.
+                $"  Start-Process -FilePath {PsQuote(appPath)}",
+                "}",
+                $"Remove-Item -LiteralPath {PsQuote(installerPath)} -Force -ErrorAction SilentlyContinue",
                 "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue",
             });
             await File.WriteAllTextAsync(updaterPath, script, ct).ConfigureAwait(false);
@@ -785,7 +797,10 @@ public sealed class HostController : IDisposable
                 {
                     closeTimer.Stop();
                     closeTimer.Dispose();
-                    _form.Close();
+                    // Not Close(): with close-to-tray enabled that is cancelled
+                    // in favour of hiding, the process stays alive, and the
+                    // updater waits forever for it to exit.
+                    _form.ExitForUpdate();
                 };
                 closeTimer.Start();
             });

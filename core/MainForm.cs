@@ -53,7 +53,11 @@ public sealed class MainForm : Form
     private ChatOverlayServer? _chatOverlayServer;
     private bool _lastMaximized;
     private bool _webViewRefreshPending;
-    private bool _exitingFromTray;
+    /// <summary>
+    /// Why the window is closing. Anything other than the user clicking the
+    /// close button must terminate the process rather than hide to the tray.
+    /// </summary>
+    private CloseTrigger _closeTrigger = CloseTrigger.UserClosedWindow;
     private int _initialized;
 
     public MainForm()
@@ -228,9 +232,22 @@ public sealed class MainForm : Form
         Hide();
     }
 
-    private void ExitFromTray()
+    private void ExitFromTray() => ExitWith(CloseTrigger.TrayExit);
+
+    /// <summary>
+    /// Closes the app to hand off to the updater.
+    ///
+    /// The updater waits for this process to exit before running the installer,
+    /// so this close must never be diverted to the tray - doing so left the
+    /// process alive and the update silently never applied.
+    /// </summary>
+    internal void ExitForUpdate() => ExitWith(CloseTrigger.UpdateRestart);
+
+    /// <summary>Single path for every close the app initiates itself.</summary>
+    private void ExitWith(CloseTrigger trigger)
     {
-        _exitingFromTray = true;
+        if (IsDisposed) return;
+        _closeTrigger = trigger;
         _trayIcon.Visible = false;
         Close();
     }
@@ -431,15 +448,15 @@ public sealed class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (e.CloseReason == CloseReason.UserClosing && !_exitingFromTray)
+        // A programmatic Close() also reports UserClosing, so the reason alone
+        // cannot distinguish the user closing the window from the app closing
+        // itself. _closeTrigger carries that intent.
+        var trigger = e.CloseReason == CloseReason.UserClosing ? _closeTrigger : CloseTrigger.System;
+        if (ShutdownPolicy.ShouldHideToTray(trigger, _settings?.CloseToTray ?? true))
         {
-            var closeToTray = _settings?.CloseToTray ?? true;
-            if (closeToTray)
-            {
-                e.Cancel = true;
-                HideToTray();
-                return;
-            }
+            e.Cancel = true;
+            HideToTray();
+            return;
         }
 
         SaveWindowSettings();
