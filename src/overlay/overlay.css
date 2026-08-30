@@ -34,20 +34,22 @@
   flex-direction: column;
   gap: var(--co-gap);
   width: 100%;
+  height: 100%;
+  min-height: 0;
   margin: 0;
   padding: 0;
+  overflow: hidden;
   list-style: none;
 }
 
 /* New messages enter at the bottom and push older ones up. */
 .co-block[data-direction='up'] .co-list {
   justify-content: flex-end;
-  margin-top: auto;
 }
 
 .co-block[data-direction='down'] .co-list {
-  justify-content: flex-start;
-  margin-bottom: auto;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
 }
 
 /* Message card ------------------------------------------------------------ */
@@ -55,6 +57,7 @@
 .co-message {
   position: relative;
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--co-bubble-pad-x);
   align-items: center;
