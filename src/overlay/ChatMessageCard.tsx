@@ -49,7 +49,7 @@ export function ChatMessageCard({
   const badge = badgeLabel(role, lang);
   const isRtl = isRtlText(message.message);
   const textDir = isRtl ? 'rtl' : 'ltr';
-  const cardDir = settings.avatar.position === 'right' ? 'rtl' : 'ltr';
+  const identityDir = settings.identity.direction;
   const emoteOnly = isEmoteOnlyMessage(message.message, message.emotes, thirdParty, settings.emotes);
 
   const editable = typeof onSelectPart === 'function';
@@ -67,7 +67,7 @@ export function ChatMessageCard({
 
   const showUsername = settings.username.show;
   const showBadge = settings.badges.show && badge !== null;
-  const avatarMode = settings.avatar.show ? settings.avatar.position : 'none';
+  const avatarMode = settings.avatar.show ? (identityDir === 'rtl' ? 'right' : 'left') : 'none';
 
   // The user's own Twitch colour wins when that mode is selected and they have one.
   const usernameStyle =
@@ -81,8 +81,8 @@ export function ChatMessageCard({
       data-role={role}
       data-animation={settings.animation.kind}
       data-avatar={avatarMode}
-      data-card-dir={cardDir}
-      dir={cardDir}
+      data-card-dir={identityDir}
+      dir="ltr"
       {...partProps('bubble')}
     >
       {settings.bubble.accent.width > 0 && <span className="co-accent" aria-hidden />}
@@ -102,17 +102,17 @@ export function ChatMessageCard({
         />
       )}
 
-      <div className="co-copy" data-dir={textDir}>
+      <div className="co-copy" data-dir={identityDir}>
         {(showUsername || showBadge) && (
-          <div className="co-header">
-            {showBadge && (
-              <span className="co-badge" {...partProps('badge')}>
-                {badge}
-              </span>
-            )}
+          <div className="co-header" data-dir={identityDir} dir={identityDir}>
             {showUsername && (
               <span className="co-username" style={usernameStyle} {...partProps('username')}>
                 {message.username}
+              </span>
+            )}
+            {showBadge && (
+              <span className="co-badge" {...partProps('badge')}>
+                {badge}
               </span>
             )}
           </div>

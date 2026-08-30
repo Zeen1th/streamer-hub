@@ -82,14 +82,13 @@
 .co-accent {
   position: absolute;
   inset-block: 0;
-  inset-inline-start: 0;
+  left: 0;
   width: var(--co-accent-width);
   background: var(--co-accent-custom, var(--co-role-color));
   pointer-events: none;
 }
 
-.co-message[data-card-dir='rtl'] { direction: rtl; text-align: right; }
-.co-message[data-card-dir='ltr'] { direction: ltr; text-align: left; }
+.co-message[data-card-dir='rtl'] .co-accent { left: auto; right: 0; }
 
 /* Avatar ------------------------------------------------------------------ */
 
@@ -115,6 +114,9 @@
 
 .co-copy[data-dir='rtl'] { direction: rtl; text-align: right; }
 .co-copy[data-dir='ltr'] { direction: ltr; text-align: left; }
+
+.co-header[data-dir='rtl'] { direction: rtl; text-align: right; }
+.co-header[data-dir='ltr'] { direction: ltr; text-align: left; }
 
 .co-header {
   display: flex;

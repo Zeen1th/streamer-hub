@@ -79,6 +79,7 @@ export function createDefaultChatOverlaySettings(): ChatOverlaySettings {
       sizeScale: 100,
     },
     ...structuredCloneTokens(tokens),
+    identity: { direction: 'ltr' },
     emotes: {
       twitch: true,
       bttv: true,
@@ -139,6 +140,7 @@ function normalizeV2(input: Record<string, unknown>): ChatOverlaySettings {
   const bubble = isRecord(input.bubble) ? input.bubble : {};
   const username = isRecord(input.username) ? input.username : {};
   const text = isRecord(input.text) ? input.text : {};
+  const identity = isRecord(input.identity) ? input.identity : {};
   const avatar = isRecord(input.avatar) ? input.avatar : {};
   const badges = isRecord(input.badges) ? input.badges : {};
   const emotes = isRecord(input.emotes) ? input.emotes : {};
@@ -208,6 +210,13 @@ function normalizeV2(input: Record<string, unknown>): ChatOverlaySettings {
       shadow: bool(text.shadow, d.text.shadow),
       wrapMode: oneOf(text.wrapMode, ['normal', 'break-anywhere', 'clip'], d.text.wrapMode),
       maxWidth: int(text.maxWidth, L.maxWidth, d.text.maxWidth),
+    },
+    identity: {
+      direction: oneOf(
+        identity.direction,
+        ['ltr', 'rtl'],
+        oneOf(avatar.position, ['left', 'right'], 'left') === 'right' ? 'rtl' : 'ltr',
+      ),
     },
     avatar: {
       show: bool(avatar.show, d.avatar.show),
@@ -289,6 +298,7 @@ function migrateLegacy(input: Record<string, unknown>): ChatOverlaySettings {
   next.avatar.size = int(input.avatarSize, L.avatarSize, d.avatar.size);
   next.avatar.shape = oneOf(input.avatarShape, ['circle', 'rounded', 'square', 'squircle'], next.avatar.shape);
   next.avatar.position = oneOf(input.avatarPosition, ['left', 'right'], next.avatar.position);
+  next.identity.direction = next.avatar.position === 'right' ? 'rtl' : 'ltr';
 
   next.badges.show = bool(input.showBadges, next.badges.show);
 

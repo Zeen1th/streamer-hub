@@ -20,7 +20,16 @@ test('defaults are version 2 and internally consistent', () => {
   assert.equal(d.block.anchor, 'bottom-left');
   assert.equal(d.text.size, 24);
   assert.equal(d.username.size, 17);
+  assert.equal(d.identity.direction, 'ltr');
   assert.equal(d.filters.hideBots, true);
+});
+
+test('normalizes identity direction independently from message text direction', () => {
+  const rtl = normalizeChatOverlaySettings({ version: 2, identity: { direction: 'rtl' } });
+  const invalid = normalizeChatOverlaySettings({ version: 2, identity: { direction: 'sideways' } });
+
+  assert.equal(rtl.identity.direction, 'rtl');
+  assert.equal(invalid.identity.direction, 'ltr');
 });
 
 test('defaults are not shared mutable state between callers', () => {
@@ -157,7 +166,7 @@ test('migrates a v1 payload without losing explicit user choices', () => {
   assert.equal(result.username.show, false);
   assert.equal(result.avatar.size, 40);
   assert.equal(result.avatar.shape, 'squircle');
-  assert.equal(result.avatar.position, 'right');
+  assert.equal(result.identity.direction, 'rtl');
   assert.equal(result.badges.show, false);
   assert.equal(result.bubble.background.alpha, 60);
   assert.equal(result.bubble.border.radius, 3, 'square message style maps to a small radius');

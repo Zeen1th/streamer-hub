@@ -99,6 +99,7 @@ export type ChatOverlayAvatarShape = 'circle' | 'rounded' | 'square' | 'squircle
 export type ChatOverlayAlignment = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
 
 export type ChatOverlayAvatarPosition = 'left' | 'right';
+export type ChatOverlayIdentityDirection = 'ltr' | 'rtl';
 
 /** The reference coordinate space the overlay is designed in. */
 export const CHAT_OVERLAY_CANVAS = { width: 1920, height: 1080 } as const;
@@ -174,6 +175,10 @@ export interface ChatOverlayTextStyle {
   maxWidth: number;
 }
 
+export interface ChatOverlayIdentityStyle {
+  direction: ChatOverlayIdentityDirection;
+}
+
 export interface ChatOverlayAvatarStyle {
   show: boolean;
   size: number;
@@ -225,6 +230,7 @@ export interface ChatOverlaySettings {
   bubble: ChatOverlayBubble;
   username: ChatOverlayUsernameStyle;
   text: ChatOverlayTextStyle;
+  identity: ChatOverlayIdentityStyle;
   avatar: ChatOverlayAvatarStyle;
   badges: ChatOverlayBadgeStyleSettings;
   emotes: ChatOverlayEmoteSettings;

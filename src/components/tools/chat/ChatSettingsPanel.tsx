@@ -466,13 +466,16 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
                 ]}
               />
             </Field>
-            <Field label={t(lang, 'chat.avatarPosition')}>
+            <Field
+              label={t(lang, 'chat.identityLayout')}
+              hint={t(lang, 'chat.identityLayoutHint')}
+            >
               <SegmentedControl
-                value={settings.avatar.position}
-                onChange={(position) => patch({ avatar: { position } })}
+                value={settings.identity.direction}
+                onChange={(direction) => patch({ identity: { direction } })}
                 options={[
-                  { value: 'left', label: t(lang, 'chat.avatarPositionLeft') },
-                  { value: 'right', label: t(lang, 'chat.avatarPositionRight') },
+                  { value: 'ltr', label: t(lang, 'chat.identityLtr') },
+                  { value: 'rtl', label: t(lang, 'chat.identityRtl') },
                 ]}
               />
             </Field>
