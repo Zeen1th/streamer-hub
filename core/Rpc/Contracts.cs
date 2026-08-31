@@ -28,6 +28,25 @@ public sealed record Counter
     public string TitleTemplate { get; init; } = string.Empty;
 }
 
+public sealed record KeybindChord
+{
+    public string Key { get; init; } = string.Empty;
+    public string? Modifier { get; init; }
+}
+
+public sealed record ActionKeybind
+{
+    public string Id { get; init; } = string.Empty;
+    public bool Enabled { get; init; } = true;
+    public string TargetType { get; init; } = "counter";
+    public string TargetId { get; init; } = string.Empty;
+    public string Action { get; init; } = "increase";
+    public KeybindChord Chord { get; init; } = new();
+}
+
+public sealed record KeybindRegistration(string BindingId, string Status, string? Error = null);
+public sealed record KeybindState(IReadOnlyList<ActionKeybind> Bindings, IReadOnlyList<KeybindRegistration> Registrations);
+
 public sealed record ObsOutputConfig
 {
     public bool Enabled { get; init; } = true;

@@ -20,6 +20,7 @@ interface AutoReplyState {
   add(): string;
   update(id: string, patch: Partial<AutoReply>): void;
   remove(id: string): void;
+  triggerTitleAction(id: string, action: 'increase' | 'decrease' | 'reset' | 'apply'): boolean;
   handleChatMessage(message: ChatMessage): void;
 }
 
@@ -114,6 +115,37 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       lastAiUserTriggeredAt: state.lastAiUserTriggeredAt,
     }));
     rpc.invoke(Channels.AutoRepliesDelete, { ruleId: id }).catch(() => undefined);
+  },
+  triggerTitleAction: (id, action) => {
+    const rule = get().rules.find((item) => item.id === id && item.titleActionEnabled && item.titleTemplate?.trim());
+    if (!rule) return false;
+    const now = Date.now();
+    if (cooldownRemainingSeconds(now, get().lastTriggeredAt[id] ?? null, rule.cooldownSeconds) !== null) return false;
+    set((state) => ({ lastTriggeredAt: { ...state.lastTriggeredAt, [id]: now } }));
+    const queued = titleUpdateQueues.get(id) ?? Promise.resolve();
+    const nextUpdate = queued.catch(() => undefined).then(async () => {
+      const currentRule = get().rules.find((item) => item.id === id);
+      if (!currentRule) return;
+      const counters = currentRule.titleCounters?.length
+        ? currentRule.titleCounters
+        : [{ id: 'count1', start: currentRule.titleStart ?? 1, count: currentRule.titleCount ?? currentRule.titleStart ?? 1 }];
+      const nextCounters: TitleCounter[] = action === 'reset'
+        ? counters.map((counter) => ({ ...counter, count: Math.max(0, Math.trunc(counter.start)) }))
+        : action === 'increase' || action === 'decrease'
+          ? nextTitleCounters(counters, action)
+          : counters;
+      const values = Object.fromEntries(nextCounters.map((counter, index) => ['count' + (index + 1), Math.max(0, Math.trunc(counter.count))]));
+      const title = renderStreamTitle(currentRule.titleTemplate ?? '', values);
+      const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
+      if (result.ok && action !== 'apply') {
+        get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
+      }
+    }).catch(() => undefined);
+    titleUpdateQueues.set(id, nextUpdate);
+    void nextUpdate.finally(() => {
+      if (titleUpdateQueues.get(id) === nextUpdate) titleUpdateQueues.delete(id);
+    });
+    return true;
   },
   handleChatMessage: (message) => {
     const now = Date.now();

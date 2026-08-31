@@ -51,6 +51,7 @@ public sealed class MainForm : Form
     private SettingsStore? _settings;
     private HostController? _host;
     private ChatOverlayServer? _chatOverlayServer;
+    private GlobalHotkeyManager? _hotkeys;
     private bool _lastMaximized;
     private bool _webViewRefreshPending;
     /// <summary>
@@ -327,8 +328,21 @@ public sealed class MainForm : Form
         }
     }
 
+    public IReadOnlyList<KeybindRegistration> ReplaceGlobalHotkeys(IReadOnlyList<ActionKeybind> bindings)
+    {
+        _hotkeys ??= new GlobalHotkeyManager(Handle);
+        return _hotkeys.Replace(bindings);
+    }
+
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == GlobalHotkeyManager.MessageId)
+        {
+            var bindingId = _hotkeys?.Resolve(m.WParam.ToInt32());
+            if (bindingId is not null) _host?.PostEvent(StreamerHub.Core.Rpc.Events.KeybindTriggered, new { bindingId });
+            m.Result = IntPtr.Zero;
+            return;
+        }
         if (m.Msg == WmNcCalcSize && m.WParam != IntPtr.Zero)
         {
             m.Result = IntPtr.Zero;
@@ -466,6 +480,7 @@ public sealed class MainForm : Form
         _shutdown.Cancel();
         try
         {
+            _hotkeys?.Dispose();
             _host?.Dispose();
         }
         catch

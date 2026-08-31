@@ -58,6 +58,7 @@ public sealed class HostController : IDisposable
     private sealed record SetCountPayload(string CounterId, int Count, string Source);
     private sealed record SaveCounterPayload(Counter? Counter);
     private sealed record DeleteCounterPayload(string CounterId);
+    private sealed record SaveKeybindsPayload(List<ActionKeybind>? Bindings);
     private sealed record ObsWritePayload(string FilePath, string Content);
     private sealed record SaveFilePayload(string DefaultName);
     private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null, bool? StartupEnabled = null, bool? CloseToTray = null);
@@ -97,6 +98,7 @@ public sealed class HostController : IDisposable
     private System.Threading.Timer? _profileFlushTimer;
     private readonly RpcDispatcher _dispatcher = new();
     private readonly string _logPath;
+    private IReadOnlyList<KeybindRegistration> _keybindRegistrations = Array.Empty<KeybindRegistration>();
 
     private volatile bool _authRequired;
     private int _authorizeInProgress;
@@ -127,6 +129,7 @@ public sealed class HostController : IDisposable
         RegisterHandlers();
         WireTwitch();
         WireBotState();
+        RefreshKeybinds();
     }
 
     private string Lang => _settings.Language == "ar" ? "ar" : "en";
@@ -207,6 +210,20 @@ public sealed class HostController : IDisposable
         _dispatcher.Register(Channels.UpdateCheck, async (_, ct) => await CheckForUpdateAsync(ct).ConfigureAwait(false));
         _dispatcher.Register(Channels.UpdateInstall, async (payload, ct) => await InstallUpdateAsync(payload, ct).ConfigureAwait(false));
         _dispatcher.Register(Channels.CountersGetState, (_, _) => Task.FromResult<object?>(_settings.Counters));
+        _dispatcher.Register(Channels.KeybindsGetState, (_, _) => Task.FromResult<object?>(new KeybindState(_settings.Keybinds, _keybindRegistrations)));
+        _dispatcher.Register(Channels.KeybindsSave, (payload, _) =>
+        {
+            var request = Json.Deserialize<SaveKeybindsPayload>(payload ?? default);
+            var bindings = (request?.Bindings ?? new List<ActionKeybind>())
+                .Where(binding => !string.IsNullOrWhiteSpace(binding.Id))
+                .GroupBy(binding => binding.Id, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .Take(100)
+                .ToList();
+            _settings.SetKeybinds(bindings);
+            RefreshKeybinds();
+            return Task.FromResult<object?>(new KeybindState(_settings.Keybinds, _keybindRegistrations));
+        });
         _dispatcher.Register(Channels.CountersSetCount, (payload, _) =>
         {
             var request = Json.Deserialize<SetCountPayload>(payload ?? default);
@@ -221,6 +238,7 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<SaveCounterPayload>(payload ?? default);
             if (request?.Counter is null) return Task.FromResult<object?>(new { ok = false });
             _settings.SaveCounter(request.Counter);
+            RefreshKeybinds();
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.CountersDelete, (payload, _) =>
@@ -229,6 +247,7 @@ public sealed class HostController : IDisposable
             if (request is null || string.IsNullOrWhiteSpace(request.CounterId))
                 return Task.FromResult<object?>(new { ok = false });
             _settings.DeleteCounter(request.CounterId);
+            RefreshKeybinds();
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.ObsWrite, async (payload, ct) =>
@@ -381,6 +400,7 @@ public sealed class HostController : IDisposable
                 AiMaxTokens = Math.Clamp(request.Rule.AiMaxTokens, 40, 240),
                 AiFallback = aiFallback[..Math.Min(aiFallback.Length, 500)],
             });
+            RefreshKeybinds();
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.AutoRepliesDelete, (payload, _) =>
@@ -389,6 +409,7 @@ public sealed class HostController : IDisposable
             if (request is null || string.IsNullOrWhiteSpace(request.RuleId))
                 return Task.FromResult<object?>(new { ok = false });
             _settings.DeleteAutoReply(request.RuleId);
+            RefreshKeybinds();
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.TwitchSendChatMessage, async (payload, _) =>
@@ -954,6 +975,41 @@ public sealed class HostController : IDisposable
             if (dialog.ShowDialog(_form) == DialogResult.OK) path = dialog.FileName;
         });
         return path;
+    }
+
+    private void RefreshKeybinds()
+    {
+        var valid = new List<ActionKeybind>();
+        var orphaned = new Dictionary<string, KeybindRegistration>(StringComparer.Ordinal);
+        foreach (var binding in _settings.Keybinds)
+        {
+            var actionValid = binding.TargetType switch
+            {
+                "counter" => binding.Action is "increase" or "decrease" or "reset",
+                "title" => binding.Action is "increase" or "decrease" or "reset" or "apply",
+                _ => false,
+            };
+            var targetExists = binding.TargetType switch
+            {
+                "counter" => _settings.Counters.Any(counter => counter.Id == binding.TargetId),
+                "title" => _settings.AutoReplies.Any(rule => rule.Id == binding.TargetId && rule.TitleActionEnabled),
+                _ => false,
+            };
+            if (!targetExists || !actionValid)
+            {
+                orphaned[binding.Id] = new(binding.Id, "orphaned", "The selected action no longer exists.");
+                continue;
+            }
+            valid.Add(binding);
+        }
+
+        var registered = Ui(() => _form.ReplaceGlobalHotkeys(valid)) ?? Array.Empty<KeybindRegistration>();
+        var byId = registered.ToDictionary(item => item.BindingId, StringComparer.Ordinal);
+        _keybindRegistrations = _settings.Keybinds
+            .Select(binding => orphaned.GetValueOrDefault(binding.Id)
+                ?? byId.GetValueOrDefault(binding.Id)
+                ?? new KeybindRegistration(binding.Id, "unsupported", "Could not register this shortcut."))
+            .ToList();
     }
 
     private void Ui(Action action)

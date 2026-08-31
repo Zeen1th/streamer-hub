@@ -41,6 +41,7 @@ interface CounterStoreState {
   incrementManual(id: string): void;
   decrementManual(id: string): void;
   resetManual(id: string): void;
+  triggerAction(id: string, action: CounterAction, source: 'manual' | 'keybind'): boolean;
   handleChatMessage(message: ChatMessage): void;
   testWrite(id: string): void;
 }
@@ -134,7 +135,7 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
       });
   };
 
-  const syncCount = (id: string, source: 'manual' | 'chat') => {
+  const syncCount = (id: string, source: 'manual' | 'chat' | 'keybind') => {
     const counter = get().counters.find((c) => c.id === id);
     if (!counter) return;
     rpc.invoke(Channels.CountersSetCount, { counterId: id, count: counter.count, source }).catch(() => undefined);
@@ -144,13 +145,20 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
   const applyAction = (
     id: string,
     action: CounterAction,
-    source: 'manual' | 'chat',
+    source: 'manual' | 'chat' | 'keybind',
     username: string | null,
     argument = '',
   ) => {
     const counter = get().counters.find((c) => c.id === id);
-    if (!counter) return;
+    if (!counter) return false;
     const command = counter.commands[action];
+    const now = Date.now();
+    const lastAt = get().lastTriggerAt[counter.id]?.[action] ?? null;
+    const remaining = cooldownRemainingSeconds(now, lastAt, command.cooldownSeconds);
+    if (remaining !== null) {
+      log('cooldown-denied', counter.name + ' · ' + tr('log.cooldown', { user: username ?? 'STREAMER', s: remaining }), username ?? undefined);
+      return false;
+    }
     let next = counter.count;
     let kind: LogKind = 'manual';
     let message: string;
@@ -184,14 +192,12 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
     set((s) => ({
       counters: s.counters.map((c) => (c.id === id ? { ...c, count: next } : c)),
       lastTriggerUser: { ...s.lastTriggerUser, [id]: username },
-      lastTriggerAt:
-        source === 'chat'
-          ? { ...s.lastTriggerAt, [id]: { ...s.lastTriggerAt[id], [action]: Date.now() } }
-          : s.lastTriggerAt,
+      lastTriggerAt: { ...s.lastTriggerAt, [id]: { ...s.lastTriggerAt[id], [action]: now } },
     }));
     log(kind, `${counter.name} · ${message}`.slice(0, 80), username ?? undefined, next);
     syncCount(id, source);
     updateTitle(id);
+    return true;
   };
 
   return {
@@ -297,28 +303,18 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
       writeObs(id);
     },
 
-    incrementManual: (id) => applyAction(id, 'increase', 'manual', null),
-    decrementManual: (id) => applyAction(id, 'decrease', 'manual', null),
-    resetManual: (id) => applyAction(id, 'reset', 'manual', null),
+    incrementManual: (id) => { applyAction(id, 'increase', 'manual', null); },
+    decrementManual: (id) => { applyAction(id, 'decrease', 'manual', null); },
+    resetManual: (id) => { applyAction(id, 'reset', 'manual', null); },
+    triggerAction: (id, action, source) => applyAction(id, action, source, null),
 
     handleChatMessage: (message) => {
-      const { counters, lastTriggerAt } = get();
+      const { counters } = get();
       for (const counter of counters) {
         for (const action of ['increase', 'decrease', 'reset'] as CounterAction[]) {
           const command = counter.commands[action];
           const parsed = parseCommand(message.message, command.commandName);
           if (!parsed) continue;
-          const now = Date.now();
-          const lastAt = lastTriggerAt[counter.id]?.[action] ?? null;
-          const remaining = cooldownRemainingSeconds(now, lastAt, command.cooldownSeconds);
-          if (remaining !== null) {
-            log(
-              'cooldown-denied',
-              `${counter.name} · ${tr('log.cooldown', { user: message.username, s: remaining })}`,
-              message.username,
-            );
-            return;
-          }
           if (!hasPermission(message, command.permission)) {
             log(
               'permission-denied',

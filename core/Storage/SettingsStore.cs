@@ -18,6 +18,7 @@ public sealed class SettingsStore : IDisposable
     {
         public List<Counter> Counters { get; init; } = new();
         public List<AutoReply> AutoReplies { get; init; } = new();
+        public List<ActionKeybind> Keybinds { get; init; } = new();
         public AutoReplySettings AutoReplySettings { get; init; } = new();
         public TwitchSettings Twitch { get; init; } = new();
         public ChatOverlaySettings ChatOverlay { get; init; } = new();
@@ -48,6 +49,17 @@ public sealed class SettingsStore : IDisposable
     public IReadOnlyList<AutoReply> AutoReplies
     {
         get { lock (_lock) return _document.AutoReplies; }
+    }
+
+    public IReadOnlyList<ActionKeybind> Keybinds
+    {
+        get { lock (_lock) return _document.Keybinds; }
+    }
+
+    public void SetKeybinds(IReadOnlyList<ActionKeybind> bindings)
+    {
+        lock (_lock) _document = _document with { Keybinds = bindings.ToList() };
+        ScheduleSave();
     }
 
     public AutoReplySettings AutoReplySettings

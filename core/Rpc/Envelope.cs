@@ -38,6 +38,8 @@ public static class Channels
     public const string CountersSetCount = "counters/set-count";
     public const string CountersSave = "counters/save";
     public const string CountersDelete = "counters/delete";
+    public const string KeybindsGetState = "keybinds/get-state";
+    public const string KeybindsSave = "keybinds/save";
     public const string ObsWrite = "obs/write";
     public const string DialogSaveFile = "dialog/save-file";
     public const string LogAppend = "log/append";
@@ -76,5 +78,6 @@ public static class Events
     public const string TwitchChatCleared = "twitch/chat-cleared";
     public const string WindowMaximizedChanged = "window/maximized-changed";
     public const string CoreLog = "core/log";
+    public const string KeybindTriggered = "keybind/triggered";
 }
 

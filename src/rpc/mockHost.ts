@@ -1,4 +1,4 @@
-import type { AutoReply, AutoReplySettings, ChatOverlaySettings, ConnectionStatus, Counter, RpcEnvelope, TwitchSettings } from './contracts';
+import type { ActionKeybind, AutoReply, AutoReplySettings, ChatOverlaySettings, ConnectionStatus, Counter, RpcEnvelope, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -7,6 +7,7 @@ const STORAGE_KEY = 'streamer-hub-mock-counters';
 const LEGACY_STORAGE_KEY = 'streamer-hub-mock-state';
 const TWITCH_STORAGE_KEY = 'streamer-hub-mock-settings';
 const AUTO_REPLY_STORAGE_KEY = 'streamer-hub-mock-auto-replies';
+const KEYBIND_STORAGE_KEY = 'streamer-hub-mock-keybinds';
 const AUTO_REPLY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-auto-reply-settings';
 const CHAT_OVERLAY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-chat-overlay-settings';
 const CHAT_OVERLAY_URL = 'http://127.0.0.1:49178/chat-overlay.html';
@@ -53,6 +54,7 @@ export class MockHost {
   private counters: Counter[];
   private autoReplies: AutoReply[];
   private autoReplySettings: AutoReplySettings;
+  private keybinds: ActionKeybind[];
   private chatOverlaySettings: ChatOverlaySettings;
   private readonly listeners = new Set<(message: RpcEnvelope) => void>();
   private isMaximized = false;
@@ -63,6 +65,7 @@ export class MockHost {
     this.counters = this.loadCounters();
     this.autoReplies = this.loadAutoReplies();
     this.autoReplySettings = this.loadAutoReplySettings();
+    this.keybinds = this.loadKeybinds();
     this.chatOverlaySettings = this.loadChatOverlaySettings();
     this.schedule(() => this.emitStatus(), 350);
     this.schedule(() => {
@@ -124,6 +127,16 @@ export class MockHost {
       case 'counters/get-state':
         this.respond(request, structuredClone(this.counters));
         break;
+      case 'keybinds/get-state':
+        this.respond(request, { bindings: structuredClone(this.keybinds), registrations: this.keybinds.map((binding) => ({ bindingId: binding.id, status: binding.enabled ? 'registered' : 'disabled' })) });
+        break;
+      case 'keybinds/save': {
+        const payload = request.payload as { bindings?: ActionKeybind[] };
+        this.keybinds = structuredClone(payload.bindings ?? []);
+        try { localStorage.setItem(KEYBIND_STORAGE_KEY, JSON.stringify(this.keybinds)); } catch { void 0; }
+        this.respond(request, { bindings: structuredClone(this.keybinds), registrations: this.keybinds.map((binding) => ({ bindingId: binding.id, status: binding.enabled ? 'registered' : 'disabled' })) });
+        break;
+      }
       case 'counters/set-count': {
         const payload = request.payload as { counterId: string; count: number };
         this.counters = this.counters.map((c) =>
@@ -294,6 +307,15 @@ export class MockHost {
       void 0;
     }
     return { ...DEFAULT_CHAT_OVERLAY_SETTINGS };
+  }
+
+  private loadKeybinds(): ActionKeybind[] {
+    try {
+      const raw = localStorage.getItem(KEYBIND_STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as ActionKeybind[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   private loadAutoReplies(): AutoReply[] {

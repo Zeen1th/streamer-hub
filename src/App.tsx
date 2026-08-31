@@ -16,6 +16,7 @@ import { useCounterStore } from './store/counterStore';
 import { useAutoReplyStore } from './store/autoReplyStore';
 import { useChatOverlayStore } from './store/chatOverlayStore';
 import { useLogStore } from './store/logStore';
+import { useKeybindStore } from './store/keybindStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useToolStore } from './store/toolStore';
 import { useUpdateStore } from './store/updateStore';
@@ -67,6 +68,9 @@ export default function App() {
     const offCoreLog = rpc.on(Events.CoreLog, (payload) => {
       useLogStore.getState().addLocal({ kind: 'system', message: payload.message });
     });
+    const offKeybind = rpc.on(Events.KeybindTriggered, ({ bindingId }) => {
+      useKeybindStore.getState().trigger(bindingId);
+    });
 
     const boot = async () => {
       try {
@@ -84,6 +88,11 @@ export default function App() {
       try {
         const maximized = await rpc.invoke(Channels.WindowIsMaximized);
         if (!disposed) useConnectionStore.getState().setMaximized(maximized.isMaximized);
+      } catch {
+        void 0;
+      }
+      try {
+        await useKeybindStore.getState().load();
       } catch {
         void 0;
       }
@@ -148,6 +157,7 @@ export default function App() {
       offProfile();
       offCleared();
       offCoreLog();
+      offKeybind();
       window.clearInterval(poll);
     };
   }, []);

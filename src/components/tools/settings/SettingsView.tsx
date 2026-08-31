@@ -3,6 +3,7 @@ import {
   Bot,
   HelpCircle,
   KeyRound,
+  Keyboard,
   Languages,
   LogOut,
   Radio,
@@ -20,8 +21,9 @@ import { Card } from '../../ui/Card';
 import { Input } from '../../ui/Input';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Switch } from '../../ui/Switch';
+import { KeybindSettings } from './KeybindSettings';
 
-type SettingsSection = 'general' | 'system' | 'twitch' | 'ai' | 'guide';
+type SettingsSection = 'general' | 'system' | 'keybinds' | 'twitch' | 'ai' | 'guide';
 
 export function SettingsView() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general');
@@ -62,6 +64,7 @@ export function SettingsView() {
   }[] = [
     { id: 'general', label: t(lang, 'settings.sectionGeneral'), icon: Languages },
     { id: 'system', label: t(lang, 'settings.sectionWindow'), icon: AppWindow },
+    { id: 'keybinds', label: lang === 'ar' ? 'الاختصارات' : 'Keybinds', icon: Keyboard },
     { id: 'twitch', label: t(lang, 'settings.sectionTwitch'), icon: Radio },
     { id: 'ai', label: t(lang, 'settings.sectionAi'), icon: Sparkles },
     { id: 'guide', label: t(lang, 'settings.sectionGuide'), icon: HelpCircle },
@@ -196,7 +199,13 @@ export function SettingsView() {
         </section>
       )}
 
-      {/* SECTION 3: Twitch & Bot Connection */}
+      {activeSection === 'keybinds' && (
+        <section className="space-y-6 animate-fade-in">
+          <KeybindSettings lang={lang} />
+        </section>
+      )}
+
+            {/* SECTION 3: Twitch & Bot Connection */}
       {activeSection === 'twitch' && (
         <section className="space-y-6 animate-fade-in">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

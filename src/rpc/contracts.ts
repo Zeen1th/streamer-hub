@@ -13,6 +13,35 @@ export type PermissionLevel = 'everyone' | 'subscriber' | 'vip' | 'mod' | 'broad
 
 export type CounterAction = 'increase' | 'decrease' | 'reset';
 
+export type KeybindModifier = 'ctrl' | 'alt' | 'shift' | 'meta';
+export type KeybindTargetType = 'counter' | 'title';
+export type KeybindAction = CounterAction | 'apply';
+
+export interface KeybindChord {
+  key: string;
+  modifier?: KeybindModifier;
+}
+
+export interface ActionKeybind {
+  id: string;
+  enabled: boolean;
+  targetType: KeybindTargetType;
+  targetId: string;
+  action: KeybindAction;
+  chord: KeybindChord;
+}
+
+export interface KeybindRegistration {
+  bindingId: string;
+  status: 'registered' | 'disabled' | 'conflict' | 'unsupported' | 'orphaned';
+  error?: string;
+}
+
+export interface KeybindState {
+  bindings: ActionKeybind[];
+  registrations: KeybindRegistration[];
+}
+
 export interface CounterCommandConfig {
   commandName: string;
   permission: PermissionLevel;
@@ -317,6 +346,8 @@ export const Channels = {
   CountersSetCount: 'counters/set-count',
   CountersSave: 'counters/save',
   CountersDelete: 'counters/delete',
+  KeybindsGetState: 'keybinds/get-state',
+  KeybindsSave: 'keybinds/save',
   ObsWrite: 'obs/write',
   DialogSaveFile: 'dialog/save-file',
   LogAppend: 'log/append',
@@ -356,6 +387,7 @@ export const Events = {
   TwitchChatCleared: 'twitch/chat-cleared',
   WindowMaximizedChanged: 'window/maximized-changed',
   CoreLog: 'core/log',
+  KeybindTriggered: 'keybind/triggered',
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events];
@@ -368,11 +400,13 @@ export interface HostApi {
   [Channels.CoreGetStatus]: { request: undefined; response: ConnectionStatus };
   [Channels.CountersGetState]: { request: undefined; response: Counter[] };
   [Channels.CountersSetCount]: {
-    request: { counterId: string; count: number; source: 'manual' | 'chat' };
+    request: { counterId: string; count: number; source: 'manual' | 'chat' | 'keybind' };
     response: { ok: boolean; count: number };
   };
   [Channels.CountersSave]: { request: { counter: Counter }; response: { ok: boolean } };
   [Channels.CountersDelete]: { request: { counterId: string }; response: { ok: boolean } };
+  [Channels.KeybindsGetState]: { request: undefined; response: KeybindState };
+  [Channels.KeybindsSave]: { request: { bindings: ActionKeybind[] }; response: KeybindState };
   [Channels.ObsWrite]: {
     request: { filePath: string; content: string };
     response: { ok: boolean; error?: string };
@@ -414,5 +448,6 @@ export interface EventMap {
   [Events.TwitchChatCleared]: { scope: 'message' | 'user' | 'all'; id?: string };
   [Events.WindowMaximizedChanged]: { isMaximized: boolean };
   [Events.CoreLog]: { message: string };
+  [Events.KeybindTriggered]: { bindingId: string };
 }
 
