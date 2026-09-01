@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Square, Maximize2, Minus, X } from 'lucide-react';
 import { t } from '../../i18n/translations';
 import { rpc } from '../../rpc';
 import { Channels } from '../../rpc/contracts';
 import { useConnectionStore } from '../../store/connectionStore';
+import { useCounterStore } from '../../store/counterStore';
 import { useSettingsStore } from '../../store/settingsStore';
 
 const controlClass =
@@ -11,6 +13,7 @@ const controlClass =
 export function WindowControls() {
   const isMaximized = useConnectionStore((s) => s.isMaximized);
   const language = useSettingsStore((s) => s.language);
+  const [closing, setClosing] = useState(false);
   const lang = language === 'ar' ? 'ar' : 'en';
 
   return (
@@ -42,8 +45,18 @@ export function WindowControls() {
         aria-label={t(lang, 'window.close')}
         title={t(lang, 'window.close')}
         className="flex h-full w-12 items-center justify-center text-ink/80 transition-colors duration-100 hover:bg-danger hover:text-on-primary focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
-        onClick={() => {
-          rpc.invoke(Channels.WindowClose).catch(() => undefined);
+        disabled={closing}
+        onClick={async () => {
+          if (closing) return;
+          setClosing(true);
+          try {
+            await useCounterStore.getState().flushPending();
+            await rpc.invoke(Channels.WindowClose);
+          } catch {
+            // Keep the window usable if the host rejects or times out.
+          } finally {
+            setClosing(false);
+          }
         }}
       >
         <X size={15} strokeWidth={2.5} />

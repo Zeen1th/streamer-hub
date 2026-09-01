@@ -52,6 +52,7 @@ public static class Channels
     public const string ChatOverlayGetState = "chat-overlay/get-state";
     public const string ChatOverlaySaveSettings = "chat-overlay/save-settings";
     public const string ChatOverlayGetUrl = "chat-overlay/get-url";
+    public const string SystemListFonts = "system/list-fonts";
     public const string OpenRouterGetState = "openrouter/get-state";
     public const string OpenRouterSave = "openrouter/save";
     public const string WindowBeginDrag = "window/begin-drag";

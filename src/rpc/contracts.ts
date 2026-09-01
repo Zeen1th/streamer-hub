@@ -360,6 +360,7 @@ export const Channels = {
   ChatOverlayGetState: 'chat-overlay/get-state',
   ChatOverlaySaveSettings: 'chat-overlay/save-settings',
   ChatOverlayGetUrl: 'chat-overlay/get-url',
+  SystemListFonts: 'system/list-fonts',
   OpenRouterGetState: 'openrouter/get-state',
   OpenRouterSave: 'openrouter/save',
   AutoRepliesGenerate: 'auto-replies/generate',
@@ -425,6 +426,7 @@ export interface HostApi {
   [Channels.ChatOverlayGetState]: { request: undefined; response: ChatOverlaySettings };
   [Channels.ChatOverlaySaveSettings]: { request: ChatOverlaySettings; response: { ok: boolean } };
   [Channels.ChatOverlayGetUrl]: { request: undefined; response: { url: string } };
+  [Channels.SystemListFonts]: { request: undefined; response: { fonts: string[] } };
   [Channels.OpenRouterGetState]: { request: undefined; response: OpenRouterSettingsState };
   [Channels.OpenRouterSave]: { request: { provider: 'openrouter' | 'groq'; apiKey: string | null }; response: { ok: boolean; configured: boolean } };
   [Channels.WindowBeginDrag]: { request: undefined; response: { ok: boolean } };

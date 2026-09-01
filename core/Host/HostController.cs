@@ -311,6 +311,8 @@ public sealed class HostController : IDisposable
         });
         _dispatcher.Register(Channels.ChatOverlayGetUrl, (_, _) =>
             Task.FromResult<object?>(new { url = _chatOverlay.GetUrl() }));
+        _dispatcher.Register(Channels.SystemListFonts, (_, _) =>
+            Task.FromResult<object?>(new { fonts = InstalledFontCatalog.GetFamilies() }));
         _dispatcher.Register(Channels.SettingsSave, (payload, _) =>
         {
             var request = Json.Deserialize<SaveSettingsPayload>(payload ?? default);

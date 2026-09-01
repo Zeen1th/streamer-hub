@@ -15,6 +15,13 @@ try
     await server.StartAsync();
     var bridge = new ChatOverlayHostBridge(settings, server);
 
+    var installedFonts = InstalledFontCatalog.GetFamilies();
+    AssertTrue(installedFonts.Count > 0, "installed font catalogue is not empty");
+    AssertEqual(
+        installedFonts.Count,
+        installedFonts.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+        "installed font catalogue is unique");
+
     AssertEqual(settings.ChatOverlay, bridge.GetState(), "initial overlay state");
     AssertEqual(server.OverlayUrl.ToString(), bridge.GetUrl(), "overlay URL");
 

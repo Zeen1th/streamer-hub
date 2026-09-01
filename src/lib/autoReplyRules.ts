@@ -77,6 +77,25 @@ export function insertTemplateToken(value: string, token: string, cursor: number
   return `${value.slice(0, index)}${token}${value.slice(index)}`;
 }
 
+export function insertReplyToken(
+  value: string,
+  token: string,
+  selectionStart: number | null,
+  selectionEnd: number | null,
+): { value: string; caret: number } {
+  const clamp = (offset: number | null, fallback: number) => (
+    offset === null ? fallback : Math.max(0, Math.min(Math.trunc(offset), value.length))
+  );
+  const anchor = clamp(selectionStart, value.length);
+  const focus = clamp(selectionEnd, anchor);
+  const start = Math.min(anchor, focus);
+  const end = Math.max(anchor, focus);
+  return {
+    value: `${value.slice(0, start)}${token}${value.slice(end)}`,
+    caret: start + token.length,
+  };
+}
+
 export function cooldownRemainingSeconds(
   now: number,
   lastTriggeredAt: number | null,

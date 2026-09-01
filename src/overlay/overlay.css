@@ -122,10 +122,11 @@
 .co-header[data-dir='ltr'] { direction: ltr; text-align: left; }
 
 .co-header {
-  display: flex;
+  display: var(--co-header-display);
   align-items: center;
   gap: calc(var(--co-bubble-pad-x) * 0.4);
   flex-wrap: wrap;
+  margin-inline-end: var(--co-header-margin-end);
   unicode-bidi: isolate;
 }
 
@@ -161,6 +162,7 @@
 }
 
 .co-text {
+  display: var(--co-text-display);
   margin: 0;
   max-width: var(--co-text-max-width);
   font-family: var(--co-text-font);
@@ -186,13 +188,10 @@
 }
 
 /* Inline username sits before the text rather than on its own line. */
-.co-block[data-username-position='inline'] .co-header {
-  display: inline;
-  margin-inline-end: 0.4em;
-}
 .co-block[data-username-position='inline'] .co-username::after { content: ':'; }
-
-.co-body { unicode-bidi: isolate; display: inline; }
+.co-block[data-username-position='inline'] .co-badge {
+  margin-inline-start: calc(var(--co-bubble-pad-x) * 0.4);
+}
 
 .co-block[data-text-shadow='true'] .co-username,
 .co-block[data-text-shadow='true'] .co-text {

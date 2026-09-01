@@ -119,6 +119,7 @@ export function settingsToCssVars(settings: ChatOverlaySettings): CSSProperties 
   // inline on the element, so it needs no token here.
   const usernameCustom =
     settings.username.colorMode === 'custom' ? settings.username.color : undefined;
+  const inlineUsername = settings.username.position === 'inline';
 
   return {
     '--co-gap': px(settings.flow.gap),
@@ -141,6 +142,10 @@ export function settingsToCssVars(settings: ChatOverlaySettings): CSSProperties 
     '--co-username-spacing': `${round(settings.username.letterSpacing, 3)}em`,
     '--co-username-custom': usernameCustom,
     '--co-username-transform': settings.username.transform,
+
+    '--co-header-display': inlineUsername ? 'inline' : 'flex',
+    '--co-header-margin-end': inlineUsername ? '0.4em' : '0',
+    '--co-text-display': inlineUsername ? 'inline' : 'block',
 
     '--co-text-font': resolveFontStack(settings.text.font),
     '--co-text-size': px(settings.text.size),

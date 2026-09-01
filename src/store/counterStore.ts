@@ -10,6 +10,7 @@ import type {
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 import { cooldownRemainingSeconds, hasPermission, parseCommand, renderTemplate } from '../lib/counterRules';
+import { counterSyncQueue } from '../lib/counterSyncQueue';
 import { titleUpdateQueue } from '../lib/titleUpdateQueue';
 import { RANK_KEYS, t } from '../i18n/translations';
 import type { Language } from '../i18n/translations';
@@ -45,6 +46,7 @@ interface CounterStoreState {
   triggerAction(id: string, action: CounterAction, source: 'manual' | 'keybind'): boolean;
   handleChatMessage(message: ChatMessage): void;
   testWrite(id: string): void;
+  flushPending(): Promise<void>;
 }
 
 const COMMAND_LABELS: Record<CounterAction, string> = {
@@ -63,26 +65,17 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
     useLogStore.getState().add({ kind, message, username, count });
   };
 
-  const persistCounter = (counter: Counter) => {
-    set({ configSync: { state: 'syncing', at: null } });
-    rpc
-      .invoke(Channels.CountersSave, { counter })
-      .then(() => set({ configSync: { state: 'saved', at: new Date().toISOString() } }))
-      .catch(() => set({ configSync: { state: 'error', at: new Date().toISOString() } }));
-  };
-
   const failWrite = (id: string, message: string) => {
     set((s) => ({ obsStatus: { ...s.obsStatus, [id]: { state: 'error', message, at: new Date().toISOString() } } }));
     log('obs-error', tr('log.obsFailed', { msg: message }));
   };
 
-  const updateTitle = (id: string) => {
-    void titleUpdateQueue.enqueue(async () => {
-      const current = get().counters.find((c) => c.id === id);
-      if (!current?.titleEnabled || !current.titleTemplate?.trim()) return;
+  const syncTwitchTitle = (counter: Counter): Promise<void> =>
+    titleUpdateQueue.enqueue(async () => {
+      if (!counter.titleEnabled || !counter.titleTemplate?.trim()) return;
 
       let currentTitle: string | null = null;
-      if (current.titleTemplate.includes('{title}') || current.titleTemplate.includes('{current_title}')) {
+      if (counter.titleTemplate.includes('{title}') || counter.titleTemplate.includes('{current_title}')) {
         try {
           const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
           if (titleRes.ok && titleRes.title) currentTitle = titleRes.title;
@@ -90,11 +83,29 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
         }
       }
 
-      const title = renderTemplate(current.titleTemplate, current.count, null, currentTitle).trim();
+      const title = renderTemplate(counter.titleTemplate, counter.count, null, currentTitle).trim();
       if (!title) return;
       const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
-      if (!result.ok) log('system', current.name + ' · ' + (result.error ?? 'TITLE UPDATE FAILED'));
-    }).catch(() => undefined);
+      if (!result.ok) log('system', counter.name + ' · ' + (result.error ?? 'TITLE UPDATE FAILED'));
+    }).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'TITLE UPDATE FAILED';
+      log('system', `${counter.name} · ${message}`);
+    });
+
+  const persistCounter = (counter: Counter, syncTitle = false) => {
+    set({ configSync: { state: 'syncing', at: null } });
+    void counterSyncQueue
+      .enqueue(async () => {
+        const result = await rpc.invoke(Channels.CountersSave, { counter });
+        if (!result.ok) throw new Error('COUNTER SAVE FAILED');
+        if (syncTitle) await syncTwitchTitle(counter);
+      })
+      .then(() => set({ configSync: { state: 'saved', at: new Date().toISOString() } }))
+      .catch((error: unknown) => {
+        set({ configSync: { state: 'error', at: new Date().toISOString() } });
+        const message = error instanceof Error ? error.message : 'COUNTER SAVE FAILED';
+        log('system', `${counter.name} · ${message}`);
+      });
   };
 
   const writeObs = (id: string, force = false, logSuccess = false) => {
@@ -129,8 +140,18 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
   const syncCount = (id: string, source: 'manual' | 'chat' | 'keybind') => {
     const counter = get().counters.find((c) => c.id === id);
     if (!counter) return;
-    rpc.invoke(Channels.CountersSetCount, { counterId: id, count: counter.count, source }).catch(() => undefined);
     writeObs(id);
+    void counterSyncQueue
+      .enqueue(async () => {
+        const result = await rpc.invoke(Channels.CountersSetCount, { counterId: id, count: counter.count, source });
+        if (!result.ok || result.count !== counter.count) throw new Error('COUNTER SAVE FAILED');
+        await syncTwitchTitle(counter);
+      })
+      .catch((error: unknown) => {
+        set({ configSync: { state: 'error', at: new Date().toISOString() } });
+        const message = error instanceof Error ? error.message : 'COUNTER SAVE FAILED';
+        log('system', `${counter.name} · ${message}`);
+      });
   };
 
   const applyAction = (
@@ -187,7 +208,6 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
     }));
     log(kind, `${counter.name} · ${message}`.slice(0, 80), username ?? undefined, next);
     syncCount(id, source);
-    updateTitle(id);
     return true;
   };
 
@@ -251,7 +271,15 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
         lastTriggerAt: Object.fromEntries(Object.entries(s.lastTriggerAt).filter(([key]) => key !== id)),
         lastTriggerUser: Object.fromEntries(Object.entries(s.lastTriggerUser).filter(([key]) => key !== id)),
       }));
-      rpc.invoke(Channels.CountersDelete, { counterId: id }).catch(() => undefined);
+      void counterSyncQueue
+        .enqueue(async () => {
+          const result = await rpc.invoke(Channels.CountersDelete, { counterId: id });
+          if (!result.ok) throw new Error('COUNTER DELETE FAILED');
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : 'COUNTER DELETE FAILED';
+          log('system', `${removed?.name ?? id} · ${message}`);
+        });
       if (removed) log('system', tr('log.counterDeleted', { name: removed.name }));
     },
 
@@ -276,7 +304,7 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
         counters: s.counters.map((c) => (c.id === id ? { ...c, ...patch } : c)),
       }));
       const counter = get().counters.find((c) => c.id === id);
-      if (counter) persistCounter(counter);
+      if (counter) persistCounter(counter, true);
     },
 
     updateObs: (id, patch) => {
@@ -321,5 +349,6 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
     },
 
     testWrite: (id) => writeObs(id, true, true),
+    flushPending: () => counterSyncQueue.drain(),
   };
 });

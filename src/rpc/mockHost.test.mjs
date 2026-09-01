@@ -55,16 +55,28 @@ afterEach(() => {
 async function loadHarness() {
   const contractsSource = fs.readFileSync(new URL('./contracts.ts', import.meta.url), 'utf8');
   const mockHostSource = fs.readFileSync(new URL('./mockHost.ts', import.meta.url), 'utf8');
-  const contractsPath = path.join(tempRoot, 'contracts.testable.ts');
-  const mockHostPath = path.join(tempRoot, 'mockHost.testable.ts');
+  const chatOverlaySource = fs.readFileSync(new URL('../lib/chatOverlay.ts', import.meta.url), 'utf8')
+    .replaceAll("from '../rpc/contracts';", "from '../rpc/contracts.testable.ts';")
+    .replaceAll("from '../rpc/contracts.ts';", "from '../rpc/contracts.testable.ts';");
+  const chatOverlayPresetsSource = fs.readFileSync(new URL('../lib/chatOverlayPresets.ts', import.meta.url), 'utf8')
+    .replaceAll("from '../rpc/contracts';", "from '../rpc/contracts.testable.ts';");
+  const rpcDir = path.join(tempRoot, 'rpc');
+  const libDir = path.join(tempRoot, 'lib');
+  fs.mkdirSync(rpcDir, { recursive: true });
+  fs.mkdirSync(libDir, { recursive: true });
+  const contractsPath = path.join(rpcDir, 'contracts.testable.ts');
+  const mockHostPath = path.join(rpcDir, 'mockHost.testable.ts');
 
   fs.writeFileSync(contractsPath, contractsSource, 'utf8');
+  fs.writeFileSync(path.join(libDir, 'chatOverlay.ts'), chatOverlaySource, 'utf8');
+  fs.writeFileSync(path.join(libDir, 'chatOverlayPresets.ts'), chatOverlayPresetsSource, 'utf8');
   fs.writeFileSync(
     mockHostPath,
     mockHostSource
       .split("import type { Transport } from './transport';\n").join('')
       .split("import type { Transport } from './transport';\r\n").join('')
       .split("from './contracts';").join("from './contracts.testable.ts';")
+      .replaceAll("from '../lib/chatOverlay';", "from '../lib/chatOverlay.ts';")
       .replace(/\nexport class MockTransport[\s\S]*$/, '\n'),
     'utf8',
   );

@@ -258,6 +258,9 @@ export class MockHost {
       case Channels.ChatOverlayGetUrl:
         this.respond(request, { url: CHAT_OVERLAY_URL });
         break;
+      case Channels.SystemListFonts:
+        this.respond(request, { fonts: ['Arial', 'Cairo', 'Inter', 'Segoe UI', 'Times New Roman'] });
+        break;
       case 'openrouter/get-state':
         this.respond(request, { configured: false, groqConfigured: false });
         break;
@@ -302,7 +305,7 @@ export class MockHost {
   private loadChatOverlaySettings(): ChatOverlaySettings {
     try {
       const raw = localStorage.getItem(CHAT_OVERLAY_SETTINGS_STORAGE_KEY);
-      if (raw) return { ...DEFAULT_CHAT_OVERLAY_SETTINGS, ...JSON.parse(raw) } as ChatOverlaySettings;
+      if (raw) return JSON.parse(raw) as ChatOverlaySettings;
     } catch {
       void 0;
     }

@@ -34,6 +34,19 @@ test('an unknown family falls back to the system stack', () => {
   assert.match(resolveFontStack({ family: 'nonsense', customName: '' }), /system-ui/);
 });
 
+test('inline username position puts the header and message in the same text flow', () => {
+  const settings = base();
+  settings.username.position = 'inline';
+  const inline = settingsToCssVars(settings);
+  assert.equal(inline['--co-header-display'], 'inline');
+  assert.equal(inline['--co-text-display'], 'inline');
+
+  settings.username.position = 'above';
+  const above = settingsToCssVars(settings);
+  assert.equal(above['--co-header-display'], 'flex');
+  assert.equal(above['--co-text-display'], 'block');
+});
+
 // --- sizeScale, the sharpness fix -----------------------------------------
 
 test('sizeScale multiplies pixel tokens instead of transform-scaling', () => {

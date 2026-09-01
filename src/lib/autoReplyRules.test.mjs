@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cooldownRemainingSeconds, directionFromStart, insertTemplateToken, matchesAnyAutoReply, matchesAutoReply, renderAutoReply, renderStreamTitle, nextTitleCounters, titleActionDirection } from './autoReplyRules.ts';
+import { cooldownRemainingSeconds, directionFromStart, insertReplyToken, insertTemplateToken, matchesAnyAutoReply, matchesAutoReply, renderAutoReply, renderStreamTitle, nextTitleCounters, titleActionDirection } from './autoReplyRules.ts';
 
 test('matches trimmed Unicode text exactly', () => {
   assert.equal(matchesAutoReply('  السلام عليكم  ', 'السلام عليكم'), true);
@@ -33,6 +33,17 @@ test('renders the stream title counter placeholder', () => {
 test('inserts a dragged placeholder at the saved cursor position', () => {
   assert.equal(insertTemplateToken('Hello world', '{mention}', 6), 'Hello {mention}world');
   assert.equal(insertTemplateToken('Hello world', '{mention}', null), 'Hello world{mention}');
+});
+
+test('inserts a prepared-response token at the text selection and places the caret after it', () => {
+  assert.deepEqual(insertReplyToken('Hello viewer', '{mention}', 6, 12), {
+    value: 'Hello {mention}',
+    caret: 15,
+  });
+  assert.deepEqual(insertReplyToken('Hello', '{message}', null, null), {
+    value: 'Hello{message}',
+    caret: 14,
+  });
 });
 
 test('sets direction from the first non-space character', () => {

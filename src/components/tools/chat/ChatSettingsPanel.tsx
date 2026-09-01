@@ -16,9 +16,13 @@ import {
 } from 'lucide-react';
 import { CHAT_OVERLAY_LIMITS, defaultBlockForAnchor } from '../../../lib/chatOverlay';
 import { CHAT_OVERLAY_PRESETS } from '../../../lib/chatOverlayPresets';
-import type {
-  ChatOverlayAlignment,
-  ChatOverlaySettings,
+import { matchInstalledFontFamily, normalizeInstalledFontFamilies } from '../../../lib/fontChoices';
+import { resolveFontStack } from '../../../overlay/tokens';
+import { rpc } from '../../../rpc';
+import {
+  Channels,
+  type ChatOverlayAlignment,
+  type ChatOverlaySettings,
 } from '../../../rpc/contracts';
 import type { ChatOverlayPart } from '../../../overlay/ChatMessageCard';
 import { useChatOverlayStore, type DeepPartial } from '../../../store/chatOverlayStore';
@@ -63,6 +67,8 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
   const lang = language === 'ar' ? 'ar' : 'en';
   const sectionRefs = useRef<Partial<Record<SectionId, HTMLElement | null>>>({});
   const [copied, setCopied] = useState(false);
+  const [installedFonts, setInstalledFonts] = useState<string[]>([]);
+  const [fontListState, setFontListState] = useState<'loading' | 'ready' | 'error'>('loading');
 
   const patch = (value: DeepPartial<ChatOverlaySettings>) => void store.updateSettings(value);
 
@@ -73,6 +79,20 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
     if (!highlighted) return;
     sectionRefs.current[highlighted]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [highlighted, selectedPart]);
+
+  useEffect(() => {
+    let cancelled = false;
+    rpc.invoke(Channels.SystemListFonts).then(({ fonts }) => {
+      if (cancelled) return;
+      setInstalledFonts(normalizeInstalledFontFamilies(fonts));
+      setFontListState('ready');
+    }).catch(() => {
+      if (!cancelled) setFontListState('error');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const L = CHAT_OVERLAY_LIMITS;
 
@@ -313,8 +333,11 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
               onChange={(show) => patch({ username: { show } })}
             />
             <FontRow
+              id="username-font"
               lang={lang}
               value={settings.username.font}
+              installedFonts={installedFonts}
+              fontListState={fontListState}
               onChange={(font) => patch({ username: { font } })}
             />
             <NumberRow
@@ -380,7 +403,14 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
           t(lang, 'chat.section.text'),
           <Type size={14} className="text-primary" />,
           <>
-            <FontRow lang={lang} value={settings.text.font} onChange={(font) => patch({ text: { font } })} />
+            <FontRow
+              id="message-font"
+              lang={lang}
+              value={settings.text.font}
+              installedFonts={installedFonts}
+              fontListState={fontListState}
+              onChange={(font) => patch({ text: { font } })}
+            />
             <NumberRow
               label={t(lang, 'chat.fontSize')}
               value={settings.text.size}
@@ -741,15 +771,22 @@ function ColorRow({
 }
 
 function FontRow({
+  id,
   lang,
   value,
+  installedFonts,
+  fontListState,
   onChange,
 }: {
+  id: string;
   lang: 'en' | 'ar';
   value: ChatOverlaySettings['text']['font'];
+  installedFonts: string[];
+  fontListState: 'loading' | 'ready' | 'error';
   onChange: (font: ChatOverlaySettings['text']['font']) => void;
 }) {
   const [available, setAvailable] = useState(true);
+  const installedMatch = matchInstalledFontFamily(value.customName, installedFonts);
 
   useEffect(() => {
     if (value.family !== 'custom' || !value.customName) {
@@ -757,19 +794,24 @@ function FontRow({
       return;
     }
     // Reports a missing custom font instead of silently falling back.
+    if (fontListState === 'ready') {
+      setAvailable(installedMatch !== null);
+      return;
+    }
+    if (fontListState === 'loading') return;
     try {
       setAvailable(document.fonts.check(`16px "${value.customName}"`));
     } catch {
       setAvailable(true);
     }
-  }, [value.family, value.customName]);
+  }, [fontListState, installedMatch, value.family, value.customName]);
 
   return (
     <Field
       label={t(lang, 'chat.fontFamily')}
-      hint={!available ? t(lang, 'chat.fontMissing') : undefined}
+      hint={value.family === 'custom' && !available ? t(lang, 'chat.fontMissing') : undefined}
     >
-      <div className="space-y-2">
+      <div className="space-y-3">
         <SegmentedControl
           value={value.family}
           onChange={(family) => onChange({ ...value, family })}
@@ -783,12 +825,42 @@ function FontRow({
           ]}
         />
         {value.family === 'custom' && (
-          <Input
-            value={value.customName}
-            placeholder="Inter"
-            spellCheck={false}
-            onChange={(e) => onChange({ ...value, customName: e.target.value })}
-          />
+          <div className="space-y-2">
+            <Input
+              list={`${id}-installed-fonts`}
+              value={value.customName}
+              placeholder={t(lang, 'chat.fontSearchPlaceholder')}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) => onChange({ ...value, customName: event.target.value })}
+              onBlur={() => {
+                if (installedMatch && installedMatch !== value.customName) {
+                  onChange({ ...value, customName: installedMatch });
+                }
+              }}
+            />
+            <datalist id={`${id}-installed-fonts`}>
+              {installedFonts.map((font) => <option key={font} value={font} />)}
+            </datalist>
+            <p className="font-sans text-xs text-ink/60">
+              {fontListState === 'loading'
+                ? t(lang, 'chat.fontLoading')
+                : fontListState === 'error'
+                  ? t(lang, 'chat.fontListUnavailable')
+                  : t(lang, 'chat.fontPickerHint')}
+            </p>
+            <div className="border border-ink/15 bg-surface px-3 py-2">
+              <div className="font-sans text-[10px] font-bold uppercase tracking-[0.12em] text-ink/50">
+                {t(lang, 'chat.fontPreview')}
+              </div>
+              <div
+                className="mt-1 truncate text-lg text-ink"
+                style={{ fontFamily: resolveFontStack(value) }}
+              >
+                Stream chat · أهلاً بالبث
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </Field>
