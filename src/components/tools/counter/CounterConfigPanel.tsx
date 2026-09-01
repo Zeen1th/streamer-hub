@@ -17,6 +17,7 @@ import type { SegmentedOption } from '../../ui/SegmentedControl';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Slider } from '../../ui/Slider';
 import { Switch } from '../../ui/Switch';
+import { FeatureKeybindEditor } from '../settings/FeatureKeybindEditor';
 
 const RANK_KEYS: Record<PermissionLevel, string> = {
   everyone: 'ranks.everyone',
@@ -157,6 +158,8 @@ export function CounterConfigPanel({ counter, onClose }: CounterConfigPanelProps
             <CommandBlock key={action} counter={counter} action={action} />
           ))}
         </div>
+
+        <FeatureKeybindEditor lang={lang} targetType="counter" targetId={counter.id} />
 
         <div className="border border-ink/15 bg-surface px-4 py-4">
           <div className="flex items-center justify-between">

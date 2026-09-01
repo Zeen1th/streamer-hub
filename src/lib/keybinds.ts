@@ -1,4 +1,6 @@
 export type KeyModifier = 'ctrl' | 'alt' | 'shift' | 'meta';
+export type KeybindTarget = 'counter' | 'title';
+export type ScopedKeybindAction = 'increase' | 'decrease' | 'reset' | 'apply';
 
 export interface KeyChord {
   key: string;
@@ -54,4 +56,10 @@ export function bindingAvailability(
 ): 'available' | 'orphaned' {
   const targets = binding.targetType === 'counter' ? counters : titleRules;
   return targets.some((target) => target.id === binding.targetId) ? 'available' : 'orphaned';
+}
+
+export function keybindActionsForTarget(targetType: KeybindTarget): ScopedKeybindAction[] {
+  return targetType === 'counter'
+    ? ['increase', 'decrease', 'reset']
+    : ['increase', 'decrease', 'reset', 'apply'];
 }

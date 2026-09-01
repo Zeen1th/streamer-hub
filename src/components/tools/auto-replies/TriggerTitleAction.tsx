@@ -7,6 +7,7 @@ import type { AutoReply, TitleCounter } from '../../../rpc/contracts';
 import { Channels } from '../../../rpc/contracts';
 import { rpc } from '../../../rpc';
 import { renderStreamTitle } from '../../../lib/autoReplyRules';
+import { FeatureKeybindEditor } from '../settings/FeatureKeybindEditor';
 
 interface TriggerTitleActionProps {
   rule: AutoReply;
@@ -64,6 +65,7 @@ export function TriggerTitleAction({ rule, lang, update }: TriggerTitleActionPro
           <Button size="sm" onClick={applyTitle} disabled={!currentTitle.trim()}>{lang === 'ar' ? 'تطبيق العنوان' : 'Apply title'}</Button>
           {applyStatus && <span className="self-center font-sans text-xs text-ink/65">{applyStatus}</span>}
         </div>
+        <FeatureKeybindEditor lang={lang} targetType="title" targetId={rule.id} />
       </div>}
     </div>
   );

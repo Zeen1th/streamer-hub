@@ -5,6 +5,7 @@ import {
   chordConflict,
   chordFromKeyboardEvent,
   bindingAvailability,
+  keybindActionsForTarget,
 } from './keybinds.ts';
 
 test('captures a standalone primary key', () => {
@@ -28,4 +29,12 @@ test('normalizes equivalent chords for conflict detection', () => {
 test('marks bindings with deleted targets as orphaned', () => {
   const binding = { id: 'b1', targetType: 'counter', targetId: 'missing', action: 'increase', chord: { key: 'F8' }, enabled: true };
   assert.equal(bindingAvailability(binding, [], []), 'orphaned');
+});
+
+test('counter editors expose only counter actions', () => {
+  assert.deepEqual(keybindActionsForTarget('counter'), ['increase', 'decrease', 'reset']);
+});
+
+test('title editors also expose apply without changing counters', () => {
+  assert.deepEqual(keybindActionsForTarget('title'), ['increase', 'decrease', 'reset', 'apply']);
 });
