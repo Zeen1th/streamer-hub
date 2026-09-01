@@ -4,6 +4,7 @@ import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 import { cooldownRemainingSeconds, matchesAnyAutoReply, nextTitleCounters, renderAutoReply, renderStreamTitle, titleActionDirection } from '../lib/autoReplyRules';
 import { hasPermission } from '../lib/counterRules';
+import { titleUpdateQueue } from '../lib/titleUpdateQueue';
 import { useLogStore } from './logStore';
 import { useSettingsStore } from './settingsStore';
 
@@ -28,7 +29,6 @@ const persist = (rule: AutoReply) => {
   rpc.invoke(Channels.AutoRepliesSave, { rule }).catch(() => undefined);
 };
 
-const titleUpdateQueues = new Map<string, Promise<void>>();
 
 export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
   rules: [],
@@ -122,8 +122,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     const now = Date.now();
     if (cooldownRemainingSeconds(now, get().lastTriggeredAt[id] ?? null, rule.cooldownSeconds) !== null) return false;
     set((state) => ({ lastTriggeredAt: { ...state.lastTriggeredAt, [id]: now } }));
-    const queued = titleUpdateQueues.get(id) ?? Promise.resolve();
-    const nextUpdate = queued.catch(() => undefined).then(async () => {
+    const nextUpdate = titleUpdateQueue.enqueue(async () => {
       const currentRule = get().rules.find((item) => item.id === id);
       if (!currentRule) return;
       const counters = currentRule.titleCounters?.length
@@ -140,11 +139,8 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       if (result.ok && action !== 'apply') {
         get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
       }
-    }).catch(() => undefined);
-    titleUpdateQueues.set(id, nextUpdate);
-    void nextUpdate.finally(() => {
-      if (titleUpdateQueues.get(id) === nextUpdate) titleUpdateQueues.delete(id);
     });
+    void nextUpdate.catch(() => undefined);
     return true;
   },
   handleChatMessage: (message) => {
@@ -180,8 +176,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       );
       const baseTriggerMatched = matchesAnyAutoReply(message.message, rule.triggers, rule.matchMode);
       if (direction || baseTriggerMatched) {
-        const queued = titleUpdateQueues.get(rule.id) ?? Promise.resolve();
-        const nextUpdate = queued.catch(() => undefined).then(async () => {
+        const nextUpdate = titleUpdateQueue.enqueue(async () => {
           const currentRule = get().rules.find((item) => item.id === rule.id);
           if (!currentRule) return;
           const counters = currentRule.titleCounters?.length ? currentRule.titleCounters : [{ id: 'count1', start: currentRule.titleStart ?? 1, count: currentRule.titleCount ?? currentRule.titleStart ?? 1 }];
@@ -192,11 +187,8 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
           if (result.ok && direction) {
             get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
           }
-        }).catch(() => undefined);
-        titleUpdateQueues.set(rule.id, nextUpdate);
-        void nextUpdate.finally(() => {
-          if (titleUpdateQueues.get(rule.id) === nextUpdate) titleUpdateQueues.delete(rule.id);
         });
+        void nextUpdate.catch(() => undefined);
       }
     }
 

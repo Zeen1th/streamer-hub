@@ -10,6 +10,7 @@ import type {
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 import { cooldownRemainingSeconds, hasPermission, parseCommand, renderTemplate } from '../lib/counterRules';
+import { titleUpdateQueue } from '../lib/titleUpdateQueue';
 import { RANK_KEYS, t } from '../i18n/translations';
 import type { Language } from '../i18n/translations';
 import { useLogStore } from './logStore';
@@ -75,35 +76,25 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
     log('obs-error', tr('log.obsFailed', { msg: message }));
   };
 
-  const counterTitleQueues = new Map<string, Promise<void>>();
-
   const updateTitle = (id: string) => {
-    const queued = counterTitleQueues.get(id) ?? Promise.resolve();
-    const next = queued
-      .catch(() => undefined)
-      .then(async () => {
-        const current = get().counters.find((c) => c.id === id);
-        if (!current?.titleEnabled || !current.titleTemplate?.trim()) return;
+    void titleUpdateQueue.enqueue(async () => {
+      const current = get().counters.find((c) => c.id === id);
+      if (!current?.titleEnabled || !current.titleTemplate?.trim()) return;
 
-        let currentTitle: string | null = null;
-        if (current.titleTemplate.includes('{title}') || current.titleTemplate.includes('{current_title}')) {
-          try {
-            const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
-            if (titleRes.ok && titleRes.title) currentTitle = titleRes.title;
-          } catch {
-          }
+      let currentTitle: string | null = null;
+      if (current.titleTemplate.includes('{title}') || current.titleTemplate.includes('{current_title}')) {
+        try {
+          const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
+          if (titleRes.ok && titleRes.title) currentTitle = titleRes.title;
+        } catch {
         }
+      }
 
-        const title = renderTemplate(current.titleTemplate, current.count, null, currentTitle).trim();
-        if (!title) return;
-        const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
-        if (!result.ok) log('system', current.name + ' · ' + (result.error ?? 'TITLE UPDATE FAILED'));
-      })
-      .catch(() => undefined);
-    counterTitleQueues.set(id, next);
-    void next.finally(() => {
-      if (counterTitleQueues.get(id) === next) counterTitleQueues.delete(id);
-    });
+      const title = renderTemplate(current.titleTemplate, current.count, null, currentTitle).trim();
+      if (!title) return;
+      const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
+      if (!result.ok) log('system', current.name + ' · ' + (result.error ?? 'TITLE UPDATE FAILED'));
+    }).catch(() => undefined);
   };
 
   const writeObs = (id: string, force = false, logSuccess = false) => {
