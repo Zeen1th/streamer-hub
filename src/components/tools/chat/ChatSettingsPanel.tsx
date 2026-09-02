@@ -102,7 +102,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         sectionRefs.current[id] = el;
       }}
       className={[
-        'border-t border-ink/15 px-5 py-5 transition-colors duration-300',
+        'border-t border-hair px-3 py-3',
         highlighted === id ? 'bg-primary/10' : '',
       ].join(' ')}
     >
@@ -115,10 +115,10 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
   );
 
   return (
-    <div className="slab flex h-full flex-col overflow-hidden">
-      <header className="flex items-center justify-between gap-3 px-5 py-3.5">
+    <div className="flex h-full flex-col overflow-hidden bg-surface-2">
+      <header className="flex h-[44px] shrink-0 items-center justify-between gap-2 border-b border-hair px-3">
         <div className="flex items-center gap-2.5">
-          <Wand2 size={16} className="text-primary" />
+          <Wand2 size={16} className="text-accent-text" />
           <h2 className="font-display text-base uppercase tracking-[0.04em] text-ink">
             {t(lang, 'chat.settings')}
           </h2>
@@ -135,7 +135,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'presets',
           t(lang, 'chat.presets'),
-          <Sparkles size={14} className="text-primary" />,
+          <Sparkles size={14} className="text-accent-text" />,
           <div className="flex flex-wrap gap-2">
             {CHAT_OVERLAY_PRESETS.map((preset) => (
               <Button
@@ -154,7 +154,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'layout',
           t(lang, 'chat.section.layout'),
-          <LayoutGrid size={14} className="text-primary" />,
+          <LayoutGrid size={14} className="text-accent-text" />,
           <>
             <Field label={t(lang, 'chat.alignment')} hint={t(lang, 'chat.anchorHint')}>
               <SegmentedControl<ChatOverlayAlignment>
@@ -227,7 +227,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'bubble',
           t(lang, 'chat.section.bubble'),
-          <Square size={14} className="text-primary" />,
+          <Square size={14} className="text-accent-text" />,
           <>
             <ColorRow
               label={t(lang, 'chat.bubbleBackground')}
@@ -325,7 +325,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'username',
           t(lang, 'chat.section.username'),
-          <AtSign size={14} className="text-primary" />,
+          <AtSign size={14} className="text-accent-text" />,
           <>
             <ToggleRow
               label={t(lang, 'chat.showUsernames')}
@@ -401,7 +401,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'text',
           t(lang, 'chat.section.text'),
-          <Type size={14} className="text-primary" />,
+          <Type size={14} className="text-accent-text" />,
           <>
             <FontRow
               id="message-font"
@@ -470,7 +470,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'avatar',
           t(lang, 'chat.section.avatar'),
-          <ImageIcon size={14} className="text-primary" />,
+          <ImageIcon size={14} className="text-accent-text" />,
           <>
             <ToggleRow
               label={t(lang, 'chat.showAvatars')}
@@ -523,7 +523,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'badges',
           t(lang, 'chat.section.badges'),
-          <Award size={14} className="text-primary" />,
+          <Award size={14} className="text-accent-text" />,
           <>
             <ToggleRow
               label={t(lang, 'chat.showBadges')}
@@ -544,7 +544,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'emotes',
           t(lang, 'chat.section.emotes'),
-          <Smile size={14} className="text-primary" />,
+          <Smile size={14} className="text-accent-text" />,
           <>
             <ToggleRow
               label={t(lang, 'chat.emoteTwitch')}
@@ -588,7 +588,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'filters',
           t(lang, 'chat.section.filters'),
-          <Filter size={14} className="text-primary" />,
+          <Filter size={14} className="text-accent-text" />,
           <>
             <ListEditor
               label={t(lang, 'chat.blockedUsernames')}
@@ -639,7 +639,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         {section(
           'obs',
           t(lang, 'chat.section.output'),
-          <Palette size={14} className="text-primary" />,
+          <Palette size={14} className="text-accent-text" />,
           <>
             <Field label={t(lang, 'chat.animation')}>
               <SegmentedControl

@@ -5,10 +5,8 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
   return (
     <input
       className={cn(
-        'h-11 w-full border border-ink/25 bg-surface-2 px-3 font-mono text-sm text-ink placeholder:text-ink/65',
-        'transition-colors duration-150',
-        'focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25',
-        'disabled:opacity-40',
+        'h-[30px] w-full border border-rule bg-surface px-2.5 font-sans text-[13px] text-ink placeholder:text-faint',
+        'focus:border-accent focus:outline-none disabled:opacity-45',
         className,
       )}
       {...rest}

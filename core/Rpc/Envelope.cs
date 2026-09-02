@@ -56,6 +56,7 @@ public static class Channels
     public const string OpenRouterGetState = "openrouter/get-state";
     public const string OpenRouterSave = "openrouter/save";
     public const string WindowBeginDrag = "window/begin-drag";
+    public const string WindowBeginResize = "window/begin-resize";
     public const string AutoRepliesGetState = "auto-replies/get-state";
     public const string AutoRepliesSettingsGet = "auto-replies/settings-get";
     public const string AutoRepliesSettingsSave = "auto-replies/settings-save";

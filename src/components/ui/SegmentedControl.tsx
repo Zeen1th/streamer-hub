@@ -11,16 +11,13 @@ interface SegmentedControlProps<T extends string> {
   value: T;
   options: SegmentedOption<T>[];
   onChange: (value: T) => void;
+  className?: string;
 }
 
-export function SegmentedControl<T extends string>({
-  value,
-  options,
-  onChange,
-}: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({ value, options, onChange, className }: SegmentedControlProps<T>) {
   return (
-    <div role="radiogroup" className="flex flex-wrap gap-1.5">
-      {options.map((option) => {
+    <div role="radiogroup" className={cn('flex min-w-0 border border-rule', className)}>
+      {options.map((option, index) => {
         const selected = option.value === value;
         return (
           <button
@@ -31,14 +28,12 @@ export function SegmentedControl<T extends string>({
             title={option.title}
             onClick={() => onChange(option.value)}
             className={cn(
-              'cursor-pointer select-none border px-3 py-1.5 font-sans text-xs font-bold uppercase tracking-[0.08em] transition-colors duration-150',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
-              selected
-                ? 'border-primary bg-primary text-on-primary'
-                : 'border-ink/25 bg-surface-2 text-ink/70 hover:border-ink/50 hover:bg-ink/5',
+              'h-[30px] min-w-0 flex-1 select-none px-2 font-sans text-[11px] font-medium',
+              index > 0 && 'border-s border-rule',
+              selected ? 'bg-accent-fill font-extrabold text-on-accent' : 'bg-transparent text-ink hover:bg-accent-soft',
             )}
           >
-            {option.label}
+            <span className="block truncate">{option.label}</span>
           </button>
         );
       })}

@@ -1,32 +1,22 @@
-import {
-  AppWindow,
-  Bot,
-  HelpCircle,
-  KeyRound,
-  Keyboard,
-  Languages,
-  LogOut,
-  Radio,
-  Settings as SettingsIcon,
-  Sparkles,
-} from 'lucide-react';
-import React, { useState } from 'react';
+import { Bot, KeyRound, LogOut, Radio, Sparkles } from 'lucide-react';
+import { useState } from 'react';
 import { t } from '../../../i18n/translations';
 import { isMockMode, rpc } from '../../../rpc';
 import { Channels } from '../../../rpc/contracts';
 import { useConnectionStore } from '../../../store/connectionStore';
 import { useSettingsStore } from '../../../store/settingsStore';
+import { useToolStore, type SettingsSection } from '../../../store/toolStore';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { Input } from '../../ui/Input';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Switch } from '../../ui/Switch';
+import { TriggerGlobalSettings } from '../auto-replies/TriggerGlobalSettings';
 import { KeybindSettings } from './KeybindSettings';
 
-type SettingsSection = 'general' | 'system' | 'keybinds' | 'twitch' | 'ai' | 'guide';
-
 export function SettingsView() {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('general');
+  const activeSection = useToolStore((s) => s.section);
+  const setActiveSection = useToolStore((s) => s.setSection);
 
   const language = useSettingsStore((s) => s.language);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
@@ -57,69 +47,46 @@ export function SettingsView() {
 
   const guideSteps = [1, 2, 3, 4, 5, 6, 7].map((n) => t(lang, `settings.guide${n}`));
 
-  const sections: {
-    id: SettingsSection;
-    label: string;
-    icon: React.ComponentType<{ size?: number; className?: string }>;
-  }[] = [
-    { id: 'general', label: t(lang, 'settings.sectionGeneral'), icon: Languages },
-    { id: 'system', label: t(lang, 'settings.sectionWindow'), icon: AppWindow },
-    { id: 'keybinds', label: lang === 'ar' ? 'الاختصارات' : 'Keybinds', icon: Keyboard },
-    { id: 'twitch', label: t(lang, 'settings.sectionTwitch'), icon: Radio },
-    { id: 'ai', label: t(lang, 'settings.sectionAi'), icon: Sparkles },
-    { id: 'guide', label: t(lang, 'settings.sectionGuide'), icon: HelpCircle },
+  const sections: { id: SettingsSection; label: string }[] = [
+    { id: 'general', label: t(lang, 'settings.sectionGeneral') },
+    { id: 'system', label: t(lang, 'settings.sectionWindow') },
+    { id: 'keybinds', label: lang === 'ar' ? 'الاختصارات' : 'Keybinds' },
+    { id: 'twitch', label: t(lang, 'settings.sectionTwitch') },
+    { id: 'ai', label: t(lang, 'settings.sectionAi') },
+    { id: 'guide', label: t(lang, 'settings.sectionGuide') },
   ];
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Header */}
-      <header>
-        <div className="flex items-center gap-3">
-          <SettingsIcon size={22} className="text-primary" aria-hidden />
-          <h1 className="font-display text-3xl uppercase leading-none text-ink">
-            {t(lang, 'settings.title')}
-          </h1>
-        </div>
-        <div className="mt-4 h-px bg-ink/20">
-          <div className="h-px w-56 bg-primary" />
-        </div>
-        <p className="mt-3 font-sans text-sm font-semibold uppercase tracking-[0.12em] text-ink/65">
-          {t(lang, 'settings.subtitle')}
-        </p>
-      </header>
-
-      {/* Section Navigation Buttons */}
-      <nav
-        aria-label="Settings sections"
-        className="flex flex-wrap gap-2 border-b border-ink/15 pb-4"
-      >
+    <section className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] bg-surface">
+      <nav aria-label="Settings sections" className="border-e border-rule bg-surface-2 py-3" role="tree">
+        <div className="ui-label px-[10px] pb-2 text-muted">{t(lang, 'settings.title')}</div>
         {sections.map((section) => {
-          const Icon = section.icon;
           const isActive = activeSection === section.id;
           return (
             <button
               key={section.id}
               type="button"
+              role="treeitem"
+              aria-selected={isActive}
               onClick={() => setActiveSection(section.id)}
-              className={`group flex items-center gap-2.5 border px-4 py-2.5 font-sans text-xs font-bold uppercase tracking-[0.08em] transition-all duration-150 cursor-pointer ${
-                isActive
-                  ? 'border-primary bg-primary text-on-primary shadow-sm'
-                  : 'border-ink/20 bg-surface text-ink/75 hover:border-ink/40 hover:bg-ink/5 hover:text-ink'
-              }`}
+              className={`relative flex h-[30px] w-full items-center px-[10px] text-start font-sans text-[12px] font-semibold ${isActive ? 'bg-surface text-ink before:absolute before:inset-y-0 before:start-0 before:w-[3px] before:bg-accent' : 'text-muted hover:bg-surface hover:text-ink'}`}
             >
-              <Icon
-                size={16}
-                className={isActive ? 'text-on-primary' : 'text-primary group-hover:scale-110 transition-transform'}
-              />
               <span>{section.label}</span>
             </button>
           );
         })}
       </nav>
 
+      <div className="app-scroll min-h-0 overflow-auto">
+        <div className="w-[660px] max-w-full px-[26px] py-[22px]">
+          <h1 className="font-sans text-[24px] font-bold uppercase leading-none tracking-[-0.02em] text-ink">
+            {sections.find((section) => section.id === activeSection)?.label}
+          </h1>
+          <div className="mb-5 mt-4 h-[2px] bg-rule" />
+
       {/* SECTION 1: General & Appearance */}
       {activeSection === 'general' && (
-        <section className="space-y-6 animate-fade-in">
+        <section className="space-y-6">
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             {/* Language Selection */}
             <Card title={t(lang, 'settings.language')}>
@@ -146,10 +113,11 @@ export function SettingsView() {
                 name="app-theme"
                 value={theme}
                 options={[
+                  { value: 'system', label: lang === 'ar' ? 'النظام' : 'System' },
                   { value: 'light', label: t(lang, 'settings.themeLight') },
                   { value: 'dark', label: t(lang, 'settings.themeDark') },
                 ]}
-                onChange={(value) => setTheme(value as 'light' | 'dark')}
+                onChange={(value) => setTheme(value as typeof theme)}
               />
             </Card>
           </div>
@@ -158,7 +126,7 @@ export function SettingsView() {
 
       {/* SECTION 2: System & Window Behavior */}
       {activeSection === 'system' && (
-        <section className="space-y-6 animate-fade-in">
+        <section className="space-y-6">
           <Card>
             <div className="space-y-6">
               {/* Close to Tray Toggle */}
@@ -200,14 +168,14 @@ export function SettingsView() {
       )}
 
       {activeSection === 'keybinds' && (
-        <section className="space-y-6 animate-fade-in">
+        <section className="space-y-6">
           <KeybindSettings lang={lang} />
         </section>
       )}
 
             {/* SECTION 3: Twitch & Bot Connection */}
       {activeSection === 'twitch' && (
-        <section className="space-y-6 animate-fade-in">
+        <section className="space-y-6">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Main Streamer Account */}
             <Card
@@ -228,14 +196,14 @@ export function SettingsView() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-ink/15 pt-3">
+                <div className="flex items-center justify-between border-t border-rule pt-3">
                   <div className="flex items-center gap-2">
                     <span
-                      className={`size-2.5 rounded-full ${
-                        twitchConnected ? 'bg-emerald-500 animate-pulse' : 'bg-ink/30'
+                      className={`size-2.5 ${
+                        twitchConnected ? 'bg-emerald-500' : 'bg-ink/30'
                       }`}
                     />
-                    <span className="font-sans text-xs font-bold uppercase tracking-[0.1em] text-ink/80">
+                    <span className="font-sans text-xs font-bold uppercase tracking-[0.1em] text-muted">
                       {twitchConnected
                         ? twitchChannel
                           ? `@${twitchChannel}`
@@ -299,14 +267,14 @@ export function SettingsView() {
                 </div>
 
                 {botAccountEnabled && (
-                  <div className="flex items-center justify-between border-t border-ink/15 pt-3">
+                  <div className="flex items-center justify-between border-t border-rule pt-3">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`size-2.5 rounded-full ${
+                        className={`size-2.5 ${
                           botConnected ? 'bg-emerald-500' : 'bg-ink/30'
                         }`}
                       />
-                      <span className="font-sans text-xs font-bold uppercase tracking-[0.1em] text-ink/80">
+                      <span className="font-sans text-xs font-bold uppercase tracking-[0.1em] text-muted">
                         {botConnected
                           ? botLogin
                             ? `@${botLogin}`
@@ -348,7 +316,8 @@ export function SettingsView() {
 
       {/* SECTION 4: AI & Intelligence Providers */}
       {activeSection === 'ai' && (
-        <section className="space-y-6 animate-fade-in">
+        <section className="space-y-6">
+          <TriggerGlobalSettings lang={lang} />
           <Card title={t(lang, 'settings.aiProviders')}>
             <div className="space-y-5">
               <div className="flex items-start gap-3 border border-ink/20 bg-surface px-4 py-3">
@@ -374,7 +343,7 @@ export function SettingsView() {
                       <button
                         key={option}
                         type="button"
-                        className={`cursor-pointer select-none border px-3.5 py-2 font-sans text-xs font-bold uppercase tracking-[0.08em] transition-colors duration-150 ${
+                        className={`cursor-pointer select-none border px-3.5 py-2 font-sans text-xs font-bold uppercase tracking-[0.08em] ${
                           provider === option
                             ? 'border-primary bg-primary text-on-primary'
                             : 'border-ink/25 bg-surface-2 text-ink/70 hover:border-ink/50 hover:bg-ink/5'
@@ -444,7 +413,7 @@ export function SettingsView() {
               {/* Configured Status */}
               <div className="flex items-center gap-2 font-sans text-xs font-semibold uppercase tracking-[0.12em] text-ink/60">
                 <span
-                  className={`size-2 rounded-full ${
+                  className={`size-2 ${
                     (provider === 'groq' ? groqConfigured : openRouterConfigured)
                       ? 'bg-emerald-500'
                       : 'bg-ink/25'
@@ -466,7 +435,7 @@ export function SettingsView() {
 
       {/* SECTION 5: Setup Guide */}
       {activeSection === 'guide' && (
-        <section className="space-y-6 animate-fade-in">
+        <section className="space-y-6">
           <Card title={t(lang, 'settings.guide')}>
             <p className="font-sans text-xs text-ink/70">{t(lang, 'settings.guideIntro')}</p>
             <ol className="mt-5 space-y-4">
@@ -474,17 +443,19 @@ export function SettingsView() {
                 <li key={index} className="flex items-start gap-3.5">
                   <span
                     dir="ltr"
-                    className="flex size-6 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-primary/10 font-display text-xs font-bold text-primary"
+                    className="flex size-6 shrink-0 items-center justify-center border border-primary/40 bg-primary/10 font-display text-xs font-bold text-primary"
                   >
                     {index + 1}
                   </span>
-                  <p className="font-sans text-xs leading-relaxed text-ink/80 pt-0.5">{step}</p>
+                  <p className="font-sans text-xs leading-relaxed text-muted pt-0.5">{step}</p>
                 </li>
               ))}
             </ol>
           </Card>
         </section>
       )}
-    </div>
+        </div>
+      </div>
+    </section>
   );
 }

@@ -13,6 +13,8 @@ export type PermissionLevel = 'everyone' | 'subscriber' | 'vip' | 'mod' | 'broad
 
 export type CounterAction = 'increase' | 'decrease' | 'reset';
 
+export type WindowResizeEdge = 'top' | 'right' | 'bottom' | 'left' | 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left';
+
 export type KeybindModifier = 'ctrl' | 'alt' | 'shift' | 'meta';
 export type KeybindTargetType = 'counter' | 'title';
 export type KeybindAction = CounterAction | 'apply';
@@ -365,6 +367,7 @@ export const Channels = {
   OpenRouterSave: 'openrouter/save',
   AutoRepliesGenerate: 'auto-replies/generate',
   WindowBeginDrag: 'window/begin-drag',
+  WindowBeginResize: 'window/begin-resize',
   AutoRepliesGetState: 'auto-replies/get-state',
   AutoRepliesSettingsGet: 'auto-replies/settings-get',
   AutoRepliesSettingsSave: 'auto-replies/settings-save',
@@ -430,6 +433,7 @@ export interface HostApi {
   [Channels.OpenRouterGetState]: { request: undefined; response: OpenRouterSettingsState };
   [Channels.OpenRouterSave]: { request: { provider: 'openrouter' | 'groq'; apiKey: string | null }; response: { ok: boolean; configured: boolean } };
   [Channels.WindowBeginDrag]: { request: undefined; response: { ok: boolean } };
+  [Channels.WindowBeginResize]: { request: { edge: WindowResizeEdge }; response: { ok: boolean } };
   [Channels.AutoRepliesGetState]: { request: undefined; response: AutoReply[] };
   [Channels.AutoRepliesSettingsGet]: { request: undefined; response: AutoReplySettings };
   [Channels.AutoRepliesSettingsSave]: { request: AutoReplySettings; response: { ok: boolean } };

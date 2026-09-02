@@ -66,7 +66,7 @@ export function editSampleMessages(lang: 'en' | 'ar'): NormalizedChatOverlayMess
       isMod: false,
       isVip: true,
       isSubscriber: false,
-      message: 'اليوم لعبت Sekiro وكانت صعبة مرة 100%',
+      message: 'هل Crimson Fatalis اصعب boss في التاريخ؟',
       emotes: [],
       color: '#ec4899',
     }),

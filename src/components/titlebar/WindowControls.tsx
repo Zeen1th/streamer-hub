@@ -8,7 +8,7 @@ import { useCounterStore } from '../../store/counterStore';
 import { useSettingsStore } from '../../store/settingsStore';
 
 const controlClass =
-  'flex h-full w-12 items-center justify-center text-ink/80 transition-colors duration-100 hover:bg-ink/10 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary';
+  'flex h-full w-12 items-center justify-center text-muted hover:bg-ink/10 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary';
 
 export function WindowControls() {
   const isMaximized = useConnectionStore((s) => s.isMaximized);
@@ -17,7 +17,7 @@ export function WindowControls() {
   const lang = language === 'ar' ? 'ar' : 'en';
 
   return (
-    <div className="flex h-full items-stretch border-s border-ink/15">
+    <div className="flex h-full items-stretch border-s border-rule">
       <button
         type="button"
         aria-label={t(lang, 'window.minimize')}
@@ -44,7 +44,7 @@ export function WindowControls() {
         type="button"
         aria-label={t(lang, 'window.close')}
         title={t(lang, 'window.close')}
-        className="flex h-full w-12 items-center justify-center text-ink/80 transition-colors duration-100 hover:bg-danger hover:text-on-primary focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+        className="flex h-full w-12 items-center justify-center text-muted hover:bg-danger hover:text-on-primary focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
         disabled={closing}
         onClick={async () => {
           if (closing) return;

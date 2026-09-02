@@ -244,10 +244,10 @@ export function ChatCanvas({
   };
 
   return (
-    <div className="slab flex h-full flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden bg-surface-3">
       <style>{canvasChromeStyles}</style>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink/15 px-5 py-3">
+      <div className="flex h-[34px] shrink-0 items-center justify-between gap-2 border-b border-rule bg-surface px-3">
         <div className="flex items-center gap-2.5">
           <Tv size={16} className="text-primary" />
           <h2 className="font-display text-base uppercase tracking-[0.04em] text-ink">
@@ -273,16 +273,20 @@ export function ChatCanvas({
             </button>
           </div>
 
-          <select
-            value={String(zoom)}
-            onChange={(e) => setZoom(e.target.value === 'fit' ? 'fit' : (Number(e.target.value) as 0.5 | 1))}
-            className="h-8 border border-ink/25 bg-surface-2 px-2 font-mono text-xs text-ink"
-            aria-label={t(lang, 'chat.canvas.zoom')}
-          >
-            <option value="fit">{t(lang, 'chat.canvas.zoomFit')}</option>
-            <option value="0.5">50%</option>
-            <option value="1">100%</option>
-          </select>
+          <div role="radiogroup" aria-label={t(lang, 'chat.canvas.zoom')} className="flex h-[26px] border border-rule">
+            {(['fit', 0.5, 1] as ZoomSetting[]).map((option, index) => (
+              <button
+                key={String(option)}
+                type="button"
+                role="radio"
+                aria-checked={zoom === option}
+                onClick={() => setZoom(option)}
+                className={`px-2 font-mono text-[10px] ${index ? 'border-s border-rule' : ''} ${zoom === option ? 'bg-accent-fill font-semibold text-on-accent' : 'text-ink hover:bg-accent-soft'}`}
+              >
+                {option === 'fit' ? t(lang, 'chat.canvas.zoomFit') : `${option * 100}%`}
+              </button>
+            ))}
+          </div>
 
           {isEdit && (
             <>
@@ -320,7 +324,7 @@ export function ChatCanvas({
 
       <div
         ref={viewportRef}
-        className="relative flex-1 overflow-auto bg-[radial-gradient(#8a4f1d15_1px,transparent_1px)] [background-size:16px_16px] p-3"
+        className="relative flex-1 overflow-auto bg-surface-3 p-3"
         onClick={() => isEdit && onSelectPart(null)}
       >
         <div
@@ -368,7 +372,7 @@ export function ChatCanvas({
         </div>
       </div>
 
-      <div className="border-t border-ink/15 px-5 py-2 font-mono text-[11px] text-ink/55">
+      <div className="border-t border-rule bg-surface px-3 py-1 font-mono text-[11px] text-ink/55">
         {isEdit
           ? `${Math.round(blockRect.x)}, ${Math.round(blockRect.y)}  ·  ${Math.round(blockRect.width)} × ${Math.round(blockRect.height)}  ·  ${t(lang, 'chat.canvas.hint')}`
           : t(lang, 'chat.canvas.previewHint')}
@@ -417,8 +421,8 @@ function BlockFrame({ rect, guides, onStartMove, onStartResize }: BlockFrameProp
 
 function modeButtonClass(active: boolean): string {
   return [
-    'inline-flex h-8 items-center gap-1.5 px-2.5 font-sans text-xs font-bold uppercase tracking-wider transition-colors',
-    active ? 'bg-primary text-on-primary' : 'bg-transparent text-ink/70 hover:bg-ink/5',
+    'inline-flex h-8 items-center gap-1.5 px-2.5 font-sans text-xs font-bold uppercase tracking-wider ',
+    active ? 'bg-accent-fill text-on-accent' : 'bg-transparent text-ink/70 hover:bg-ink/5',
   ].join(' ');
 }
 
@@ -432,10 +436,10 @@ const canvasChromeStyles = `
     position: absolute;
     inset: 0;
     background-image:
-      linear-gradient(45deg, #00000014 25%, transparent 25%),
-      linear-gradient(-45deg, #00000014 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, #00000014 75%),
-      linear-gradient(-45deg, transparent 75%, #00000014 75%);
+      linear-gradient(45deg, color-mix(in srgb, var(--ink) 8%, transparent) 25%, transparent 25%),
+      linear-gradient(-45deg, color-mix(in srgb, var(--ink) 8%, transparent) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--ink) 8%, transparent) 75%),
+      linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--ink) 8%, transparent) 75%);
     background-size: 40px 40px;
     background-position: 0 0, 0 20px, 20px -20px, -20px 0px;
   }
@@ -448,14 +452,14 @@ const canvasChromeStyles = `
   }
   .co-frame {
     position: absolute;
-    outline: 2px solid var(--primary, #8b5cf6);
+    outline: 2px solid var(--accent);
     outline-offset: 0;
     cursor: move;
     z-index: 20;
   }
   .co-guide {
     position: absolute;
-    background: #22d3ee;
+    background: var(--accent);
     z-index: 30;
     pointer-events: none;
   }
@@ -463,8 +467,8 @@ const canvasChromeStyles = `
     position: absolute;
     width: 14px;
     height: 14px;
-    background: #fff;
-    border: 2px solid var(--primary, #8b5cf6);
+    background: var(--surface);
+    border: 2px solid var(--accent);
   }
   .co-handle--nw { left: -7px; top: -7px; cursor: nwse-resize; }
   .co-handle--n  { left: calc(50% - 7px); top: -7px; cursor: ns-resize; }
@@ -477,7 +481,7 @@ const canvasChromeStyles = `
 
   [data-part] { cursor: pointer; }
   [data-selected='true'] {
-    outline: 2px dashed #22d3ee;
+    outline: 2px dashed var(--accent);
     outline-offset: 2px;
   }
 `;

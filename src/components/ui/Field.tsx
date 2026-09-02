@@ -12,14 +12,12 @@ interface FieldProps {
 export function Field({ label, hint, error, className, children }: FieldProps) {
   return (
     <label className={cn('block', className)}>
-      <span className="mb-2 block font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-        {label}
-      </span>
+      <span className="mb-1.5 block font-sans text-[10px] font-semibold uppercase tracking-[.1em] text-muted">{label}</span>
       {children}
       {error ? (
-        <span className="mt-1.5 block font-sans text-xs text-danger">{error}</span>
+        <span className="mt-1 block font-sans text-[11px] text-accent-text">{error}</span>
       ) : hint ? (
-        <span className="mt-1.5 block font-sans text-xs text-ink/70">{hint}</span>
+        <span className="mt-1 block font-sans text-[11px] text-muted">{hint}</span>
       ) : null}
     </label>
   );

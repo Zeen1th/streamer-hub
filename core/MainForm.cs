@@ -19,6 +19,43 @@ internal static class Native
     internal static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 }
 
+internal sealed class TransparentResizeGrip : Control
+{
+    private const int WsExTransparent = 0x00000020;
+    private readonly Action _beginResize;
+
+    internal TransparentResizeGrip(Cursor cursor, Action beginResize)
+    {
+        Cursor = cursor;
+        TabStop = false;
+        _beginResize = beginResize;
+        SetStyle(ControlStyles.Selectable, false);
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            cp.ExStyle |= WsExTransparent;
+            return cp;
+        }
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left) _beginResize();
+    }
+}
+
 public sealed class MainForm : Form
 {
     private const int EdgeZone = 6;
@@ -45,6 +82,7 @@ public sealed class MainForm : Form
     private const int ZoneBottom = 8;
 
     private readonly WebView2 _webView = new();
+    private readonly List<TransparentResizeGrip> _resizeGrips = [];
     private readonly NotifyIcon _trayIcon;
     private readonly ContextMenuStrip _trayMenu = new();
     private readonly CancellationTokenSource _shutdown = new();
@@ -70,11 +108,12 @@ public sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1280, 800);
         MinimumSize = new Size(960, 640);
-        BackColor = Color.FromArgb(0xE8, 0xE2, 0xD2);
-        Padding = new Padding(EdgeZone);
-        _webView.DefaultBackgroundColor = Color.FromArgb(0xE8, 0xE2, 0xD2);
+        BackColor = Color.FromArgb(0x20, 0x20, 0x20);
+        Padding = Padding.Empty;
+        _webView.DefaultBackgroundColor = Color.FromArgb(0x20, 0x20, 0x20);
         _webView.Dock = DockStyle.Fill;
         Controls.Add(_webView);
+        CreateResizeGrips();
 
         var trayIconPath = Path.Combine(AppContext.BaseDirectory, "streamer-hub-icon.ico");
         _trayIcon = new NotifyIcon
@@ -163,6 +202,7 @@ public sealed class MainForm : Form
 
         _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
         _webView.CoreWebView2.Navigate("https://app.streamerhub/index.html");
+        BringResizeGripsToFront();
         if (Program.StartedWithWindows)
         {
             BeginInvoke(HideToTray);
@@ -267,12 +307,67 @@ public sealed class MainForm : Form
         }
     }
 
+    private void CreateResizeGrips()
+    {
+        AddResizeGrip(12, Cursors.SizeNS, new Rectangle(EdgeZone, 0, ClientSize.Width - (EdgeZone * 2), EdgeZone), AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right);
+        AddResizeGrip(11, Cursors.SizeWE, new Rectangle(ClientSize.Width - EdgeZone, EdgeZone, EdgeZone, ClientSize.Height - (EdgeZone * 2)), AnchorStyles.Top | AnchorStyles.Right | AnchorStyles.Bottom);
+        AddResizeGrip(15, Cursors.SizeNS, new Rectangle(EdgeZone, ClientSize.Height - EdgeZone, ClientSize.Width - (EdgeZone * 2), EdgeZone), AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom);
+        AddResizeGrip(10, Cursors.SizeWE, new Rectangle(0, EdgeZone, EdgeZone, ClientSize.Height - (EdgeZone * 2)), AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom);
+        AddResizeGrip(13, Cursors.SizeNWSE, new Rectangle(0, 0, EdgeZone, EdgeZone), AnchorStyles.Top | AnchorStyles.Left);
+        AddResizeGrip(14, Cursors.SizeNESW, new Rectangle(ClientSize.Width - EdgeZone, 0, EdgeZone, EdgeZone), AnchorStyles.Top | AnchorStyles.Right);
+        AddResizeGrip(17, Cursors.SizeNWSE, new Rectangle(ClientSize.Width - EdgeZone, ClientSize.Height - EdgeZone, EdgeZone, EdgeZone), AnchorStyles.Right | AnchorStyles.Bottom);
+        AddResizeGrip(16, Cursors.SizeNESW, new Rectangle(0, ClientSize.Height - EdgeZone, EdgeZone, EdgeZone), AnchorStyles.Left | AnchorStyles.Bottom);
+    }
+
+    private void AddResizeGrip(int hit, Cursor cursor, Rectangle bounds, AnchorStyles anchor)
+    {
+        var grip = new TransparentResizeGrip(cursor, () => BeginNativeResize(hit))
+        {
+            Bounds = bounds,
+            Anchor = anchor,
+        };
+        Controls.Add(grip);
+        _resizeGrips.Add(grip);
+        grip.BringToFront();
+    }
+
+    private void BringResizeGripsToFront()
+    {
+        foreach (var grip in _resizeGrips) grip.BringToFront();
+    }
+
+    private void BeginNativeResize(int hit)
+    {
+        if (WindowState == FormWindowState.Maximized) return;
+        Native.ReleaseCapture();
+        Native.SendMessage(Handle, WmNclButtonDown, (IntPtr)hit, IntPtr.Zero);
+    }
+
     internal void StartWindowDrag()
     {
         Native.ReleaseCapture();
         Native.SendMessage(Handle, WmNclButtonDown, (IntPtr)HtCaption, IntPtr.Zero);
     }
 
+    internal bool StartWindowResize(string edge)
+    {
+        if (WindowState == FormWindowState.Maximized) return false;
+        var hit = edge switch
+        {
+            "left" => 10,
+            "right" => 11,
+            "top" => 12,
+            "top-left" => 13,
+            "top-right" => 14,
+            "bottom" => 15,
+            "bottom-left" => 16,
+            "bottom-right" => 17,
+            _ => 0,
+        };
+        if (hit == 0) return false;
+        BeginNativeResize(hit);
+        return true;
+    }
     protected override CreateParams CreateParams
     {
         get
@@ -294,6 +389,13 @@ public sealed class MainForm : Form
         {
         }
         if (request is null || request.Kind != "request" || _host is null) return;
+        if (request.Channel is Channels.WindowBeginDrag or Channels.WindowBeginResize)
+        {
+            // Mouse-driven window commands must enter the native move/size loop while
+            // the originating pointer is still held down in WebView2.
+            _ = HandleRequestAsync(request);
+            return;
+        }
         _ = Task.Run(() => HandleRequestAsync(request), _shutdown.Token);
     }
 

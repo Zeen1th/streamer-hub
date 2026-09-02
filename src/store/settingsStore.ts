@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import type { Language } from '../i18n/translations';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
+import type { ThemePreference } from '../lib/theme';
 
 export type { Language };
-export type Theme = 'light' | 'dark';
+export type Theme = ThemePreference;
 
 interface SettingsState {
   clientId: string;
@@ -47,7 +48,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   clientId: '',
   clientSecret: '',
   language: '',
-  theme: (localStorage.getItem('streamer-hub-theme') === 'dark' ? 'dark' : 'light') as Theme,
+  theme: ((localStorage.getItem('streamer-hub-theme') as Theme | null) ?? 'system'),
   botAccountEnabled: false,
   startupEnabled: true,
   closeToTray: true,

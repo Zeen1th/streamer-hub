@@ -72,6 +72,7 @@ public sealed class HostController : IDisposable
     private sealed record GenerateAutoReplyResponse(bool Ok, string? Message = null, bool UsedFallback = false, string? Error = null);
     private sealed record UpdateCheckResponse(string CurrentVersion, string LatestVersion, bool UpdateAvailable, string ReleaseUrl, string? DownloadUrl = null, string? ReleaseNotes = null);
     private sealed record UpdateInstallPayload(string DownloadUrl);
+    private sealed record BeginResizePayload(string Edge);
 
     private readonly MainForm _form;
     private readonly WebView2 _webView;
@@ -205,6 +206,12 @@ public sealed class HostController : IDisposable
         {
             Ui(_form.StartWindowDrag);
             return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.WindowBeginResize, (payload, _) =>
+        {
+            var request = Json.Deserialize<BeginResizePayload>(payload ?? default);
+            var started = Ui(() => _form.StartWindowResize(request?.Edge ?? string.Empty));
+            return Task.FromResult<object?>(new { ok = started });
         });
         _dispatcher.Register(Channels.CoreGetStatus, (_, _) => Task.FromResult<object?>(BuildStatus()));
         _dispatcher.Register(Channels.UpdateCheck, async (_, ct) => await CheckForUpdateAsync(ct).ConfigureAwait(false));

@@ -119,6 +119,7 @@ export class MockHost {
         this.respond(request, { isMaximized: this.isMaximized });
         break;
       case 'window/begin-drag':
+      case 'window/begin-resize':
         this.respond(request, { ok: true });
         break;
       case 'core/get-status':

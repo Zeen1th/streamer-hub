@@ -232,6 +232,14 @@ test('returns a loopback overlay url for OBS/browser mode', async () => {
   assert.equal(result.url, 'http://127.0.0.1:49178/chat-overlay.html');
 });
 
+test('accepts a window resize direction through the typed RPC boundary', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const result = await invoke(host, PROTOCOL_VERSION, Channels.WindowBeginResize, { edge: 'bottom-right' });
+
+  assert.deepEqual(result, { ok: true });
+});
 test('keeps forwarding existing status and chat events in mock mode', async () => {
   const { Events, MockHost } = await loadHarness();
   const host = new MockHost();

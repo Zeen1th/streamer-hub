@@ -45,10 +45,10 @@ export function KeybindSettings({ lang }: Props) {
         const availability = bindingAvailability(binding, counters, titleRules);
         const status = availability === 'orphaned' ? 'orphaned' : registration?.status ?? 'unsupported';
         const healthy = status === 'registered';
-        return <div key={binding.id} className="grid gap-3 border border-ink/15 bg-surface px-4 py-3 sm:grid-cols-[auto_1fr_auto_auto] sm:items-center">
+        return <div key={binding.id} className="grid gap-3 border border-rule bg-surface px-4 py-3 sm:grid-cols-[auto_1fr_auto_auto] sm:items-center">
           <Switch checked={binding.enabled} onChange={(enabled) => void save(bindings.map((item) => item.id === binding.id ? { ...item, enabled } : item))} label={targetName(binding) ?? text.orphaned} />
           <div className="min-w-0"><div className="truncate font-sans text-sm font-bold text-ink">{targetName(binding) ?? text.orphaned} · {actionLabel(binding.action)}</div><div className={`mt-1 flex items-center gap-1.5 font-sans text-[11px] ${healthy ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>{healthy ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}{status === 'registered' ? text.active : status === 'disabled' ? text.disabled : status === 'orphaned' ? text.orphaned : registration?.error ?? text.unavailable}</div></div>
-          <kbd className="border border-ink/25 bg-surface-2 px-3 py-2 font-mono text-xs font-bold text-ink shadow-sm">{chordLabel(binding.chord)}</kbd>
+          <kbd className="border border-ink/25 bg-surface-2 px-3 py-2 font-mono text-xs font-bold text-ink">{chordLabel(binding.chord)}</kbd>
           <button type="button" className="grid size-9 place-items-center border border-ink/20 text-ink/55 hover:border-danger hover:bg-danger/10 hover:text-danger" title={text.delete} aria-label={text.delete} onClick={() => void remove(binding.id)}><Trash2 size={15} /></button>
         </div>;
       })}
