@@ -127,3 +127,22 @@ export function clampMenuPosition(
     y: Math.max(padding, Math.min(y, viewportHeight - menuHeight - padding)),
   };
 }
+
+export const DEFAULT_INSPECTOR_WIDTH = 298;
+export const MIN_INSPECTOR_WIDTH = 240;
+export const MAX_INSPECTOR_WIDTH = 640;
+
+export function clampInspectorWidth(
+  width: number,
+  containerWidth?: number,
+  min = MIN_INSPECTOR_WIDTH,
+  max = MAX_INSPECTOR_WIDTH,
+  reservedWidth = 186 + 320,
+): number {
+  if (typeof width !== 'number' || Number.isNaN(width)) return DEFAULT_INSPECTOR_WIDTH;
+  const dynamicMax = typeof containerWidth === 'number' && Number.isFinite(containerWidth)
+    ? Math.max(min, Math.min(max, containerWidth - reservedWidth))
+    : max;
+  return Math.max(min, Math.min(Math.round(width), dynamicMax));
+}
+

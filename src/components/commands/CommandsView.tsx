@@ -3,7 +3,18 @@ import { Check, ChevronRight, Copy, FolderOpen, Plus, Search, Sparkles, Trash2, 
 import type { CounterAction, PermissionLevel } from '../../rpc/contracts';
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
-import { clampMenuPosition, filterCommands, projectCommands, selectionAfterClick, type CommandGroup, type CommandRow } from '../../lib/commandProjection';
+import {
+  clampInspectorWidth,
+  clampMenuPosition,
+  DEFAULT_INSPECTOR_WIDTH,
+  filterCommands,
+  MAX_INSPECTOR_WIDTH,
+  MIN_INSPECTOR_WIDTH,
+  projectCommands,
+  selectionAfterClick,
+  type CommandGroup,
+  type CommandRow,
+} from '../../lib/commandProjection';
 import { renderTemplate } from '../../lib/counterRules';
 import { formatTime } from '../../lib/format';
 import { t } from '../../i18n/translations';
@@ -37,8 +48,29 @@ export function CommandsView() {
   const selected = useToolStore((s) => s.selected);
   const setSelected = useToolStore((s) => s.setSelected);
   const setQuery = useToolStore((s) => s.setQuery);
+  const inspectorWidth = useToolStore((s) => s.inspectorWidth);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const container = workspaceRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width;
+        if (width > 0) {
+          const current = useToolStore.getState().inspectorWidth;
+          const clamped = clampInspectorWidth(current, width);
+          if (clamped !== current) {
+            useToolStore.getState().setInspectorWidth(clamped);
+          }
+        }
+      }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const rows = useMemo(
     () => projectCommands({ counters, replies, counterLastTriggeredAt, replyLastTriggeredAt, obsErrors: obsStatus }),
@@ -122,13 +154,17 @@ export function CommandsView() {
           {t(lang, 'workspace.shownCount', { shown: visibleRows.length, disabled: rows.filter((row) => !row.enabled).length })}
         </span>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-[186px_minmax(0,1fr)_298px]">
+      <div
+        ref={workspaceRef}
+        className="grid min-h-0 flex-1"
+        style={{ gridTemplateColumns: `186px minmax(0,1fr) ${inspectorWidth}px` }}
+      >
         <CommandTree rows={rows} />
         <div className="flex min-h-0 min-w-0 flex-col border-s border-rule">
           <CommandTable rows={visibleRows} allRows={rows} />
           <DockedLog />
         </div>
-        <CommandInspector row={selectedRows[0] ?? null} />
+        <CommandInspector row={selectedRows[0] ?? null} workspaceRef={workspaceRef} />
       </div>
     </section>
   );
@@ -301,13 +337,107 @@ function CommandContextMenu({ rows }: { rows: CommandRow[] }) {
   </div>;
 }
 
-function CommandInspector({ row }: { row: CommandRow | null }) {
+function CommandInspector({
+  row,
+  workspaceRef,
+}: {
+  row: CommandRow | null;
+  workspaceRef: React.RefObject<HTMLDivElement | null>;
+}) {
   const setSelected = useToolStore((s) => s.setSelected);
+  const inspectorWidth = useToolStore((s) => s.inspectorWidth);
+  const setInspectorWidth = useToolStore((s) => s.setInspectorWidth);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
-  return <aside className="flex min-h-0 flex-col border-s-2 border-rule bg-surface-2" tabIndex={0} aria-label={t(lang, 'workspace.inspector')}>
-    {row ? row.sourceKind === 'counter' ? <CounterInspector row={row} onClose={() => setSelected([])} /> : <ReplyInspector row={row} onClose={() => setSelected([])} /> : <div className="flex flex-1 items-center justify-center px-6 text-center text-[11px] text-muted">{t(lang, 'workspace.selectHint')}</div>}
-  </aside>;
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = useToolStore.getState().inspectorWidth;
+    const container = workspaceRef.current;
+    setIsDragging(true);
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      const deltaX = startX - moveEvent.clientX;
+      const targetWidth = startWidth + deltaX;
+      const containerWidth = container?.getBoundingClientRect().width;
+      setInspectorWidth(clampInspectorWidth(targetWidth, containerWidth));
+    };
+
+    const onPointerUp = () => {
+      setIsDragging(false);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+      document.body.style.removeProperty('user-select');
+      document.body.style.removeProperty('cursor');
+    };
+
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const containerWidth = workspaceRef.current?.getBoundingClientRect().width;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setInspectorWidth(clampInspectorWidth(inspectorWidth + 16, containerWidth));
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      setInspectorWidth(clampInspectorWidth(inspectorWidth - 16, containerWidth));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setInspectorWidth(DEFAULT_INSPECTOR_WIDTH);
+    }
+  };
+
+  return (
+    <aside
+      className="relative flex min-h-0 flex-col border-s-2 border-rule bg-surface-2"
+      tabIndex={0}
+      aria-label={t(lang, 'workspace.inspector')}
+    >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t(lang, 'workspace.resizeInspector')}
+        aria-valuenow={inspectorWidth}
+        aria-valuemin={MIN_INSPECTOR_WIDTH}
+        aria-valuemax={MAX_INSPECTOR_WIDTH}
+        tabIndex={0}
+        title={t(lang, 'workspace.resizeInspector')}
+        onPointerDown={handlePointerDown}
+        onDoubleClick={() => setInspectorWidth(DEFAULT_INSPECTOR_WIDTH)}
+        onKeyDown={handleKeyDown}
+        className="group absolute -start-[5px] top-0 bottom-0 z-20 w-[9px] cursor-col-resize select-none touch-none focus-visible:outline-none"
+      >
+        <div
+          className={`absolute inset-y-0 start-[3px] w-[2px] transition-colors ${
+            isDragging
+              ? 'bg-accent'
+              : 'bg-transparent group-hover:bg-accent/70 group-focus-visible:bg-accent'
+          }`}
+        />
+      </div>
+      {row ? (
+        row.sourceKind === 'counter' ? (
+          <CounterInspector row={row} onClose={() => setSelected([])} />
+        ) : (
+          <ReplyInspector row={row} onClose={() => setSelected([])} />
+        )
+      ) : (
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-[11px] text-muted">
+          {t(lang, 'workspace.selectHint')}
+        </div>
+      )}
+    </aside>
+  );
 }
 
 function CounterInspector({ row, onClose }: { row: CommandRow; onClose: () => void }) {

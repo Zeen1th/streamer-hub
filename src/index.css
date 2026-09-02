@@ -41,9 +41,9 @@
 :root[data-theme='dark'],
 :root.theme-dark {
   color-scheme: dark;
-  --surface: #1b1817;
-  --surface-2: #141112;
-  --surface-3: #0f0d0d;
+  --surface: #121212;
+  --surface-2: #0a0a0a;
+  --surface-3: #050505;
   --ink: #ece8e5;
   --muted: rgba(232, 231, 228, .72);
   --faint: rgba(232, 231, 228, .6);
@@ -54,7 +54,7 @@
   --accent-fill: #ff5436;
   --accent-soft: rgba(255, 84, 54, .13);
   --accent-deep: #ff8f79;
-  --on-accent: #16100e;
+  --on-accent: #0a0a0a;
   --primary: var(--accent-fill);
   --secondary: var(--muted);
   --success: #9ab86d;

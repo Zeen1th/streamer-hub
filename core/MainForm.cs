@@ -108,9 +108,9 @@ public sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1280, 800);
         MinimumSize = new Size(960, 640);
-        BackColor = Color.FromArgb(0x20, 0x20, 0x20);
+        BackColor = Color.FromArgb(0x0a, 0x0a, 0x0a);
         Padding = Padding.Empty;
-        _webView.DefaultBackgroundColor = Color.FromArgb(0x20, 0x20, 0x20);
+        _webView.DefaultBackgroundColor = Color.FromArgb(0x0a, 0x0a, 0x0a);
         _webView.Dock = DockStyle.Fill;
         Controls.Add(_webView);
         CreateResizeGrips();

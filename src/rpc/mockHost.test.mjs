@@ -229,7 +229,7 @@ test('provides a repeatable installer payload for updater debug flow', async () 
   const state = await invoke(host, PROTOCOL_VERSION, Channels.UpdateCheck, undefined);
 
   assert.equal(state.updateAvailable, false);
-  assert.match(state.downloadUrl, /StreamerHub-Setup-v0\.2\.6\.exe$/);
+  assert.match(state.downloadUrl, /StreamerHub-Setup-v0\.2\.7\.exe$/);
 
   const install = await invoke(host, PROTOCOL_VERSION, Channels.UpdateInstall, {
     downloadUrl: state.downloadUrl,

@@ -19,11 +19,11 @@ test('keeps the approved light and dark command-sheet tokens intact', async () =
     '--accent-text: #ae1800',
     '--accent-fill: #d62608',
     '--on-accent: #faf9f8',
-    '--surface: #1b1817',
-    '--surface-2: #141112',
+    '--surface: #121212',
+    '--surface-2: #0a0a0a',
     '--ink: #ece8e5',
     '--accent: #ff5436',
     '--accent-deep: #ff8f79',
-    '--on-accent: #16100e',
+    '--on-accent: #0a0a0a',
   ]) assert.equal(css.includes(token), true, token);
 });

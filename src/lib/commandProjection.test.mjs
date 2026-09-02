@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { clampMenuPosition, filterCommands, projectCommands, selectionAfterClick } from './commandProjection.ts';
+import { clampInspectorWidth, clampMenuPosition, DEFAULT_INSPECTOR_WIDTH, filterCommands, MAX_INSPECTOR_WIDTH, MIN_INSPECTOR_WIDTH, projectCommands, selectionAfterClick } from './commandProjection.ts';
 
 const counter = {
   id: 'counter-1',
@@ -77,3 +77,16 @@ test('clamps context menus inside the viewport', () => {
   assert.deepEqual(clampMenuPosition(1270, 890, 1280, 900), { x: 1090, y: 690 });
   assert.deepEqual(clampMenuPosition(24, 30, 1280, 900), { x: 24, y: 30 });
 });
+
+test('clamps inspector width within static and dynamic limits', () => {
+  assert.equal(clampInspectorWidth(MIN_INSPECTOR_WIDTH - 50), MIN_INSPECTOR_WIDTH);
+  assert.equal(clampInspectorWidth(MAX_INSPECTOR_WIDTH + 100), MAX_INSPECTOR_WIDTH);
+  assert.equal(clampInspectorWidth(350), 350);
+  assert.equal(clampInspectorWidth(Number.NaN), DEFAULT_INSPECTOR_WIDTH);
+
+  // When container is 800px wide, reserved is 186 + 320 = 506. Max allowable is 800 - 506 = 294.
+  assert.equal(clampInspectorWidth(400, 800), 294);
+  // When container is very small, it never drops below MIN_INSPECTOR_WIDTH
+  assert.equal(clampInspectorWidth(300, 400), MIN_INSPECTOR_WIDTH);
+});
+

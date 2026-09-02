@@ -11,13 +11,13 @@ colors:
   ink: "#201e1d"
   ink-dark: "#ece8e5"
   surface: "#f3f2f2"
-  surface-dark: "#1b1817"
+  surface-dark: "#121212"
   surface-2: "#e8e7e5"
-  surface-2-dark: "#141112"
+  surface-2-dark: "#0a0a0a"
   surface-3: "#dedcd9"
-  surface-3-dark: "#0f0d0d"
+  surface-3-dark: "#050505"
   on-accent: "#faf9f8"
-  on-accent-dark: "#16100e"
+  on-accent-dark: "#0a0a0a"
 typography:
   display:
     fontFamily: "Archivo, system-ui, sans-serif"
@@ -137,10 +137,10 @@ In dark all three collapse to one value: `#ff5436` already clears 4.5:1 on the d
 grounds, so the split only does work in light.
 
 ### Neutrals
-- **Surface** (`#f3f2f2` / `#1b1817`): the working ground — table, content panes.
-- **Surface 2** (`#e8e7e5` / `#141112`): chrome — titlebar, tab strip, group tree,
+- **Surface** (`#f3f2f2` / `#121212`): the working ground — table, content panes.
+- **Surface 2** (`#e8e7e5` / `#0a0a0a`): chrome — titlebar, tab strip, group tree,
   inspector, log header. Chrome is always one step back from content.
-- **Surface 3** (`#dedcd9` / `#0f0d0d`): the overlay preview's dead area only.
+- **Surface 3** (`#dedcd9` / `#050505`): the overlay preview's dead area only.
 - **Ink** (`#201e1d` / `#ece8e5`), **muted** (74 % / 72 %), **faint** (66 % / 60 %).
 - **Rule** (40 % / 30 %) for 2 px structural dividers; **hair** (18 % / 13 %) for
   1 px row and field lines.
