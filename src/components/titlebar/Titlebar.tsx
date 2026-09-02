@@ -94,7 +94,10 @@ export function Titlebar() {
           </div>
           <div className="mt-3 flex justify-end gap-2">
             <button type="button" className="h-[26px] border border-rule px-2 text-[11px]" onClick={() => setShowUpdate(false)}>{t(lang, 'common.cancel')}</button>
-            <button type="button" disabled={installing} className="h-[26px] bg-accent-fill px-2 font-semibold text-on-accent disabled:opacity-45" onClick={() => void installUpdate()}>
+            <button type="button" disabled={installing} className="h-[26px] bg-accent-fill px-2 font-semibold text-on-accent disabled:opacity-45" onClick={async () => {
+              const started = await installUpdate();
+              if (!started) setMessage(t(lang, 'updates.installFailed'));
+            }}>
               {installing ? t(lang, 'updates.installing') : t(lang, 'updates.installNow')}
             </button>
           </div>

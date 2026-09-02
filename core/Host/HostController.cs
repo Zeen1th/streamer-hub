@@ -761,8 +761,7 @@ public sealed class HostController : IDisposable
             var latest = tag.Trim().TrimStart('v', 'V');
             var releaseUrl = root.TryGetProperty("html_url", out var urlValue) ? urlValue.GetString() ?? $"https://github.com/{UpdateRepository}/releases/latest" : $"https://github.com/{UpdateRepository}/releases/latest";
             string? downloadUrl = null;
-            if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array && assets.GetArrayLength() > 0)
-                downloadUrl = assets[0].TryGetProperty("browser_download_url", out var assetUrl) ? assetUrl.GetString() : null;
+            downloadUrl = UpdateSupport.SelectInstallerDownloadUrl(root);
             var releaseNotes = root.TryGetProperty("body", out var bodyValue) ? bodyValue.GetString() : null;
             if (string.IsNullOrWhiteSpace(releaseNotes)) releaseNotes = null;
             else if (releaseNotes.Length > 4000) releaseNotes = releaseNotes[..4000];
@@ -789,6 +788,8 @@ public sealed class HostController : IDisposable
             var updaterPath = Path.Combine(Path.GetTempPath(), $"StreamerHub-updater-{Guid.NewGuid():N}.ps1");
             var appPath = Process.GetCurrentProcess().MainModule?.FileName ?? Path.Combine(AppContext.BaseDirectory, "StreamerHub.exe");
             var currentPid = Environment.ProcessId;
+            var appDirectory = Path.GetDirectoryName(appPath) ?? AppContext.BaseDirectory;
+            var installerArguments = UpdateSupport.BuildInstallerArguments(appDirectory);
             static string PsQuote(string value) => "'" + value.Replace("'", "''") + "'";
             var script = string.Join(Environment.NewLine, new[]
             {
@@ -800,7 +801,7 @@ public sealed class HostController : IDisposable
                 "$deadline = (Get-Date).AddSeconds(60)",
                 $"while ((Get-Process -Id {currentPid} -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {{ Start-Sleep -Milliseconds 250 }}",
                 "try {",
-                $"  Start-Process -FilePath {PsQuote(installerPath)} -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS' -Wait",
+                $"  Start-Process -FilePath {PsQuote(installerPath)} -ArgumentList {PsQuote(installerArguments)} -Wait",
                 "} catch {",
                 "} finally {",
                 // The app is restarted whether the installer succeeded or not,

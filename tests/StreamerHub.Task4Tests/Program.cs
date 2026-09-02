@@ -6,6 +6,24 @@ using StreamerHub.Core.Overlay;
 using StreamerHub.Core.Rpc;
 using StreamerHub.Core.Storage;
 
+using (var release = JsonDocument.Parse("""
+{
+  "assets": [
+    { "name": "StreamerHub-v0.2.3-win-x64.zip", "browser_download_url": "https://github.com/Zeen1th/streamer-hub/releases/download/v0.2.3/StreamerHub-v0.2.3-win-x64.zip" },
+    { "name": "StreamerHub-Setup-v0.2.3.exe", "browser_download_url": "https://github.com/Zeen1th/streamer-hub/releases/download/v0.2.3/StreamerHub-Setup-v0.2.3.exe" }
+  ]
+}
+"""))
+{
+    AssertEqual(
+        "https://github.com/Zeen1th/streamer-hub/releases/download/v0.2.3/StreamerHub-Setup-v0.2.3.exe",
+        UpdateSupport.SelectInstallerDownloadUrl(release.RootElement),
+        "installer asset selection");
+    AssertTrue(
+        UpdateSupport.BuildInstallerArguments(@"R:\Apps\Streamer Hub").Contains("/DIR=\"R:\\Apps\\Streamer Hub\"", StringComparison.Ordinal),
+        "installer targets the running app directory");
+}
+
 var root = Path.Combine(Path.GetTempPath(), $"streamer-hub-task4-{Guid.NewGuid():N}");
 Directory.CreateDirectory(root);
 try
