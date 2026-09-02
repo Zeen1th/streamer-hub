@@ -222,6 +222,21 @@ test('saves chat overlay settings and returns the updated state', async () => {
   assert.deepEqual(JSON.parse(localStorage.getItem('streamer-hub-mock-chat-overlay-settings')), next);
 });
 
+test('provides a repeatable installer payload for updater debug flow', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const state = await invoke(host, PROTOCOL_VERSION, Channels.UpdateCheck, undefined);
+
+  assert.equal(state.updateAvailable, false);
+  assert.match(state.downloadUrl, /StreamerHub-Setup-v0\.2\.6\.exe$/);
+
+  const install = await invoke(host, PROTOCOL_VERSION, Channels.UpdateInstall, {
+    downloadUrl: state.downloadUrl,
+  });
+  assert.deepEqual(install, { ok: true });
+});
+
 test('returns a loopback overlay url for OBS/browser mode', async () => {
   const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
   assert.equal(typeof Channels.ChatOverlayGetUrl, 'string');

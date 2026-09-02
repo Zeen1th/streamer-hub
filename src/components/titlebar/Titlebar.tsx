@@ -1,5 +1,5 @@
 import { Download, Moon, Sun } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { t } from '../../i18n/translations';
 import { rpc } from '../../rpc';
 import { Channels } from '../../rpc/contracts';
@@ -23,8 +23,16 @@ export function Titlebar() {
   const installing = useUpdateStore((s) => s.installing);
   const installUpdate = useUpdateStore((s) => s.install);
   const checkForUpdate = useUpdateStore((s) => s.check);
+  const debugPromptRequested = useUpdateStore((s) => s.debugPromptRequested);
+  const clearDebugPrompt = useUpdateStore((s) => s.clearDebugPrompt);
   const [showUpdate, setShowUpdate] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!debugPromptRequested) return;
+    setShowUpdate(true);
+    clearDebugPrompt();
+  }, [clearDebugPrompt, debugPromptRequested]);
 
   return (
     <header
@@ -69,7 +77,7 @@ export function Titlebar() {
           <button
             type="button"
             disabled={installing}
-            className="grid h-full w-8 place-items-center text-muted hover:bg-accent-soft hover:text-ink disabled:opacity-45"
+            className="grid h-full w-8 place-items-center text-muted hover:bg-accent-soft hover:text-ink disabled:cursor-not-allowed"
             title={t(lang, 'updates.check')}
             aria-label={t(lang, 'updates.check')}
             onClick={async () => {
@@ -84,7 +92,7 @@ export function Titlebar() {
         <WindowControls />
       </div>
       {showUpdate && updateAvailable && (
-        <section className="absolute right-[120px] top-8 z-50 w-[360px] border-2 border-rule bg-surface p-3 text-start" aria-label={t(lang, 'updates.available')}>
+        <section data-drag-exclude className="absolute right-[120px] top-8 z-50 w-[360px] border-2 border-rule bg-surface p-3 text-start" aria-label={t(lang, 'updates.available')}>
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="font-sans text-[13px] font-extrabold text-ink">{t(lang, 'updates.available')} · v{latestVersion}</div>
@@ -94,7 +102,7 @@ export function Titlebar() {
           </div>
           <div className="mt-3 flex justify-end gap-2">
             <button type="button" className="h-[26px] border border-rule px-2 text-[11px]" onClick={() => setShowUpdate(false)}>{t(lang, 'common.cancel')}</button>
-            <button type="button" disabled={installing} className="h-[26px] bg-accent-fill px-2 font-semibold text-on-accent disabled:opacity-45" onClick={async () => {
+            <button type="button" disabled={installing} className="h-[26px] bg-accent-fill px-2 font-semibold text-on-accent disabled:cursor-not-allowed" onClick={async () => {
               const started = await installUpdate();
               if (!started) setMessage(t(lang, 'updates.installFailed'));
             }}>

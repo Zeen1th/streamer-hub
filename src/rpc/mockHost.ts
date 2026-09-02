@@ -273,6 +273,19 @@ export class MockHost {
       case 'log/append':
         this.respond(request, { ok: true });
         break;
+      case Channels.UpdateCheck:
+        this.respond(request, {
+          currentVersion: '0.2.6',
+          latestVersion: '0.2.6',
+          updateAvailable: false,
+          releaseUrl: 'https://github.com/Zeen1th/streamer-hub/releases/latest',
+          downloadUrl: 'https://github.com/Zeen1th/streamer-hub/releases/download/v0.2.6/StreamerHub-Setup-v0.2.6.exe',
+          releaseNotes: 'The current release is installed.',
+        });
+        break;
+      case Channels.UpdateInstall:
+        this.respond(request, { ok: true });
+        break;
       default:
         this.respond(request, undefined, `UNKNOWN CHANNEL: ${request.channel}`);
     }

@@ -6,6 +6,7 @@ import { Channels } from '../../../rpc/contracts';
 import { useConnectionStore } from '../../../store/connectionStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { useToolStore, type SettingsSection } from '../../../store/toolStore';
+import { useUpdateStore } from '../../../store/updateStore';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { Input } from '../../ui/Input';
@@ -32,10 +33,12 @@ export function SettingsView() {
   const groqConfigured = useSettingsStore((s) => s.groqConfigured);
   const saveOpenRouterKey = useSettingsStore((s) => s.saveOpenRouterKey);
   const removeOpenRouterKey = useSettingsStore((s) => s.removeOpenRouterKey);
+  const simulateUpdate = useUpdateStore((s) => s.simulateUpdate);
 
   const [apiKey, setApiKey] = useState('');
   const [provider, setProvider] = useState<'openrouter' | 'groq'>('openrouter');
   const [keyStatus, setKeyStatus] = useState<string | null>(null);
+  const [updateTestStatus, setUpdateTestStatus] = useState<string | null>(null);
 
   const twitchConnected = useConnectionStore((s) => s.twitchConnected);
   const twitchChannel = useConnectionStore((s) => s.twitchChannel);
@@ -161,6 +164,25 @@ export function SettingsView() {
                   onChange={(enabled) => setStartupEnabled(enabled)}
                   label={t(lang, 'settings.startup')}
                 />
+              </div>
+            </div>
+          </Card>
+          <Card title={t(lang, 'settings.updateTestTitle')}>
+            <div className="space-y-3">
+              <p className="font-sans text-xs leading-relaxed text-muted">{t(lang, 'settings.updateTestHint')}</p>
+              <div className="flex items-center gap-3">
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    const ready = await simulateUpdate();
+                    setUpdateTestStatus(
+                      ready ? t(lang, 'settings.updateTestReady') : t(lang, 'settings.updateTestUnavailable'),
+                    );
+                  }}
+                >
+                  {t(lang, 'settings.updateTestButton')}
+                </Button>
+                {updateTestStatus && <span role="status" className="font-sans text-xs text-muted">{updateTestStatus}</span>}
               </div>
             </div>
           </Card>

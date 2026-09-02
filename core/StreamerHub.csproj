@@ -9,7 +9,7 @@
     <RootNamespace>StreamerHub.Core</RootNamespace>
     <AssemblyName>StreamerHub</AssemblyName>
     <ApplicationIcon>..\assets\streamer-hub-icon.ico</ApplicationIcon>
-    <Version>0.2.5</Version>
+    <Version>0.2.6</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
