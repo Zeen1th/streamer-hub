@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { AutoReply, AutoReplySettings, ChatMessage, TitleCounter } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
-import { cooldownRemainingSeconds, matchesAnyAutoReply, nextTitleCounters, renderAutoReply, renderStreamTitle, titleActionDirection } from '../lib/autoReplyRules';
+import { checkUserRestriction, cooldownRemainingSeconds, matchesAnyAutoReply, nextTitleCounters, renderAutoReply, renderStreamTitle, selectBestMatchingAutoReply, stripAutoReplyFromTitle, titleActionDirection } from '../lib/autoReplyRules';
 import { hasPermission } from '../lib/counterRules';
 import { titleUpdateQueue } from '../lib/titleUpdateQueue';
 import { useLogStore } from './logStore';
@@ -22,6 +22,7 @@ interface AutoReplyState {
   update(id: string, patch: Partial<AutoReply>): void;
   remove(id: string): void;
   triggerTitleAction(id: string, action: 'increase' | 'decrease' | 'reset' | 'apply'): boolean;
+  detachTitleAction(id: string): Promise<boolean>;
   handleChatMessage(message: ChatMessage): void;
 }
 
@@ -64,10 +65,12 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       minimumRank: rule.minimumRank ?? 'everyone',
       aiUserCooldownSeconds: rule.aiUserCooldownSeconds ?? 60,
       aiInstructions: rule.aiInstructions ?? '',
-      aiModel: rule.aiModel ?? (rule.aiProvider === 'groq' ? 'openai/gpt-oss-20b' : 'meta-llama/llama-3.2-3b-instruct:free'),
-      aiProvider: rule.aiProvider ?? 'openrouter',
+      aiModel: rule.aiModel ?? (rule.aiProvider === 'openrouter' ? 'meta-llama/llama-3.2-3b-instruct:free' : 'llama-3.1-8b-instant'),
+      aiProvider: rule.aiProvider ?? 'groq',
       aiMaxTokens: rule.aiMaxTokens ?? 120,
       aiFallback: rule.aiFallback ?? '',
+      aiUserRestriction: rule.aiUserRestriction ?? 'none',
+      aiTargetUsers: rule.aiTargetUsers ?? [],
     };
   }) }),
   add: () => {
@@ -93,19 +96,41 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       matchMode: 'exact',
       responseMode: 'static',
       aiInstructions: '',
-      aiModel: 'meta-llama/llama-3.2-3b-instruct:free',
-      aiProvider: 'openrouter',
+      aiModel: 'llama-3.1-8b-instant',
+      aiProvider: 'groq',
       aiMaxTokens: 120,
       aiFallback: '',
+      aiUserRestriction: 'none',
+      aiTargetUsers: [],
     };
     set((state) => ({ rules: [...state.rules, rule] }));
     persist(rule);
     return rule.id;
   },
   update: (id, patch) => {
+    const prev = get().rules.find((item) => item.id === id);
     set((state) => ({ rules: state.rules.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)) }));
     const rule = get().rules.find((item) => item.id === id);
-    if (rule) persist(rule);
+    if (rule) {
+      persist(rule);
+      if (patch.titleActionEnabled === false && prev?.titleActionEnabled) {
+        void titleUpdateQueue.enqueue(async () => {
+          try {
+            const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
+            if (titleRes.ok && titleRes.title) {
+              const cleanTitle = stripAutoReplyFromTitle(titleRes.title, rule.titleTemplate);
+              if (cleanTitle && cleanTitle !== titleRes.title) {
+                await rpc.invoke(Channels.TwitchUpdateTitle, { title: cleanTitle });
+                useLogStore.getState().add({
+                  kind: 'system',
+                  message: `Auto title · Restored clean stream title: "${cleanTitle}"`,
+                });
+              }
+            }
+          } catch {}
+        });
+      }
+    }
   },
   remove: (id) => {
     set((state) => ({
@@ -117,7 +142,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     rpc.invoke(Channels.AutoRepliesDelete, { ruleId: id }).catch(() => undefined);
   },
   triggerTitleAction: (id, action) => {
-    const rule = get().rules.find((item) => item.id === id && item.titleActionEnabled && item.titleTemplate?.trim());
+    const rule = get().rules.find((item) => item.id === id && (item.titleActionEnabled || action === 'apply') && item.titleTemplate?.trim());
     if (!rule) return false;
     const now = Date.now();
     if (cooldownRemainingSeconds(now, get().lastTriggeredAt[id] ?? null, rule.cooldownSeconds) !== null) return false;
@@ -125,6 +150,13 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     const nextUpdate = titleUpdateQueue.enqueue(async () => {
       const currentRule = get().rules.find((item) => item.id === id);
       if (!currentRule) return;
+
+      let currentTitle: string | null = null;
+      try {
+        const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
+        if (titleRes.ok && titleRes.title) currentTitle = titleRes.title;
+      } catch {}
+
       const counters = currentRule.titleCounters?.length
         ? currentRule.titleCounters
         : [{ id: 'count1', start: currentRule.titleStart ?? 1, count: currentRule.titleCount ?? currentRule.titleStart ?? 1 }];
@@ -134,7 +166,8 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
           ? nextTitleCounters(counters, action)
           : counters;
       const values = Object.fromEntries(nextCounters.map((counter, index) => ['count' + (index + 1), Math.max(0, Math.trunc(counter.count))]));
-      const title = renderStreamTitle(currentRule.titleTemplate ?? '', values);
+      const title = renderStreamTitle(currentRule.titleTemplate ?? '', values, currentTitle).trim();
+      if (!title) return;
       const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
       if (result.ok && action !== 'apply') {
         get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
@@ -143,9 +176,46 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     void nextUpdate.catch(() => undefined);
     return true;
   },
+  detachTitleAction: async (id) => {
+    const rule = get().rules.find((item) => item.id === id);
+    if (!rule) return false;
+    try {
+      get().update(id, { titleActionEnabled: false });
+      await titleUpdateQueue.enqueue(async () => {
+        const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
+        if (titleRes.ok && titleRes.title) {
+          const cleanTitle = stripAutoReplyFromTitle(titleRes.title, rule.titleTemplate);
+          if (cleanTitle && cleanTitle !== titleRes.title) {
+            await rpc.invoke(Channels.TwitchUpdateTitle, { title: cleanTitle });
+            useLogStore.getState().add({
+              kind: 'system',
+              message: `Auto title · Detached from title: "${cleanTitle}"`,
+            });
+          }
+        }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
   handleChatMessage: (message) => {
     const now = Date.now();
-    const rule = get().rules.find((item) => item.enabled && (((item.responseEnabled !== false || item.themeActionEnabled) && matchesAnyAutoReply(message.message, item.triggers, item.matchMode)) || (item.titleActionEnabled && (matchesAnyAutoReply(message.message, item.triggers, item.matchMode) || titleActionDirection(message.message, item.titleIncreaseCommand ?? '', item.titleDecreaseCommand ?? '', item.matchMode) !== null))) && hasPermission(message, item.minimumRank ?? 'everyone'));
+    const candidates = get().rules.filter((item) => {
+      if (!item.enabled) return false;
+      if (!hasPermission(message, item.minimumRank ?? 'everyone')) return false;
+
+      if (item.responseMode === 'ai' && !checkUserRestriction(item.aiUserRestriction, item.aiTargetUsers, message.username)) {
+        return false;
+      }
+
+      const triggerMatches = (item.responseEnabled !== false || item.themeActionEnabled) && matchesAnyAutoReply(message.message, item.triggers, item.matchMode);
+      const titleMatches = item.titleActionEnabled && (matchesAnyAutoReply(message.message, item.triggers, item.matchMode) || titleActionDirection(message.message, item.titleIncreaseCommand ?? '', item.titleDecreaseCommand ?? '', item.matchMode) !== null);
+
+      return triggerMatches || titleMatches;
+    });
+
+    const rule = selectBestMatchingAutoReply(candidates);
     if (!rule) return;
     const remaining = cooldownRemainingSeconds(now, get().lastTriggeredAt[rule.id] ?? null, rule.cooldownSeconds);
     if (remaining !== null) return;
@@ -178,11 +248,19 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       if (direction || baseTriggerMatched) {
         const nextUpdate = titleUpdateQueue.enqueue(async () => {
           const currentRule = get().rules.find((item) => item.id === rule.id);
-          if (!currentRule) return;
+          if (!currentRule || !currentRule.titleActionEnabled) return;
+
+          let currentTitle: string | null = null;
+          try {
+            const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
+            if (titleRes.ok && titleRes.title) currentTitle = titleRes.title;
+          } catch {}
+
           const counters = currentRule.titleCounters?.length ? currentRule.titleCounters : [{ id: 'count1', start: currentRule.titleStart ?? 1, count: currentRule.titleCount ?? currentRule.titleStart ?? 1 }];
           const nextCounters: TitleCounter[] = direction ? nextTitleCounters(counters, direction) : counters;
           const values = Object.fromEntries(nextCounters.map((counter, index) => ['count' + (index + 1), Math.max(0, Math.trunc(counter.count))]));
-          const title = renderStreamTitle(currentRule.titleTemplate ?? '', values);
+          const title = renderStreamTitle(currentRule.titleTemplate ?? '', values, currentTitle).trim();
+          if (!title) return;
           const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
           if (result.ok && direction) {
             get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
@@ -194,8 +272,15 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
 
     if (rule.responseEnabled === false) return;
     if (rule.responseMode === 'ai') {
-      rpc.invoke(Channels.AutoRepliesGenerate, { ruleId: rule.id, message, send: true }).then((result) => {
-        if (result.ok && result.message) useLogStore.getState().add({ kind: 'trigger', message: `AI AUTO REPLY · ${rule.triggers[0] ?? ''}`, username: message.username });
+      rpc.invoke(Channels.AutoRepliesGenerate, {
+        ruleId: rule.id,
+        message,
+        send: true,
+      }).then((result) => {
+        if (result.ok && result.message) {
+          const via = result.senderLogin ? ` (via @${result.senderLogin})` : '';
+          useLogStore.getState().add({ kind: 'trigger', message: `AI AUTO REPLY · ${rule.triggers[0] ?? ''}${via}`, username: message.username });
+        }
       }).catch(() => undefined);
       return;
     }
@@ -203,7 +288,8 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     if (!response) return;
     rpc.invoke(Channels.TwitchSendChatMessage, { message: response }).then((result) => {
       if (result.ok) {
-        useLogStore.getState().add({ kind: 'trigger', message: `AUTO REPLY · ${rule.triggers[0] ?? ''}`, username: message.username });
+        const via = result.senderLogin ? ` (via @${result.senderLogin})` : '';
+        useLogStore.getState().add({ kind: 'trigger', message: `AUTO REPLY · ${rule.triggers[0] ?? ''}${via}`, username: message.username });
       }
     }).catch(() => undefined);
   },

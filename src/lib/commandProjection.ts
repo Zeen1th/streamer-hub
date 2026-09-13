@@ -1,13 +1,13 @@
-import type { AutoReply, Counter, CounterAction, PermissionLevel } from '../rpc/contracts';
+import type { AutoReply, CommandSequence, Counter, CounterAction, PermissionLevel } from '../rpc/contracts';
 import { renderTemplate } from './counterRules.ts';
 
-export type CommandGroup = 'all' | 'counters' | 'replies' | 'ai' | 'disabled';
+export type CommandGroup = 'all' | 'counters' | 'replies' | 'ai' | 'sequences' | 'disabled';
 export type CommandSink = 'file' | 'title' | 'chat';
 
 export interface CommandRow {
   id: string;
   sourceId: string;
-  sourceKind: 'counter' | 'reply';
+  sourceKind: 'counter' | 'reply' | 'sequence';
   group: Exclude<CommandGroup, 'all' | 'disabled'>;
   action?: CounterAction;
   command: string;
@@ -20,59 +20,69 @@ export interface CommandRow {
   error?: string;
   literalFileOutput?: string;
   literalTitleOutput?: string;
+  count?: number;
+  subCommands?: string[];
+  sequenceStepCount?: number;
 }
 
 interface ProjectionInput {
   counters: Counter[];
   replies: AutoReply[];
+  sequences?: CommandSequence[];
   counterLastTriggeredAt?: Record<string, Partial<Record<CounterAction, number>>>;
   replyLastTriggeredAt?: Record<string, number>;
+  sequenceLastTriggeredAt?: Record<string, number>;
   obsErrors: Record<string, { state?: string; message?: string | null }>;
 }
-
-const ACTION_DESCRIPTION: Record<CounterAction, string> = {
-  increase: 'Increase',
-  decrease: 'Decrease',
-  reset: 'Reset',
-};
 
 export function projectCommands({
   counters,
   replies,
+  sequences = [],
   counterLastTriggeredAt = {},
   replyLastTriggeredAt = {},
+  sequenceLastTriggeredAt = {},
   obsErrors,
 }: ProjectionInput): CommandRow[] {
-  const counterRows = counters.flatMap((counter) =>
-    (['increase', 'decrease', 'reset'] as CounterAction[]).map((action) => {
-      const config = counter.commands[action];
-      const writes: CommandSink[] = [];
-      if (counter.obs.enabled) writes.push('file');
-      if (counter.titleEnabled) writes.push('title');
-      const status = obsErrors[counter.id];
-      return {
-        id: `counter:${counter.id}:${action}`,
-        sourceId: counter.id,
-        sourceKind: 'counter' as const,
-        group: 'counters' as const,
-        action,
-        command: config.commandName,
-        description: `${ACTION_DESCRIPTION[action]} ${counter.name}`,
-        permission: config.permission,
-        cooldownSeconds: config.cooldownSeconds,
-        writes,
-        enabled: true,
-        lastTriggeredAt: counterLastTriggeredAt[counter.id]?.[action],
-        error: status?.state === 'error' ? status.message ?? 'Write failed' : undefined,
-        literalFileOutput: counter.obs.enabled
-          ? renderTemplate(counter.obs.template, counter.count, null)
-          : undefined,
-        literalTitleOutput: counter.titleEnabled && counter.titleTemplate
-          ? renderTemplate(counter.titleTemplate, counter.count, null)
-          : undefined,
-      };
-    }),
-  );
+  const counterRows: CommandRow[] = counters.map((counter) => {
+    const primary = counter.commands.increase;
+    const writes: CommandSink[] = [];
+    if (counter.obs.enabled) writes.push('file');
+    if (counter.titleEnabled) writes.push('title');
+    const status = obsErrors[counter.id];
+    const timestamps = counterLastTriggeredAt[counter.id];
+    const latestTimestamp = timestamps
+      ? Math.max(timestamps.increase ?? 0, timestamps.decrease ?? 0, timestamps.reset ?? 0) || undefined
+      : undefined;
+
+    return {
+      id: `counter:${counter.id}`,
+      sourceId: counter.id,
+      sourceKind: 'counter' as const,
+      group: 'counters' as const,
+      action: 'increase',
+      command: primary.commandName,
+      description: counter.name,
+      permission: primary.permission,
+      cooldownSeconds: primary.cooldownSeconds,
+      writes,
+      enabled: true,
+      lastTriggeredAt: latestTimestamp,
+      error: status?.state === 'error' ? status.message ?? 'Write failed' : undefined,
+      literalFileOutput: counter.obs.enabled
+        ? renderTemplate(counter.obs.template, counter.count, null)
+        : undefined,
+      literalTitleOutput: counter.titleEnabled && counter.titleTemplate
+        ? renderTemplate(counter.titleTemplate, counter.count, null)
+        : undefined,
+      count: counter.count,
+      subCommands: [
+        counter.commands.increase.commandName,
+        counter.commands.decrease.commandName,
+        counter.commands.reset.commandName,
+      ],
+    };
+  });
 
   const replyRows: CommandRow[] = replies.map((reply) => {
     const writes: CommandSink[] = [];
@@ -95,7 +105,37 @@ export function projectCommands({
     };
   });
 
-  return [...counterRows, ...replyRows];
+  const sequenceRows: CommandRow[] = (sequences ?? []).map((seq) => {
+    let triggerLabel = '🪙 Channel Points';
+    if (seq.triggerType === 'channel_points') {
+      triggerLabel = seq.rewardTitle ? `🪙 ${seq.rewardTitle}` : '🪙 Channel Points';
+    } else if (seq.triggerType === 'chat') {
+      triggerLabel = seq.chatTrigger || 'Chat';
+    } else {
+      triggerLabel = `${seq.rewardTitle ? `🪙 ${seq.rewardTitle}` : '🪙'} / ${seq.chatTrigger || 'Chat'}`;
+    }
+
+    const writes: CommandSink[] = [];
+    if (seq.steps.some((s) => s.type === 'chat')) writes.push('chat');
+    if (seq.steps.some((s) => s.type === 'counter')) writes.push('file');
+
+    return {
+      id: `sequence:${seq.id}`,
+      sourceId: seq.id,
+      sourceKind: 'sequence' as const,
+      group: 'sequences' as const,
+      command: triggerLabel,
+      description: seq.name,
+      permission: 'everyone',
+      cooldownSeconds: seq.cooldownSeconds,
+      writes,
+      enabled: seq.enabled,
+      lastTriggeredAt: sequenceLastTriggeredAt?.[seq.id],
+      sequenceStepCount: seq.steps.length,
+    };
+  });
+
+  return [...counterRows, ...replyRows, ...sequenceRows];
 }
 
 export function filterCommands(rows: CommandRow[], group: CommandGroup, query: string): CommandRow[] {
@@ -104,7 +144,8 @@ export function filterCommands(rows: CommandRow[], group: CommandGroup, query: s
     const inGroup = group === 'all' || (group === 'disabled' ? !row.enabled : row.group === group);
     if (!inGroup) return false;
     if (!normalized) return true;
-    return `${row.command} ${row.description}`.toLocaleLowerCase().includes(normalized);
+    const sub = row.subCommands ? ` ${row.subCommands.join(' ')}` : '';
+    return `${row.command} ${row.description}${sub}`.toLocaleLowerCase().includes(normalized);
   });
 }
 

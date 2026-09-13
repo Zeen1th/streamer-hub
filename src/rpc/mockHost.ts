@@ -1,4 +1,4 @@
-import type { ActionKeybind, AutoReply, AutoReplySettings, ChatOverlaySettings, ConnectionStatus, Counter, RpcEnvelope, TwitchSettings } from './contracts';
+import type { ActionKeybind, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlaySettings, CommandSequence, ConnectionStatus, Counter, RpcEnvelope, TwitchRewardInfo, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -7,16 +7,21 @@ const STORAGE_KEY = 'streamer-hub-mock-counters';
 const LEGACY_STORAGE_KEY = 'streamer-hub-mock-state';
 const TWITCH_STORAGE_KEY = 'streamer-hub-mock-settings';
 const AUTO_REPLY_STORAGE_KEY = 'streamer-hub-mock-auto-replies';
+const SEQUENCES_STORAGE_KEY = 'streamer-hub-mock-sequences';
 const KEYBIND_STORAGE_KEY = 'streamer-hub-mock-keybinds';
 const AUTO_REPLY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-auto-reply-settings';
 const CHAT_OVERLAY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-chat-overlay-settings';
+const OBS_CHAT_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-obs-chat-settings';
 const CHAT_OVERLAY_URL = 'http://127.0.0.1:49178/chat-overlay.html';
+const OBS_CHAT_DOCK_URL = 'http://127.0.0.1:49178/obs-chat.html';
 const DEFAULT_CHAT_OVERLAY_SETTINGS: ChatOverlaySettings = createDefaultChatOverlaySettings();
 
 interface MockSettings {
   clientId: string;
   clientSecret: string;
   language: string;
+  botAccountEnabled?: boolean;
+  preferredChatSender?: 'bot' | 'broadcaster';
 }
 
 function migrateLegacyCounters(): Counter[] | null {
@@ -54,37 +59,60 @@ export class MockHost {
   private counters: Counter[];
   private autoReplies: AutoReply[];
   private autoReplySettings: AutoReplySettings;
+  private sequences: CommandSequence[];
   private keybinds: ActionKeybind[];
   private chatOverlaySettings: ChatOverlaySettings;
+  private obsChatSettings: ChatOverlaySettings;
   private readonly listeners = new Set<(message: RpcEnvelope) => void>();
   private isMaximized = false;
-  private twitchConnected = false;
+  private twitchConnected = true;
+  private streamTitle = 'Chill Gaming Stream';
   private readonly timers: number[] = [];
 
-  constructor() {
+  constructor(options: { twitchConnected?: boolean } = {}) {
     this.counters = this.loadCounters();
     this.autoReplies = this.loadAutoReplies();
+    this.sequences = this.loadSequences();
     this.autoReplySettings = this.loadAutoReplySettings();
     this.keybinds = this.loadKeybinds();
     this.chatOverlaySettings = this.loadChatOverlaySettings();
+    this.obsChatSettings = this.loadObsChatSettings();
+    if (options.twitchConnected !== undefined) {
+      this.twitchConnected = options.twitchConnected;
+    }
     this.schedule(() => this.emitStatus(), 350);
-    this.schedule(() => {
-      this.twitchConnected = true;
-      this.emitStatus();
-    }, 1400);
     this.schedule(() => this.twitchBlip(), 90000);
   }
 
-  simulateChat(message: { username: string; message: string }): void {
+  simulateChat(message: { username: string; message: string; avatarUrl?: string }): void {
+    const letter = (message.username[0] || '?').toUpperCase();
+    const defaultAvatar = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><defs><linearGradient id="mock_${letter}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#059669"/></linearGradient></defs><rect width="100" height="100" rx="50" fill="url(#mock_${letter})"/><text x="50" y="54" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, sans-serif" font-weight="700" font-size="44" fill="#ffffff">${letter}</text></svg>`)}`;
+
     this.emitEvent(Events.TwitchChatMessage, {
       id: crypto.randomUUID(),
       username: message.username,
+      userId: `mock-${message.username}`,
+      avatarUrl: message.avatarUrl || defaultAvatar,
       isBroadcaster: message.username === 'streamer',
       isMod: false,
       isVip: false,
       isSubscriber: false,
       message: message.message,
       timestamp: new Date().toISOString(),
+    });
+  }
+
+  simulateRedemption(redemption: Partial<ChannelPointsRedemption>): void {
+    this.emitEvent(Events.TwitchChannelPointsRedeemed, {
+      id: redemption.id || crypto.randomUUID(),
+      rewardId: redemption.rewardId || 'mock-reward-hydrate',
+      rewardTitle: redemption.rewardTitle || 'Hydrate',
+      rewardCost: redemption.rewardCost ?? 250,
+      userId: redemption.userId || 'mock-viewer-1',
+      userName: redemption.userName || 'viewer',
+      userLogin: redemption.userLogin || 'viewer',
+      userInput: redemption.userInput,
+      redeemedAt: redemption.redeemedAt || new Date().toISOString(),
     });
   }
 
@@ -194,18 +222,93 @@ export class MockHost {
         this.respond(request, { ok: true });
         break;
       }
-      case 'auto-replies/generate': {
-        this.respond(request, { ok: true, message: 'Mock AI reply — configure OpenRouter in the desktop app.', usedFallback: false });
+      case Channels.SequencesGetState:
+        this.respond(request, structuredClone(this.sequences));
+        break;
+      case Channels.SequencesSave: {
+        const payload = request.payload as { sequence?: CommandSequence };
+        if (payload?.sequence) {
+          const seq = payload.sequence;
+          const idx = this.sequences.findIndex((s) => s.id === seq.id);
+          if (idx >= 0) this.sequences[idx] = seq;
+          else this.sequences.push(seq);
+          this.persistSequences();
+        }
+        this.respond(request, { ok: true });
         break;
       }
-      case 'twitch/send-chat-message':
-        this.respond(request, { ok: this.twitchConnected });
+      case Channels.SequencesDelete: {
+        const payload = request.payload as { sequenceId?: string };
+        if (payload?.sequenceId) {
+          this.sequences = this.sequences.filter((s) => s.id !== payload.sequenceId);
+          this.persistSequences();
+        }
+        this.respond(request, { ok: true });
         break;
+      }
+      case Channels.TwitchChannelPointsGetRewards:
+        this.respond(request, {
+          ok: true,
+          rewards: [
+            { id: 'mock-reward-hydrate', title: 'Hydrate', cost: 250, prompt: 'Remind the streamer to drink water', userInputRequired: false },
+            { id: 'mock-reward-stretch', title: 'Stretch Break', cost: 500, prompt: 'Time to stand up and stretch', userInputRequired: false },
+            { id: 'mock-reward-shoutout', title: 'VIP Shoutout', cost: 1000, prompt: 'Shoutout your channel', userInputRequired: true },
+          ] as TwitchRewardInfo[],
+        });
+        break;
+      case Channels.TwitchModerationCheckMod: {
+        const payload = request.payload as { target?: string };
+        const isMod = payload?.target?.toLowerCase().includes('mod') ?? true;
+        this.respond(request, { ok: true, isMod });
+        break;
+      }
+      case Channels.TwitchModerationTimeout: {
+        this.respond(request, { ok: true });
+        break;
+      }
+      case Channels.TwitchModerationSmartTimeout: {
+        const payload = request.payload as { target?: string; durationSeconds?: number };
+        const clean = (payload?.target ?? '').replace(/^[@#!]+/, '');
+        this.respond(request, { ok: true, wasMod: true, target: clean });
+        break;
+      }
+      case Channels.TwitchModerationBan:
+      case Channels.TwitchModerationUnban:
+      case Channels.TwitchModerationMod:
+      case Channels.TwitchModerationUnmod:
+      case Channels.TwitchModerationVip:
+      case Channels.TwitchModerationUnvip:
+      case Channels.TwitchModerationClear:
+      case Channels.TwitchModerationShoutout: {
+        this.respond(request, { ok: true });
+        break;
+      }
+      case 'auto-replies/generate': {
+        const payload = request.payload as { message?: { username?: string; message?: string } } | undefined;
+        const chatter = payload?.message?.username?.toLowerCase() || '';
+        const msgText = payload?.message?.message?.toLowerCase() || '';
+        if (chatter.includes('kirin_x_') || msgText.includes('kirin_x_') || msgText.includes('timeout') || msgText.includes('ban') || msgText.includes('bad')) {
+          this.respond(request, { ok: true, message: 'classic @kirin_x_ catching Ls as usual 🤡 enjoy the timeout bench!', usedFallback: false });
+        } else {
+          this.respond(request, { ok: true, message: 'Mock AI reply — configure OpenRouter in the desktop app.', usedFallback: false });
+        }
+        break;
+      }
       case 'twitch/get-title':
-        this.respond(request, { ok: this.twitchConnected, title: 'Live Streamer Hub Gaming' });
+        this.respond(request, { ok: true, title: this.streamTitle });
         break;
-      case 'twitch/update-title':
-        this.respond(request, { ok: this.twitchConnected });
+      case 'twitch/update-title': {
+        const payload = request.payload as { title?: string };
+        if (payload?.title) {
+          this.streamTitle = payload.title;
+          this.emitEvent(Events.TwitchTitleChanged, { title: payload.title });
+        }
+        this.respond(request, { ok: true });
+        break;
+      }
+      case Channels.TwitchGetTitleFilePath:
+      case 'twitch/get-title-file-path':
+        this.respond(request, { path: 'C:\\StreamerHub\\title.txt' });
         break;
       case 'obs/write': {
         const payload = request.payload as { filePath: string; content: string };
@@ -225,22 +328,52 @@ export class MockHost {
       case 'twitch/forget':
         this.respond(request, { ok: true });
         break;
+      case 'twitch/bot-authorize':
+        this.respond(request, { ok: true });
+        break;
+      case 'twitch/bot-forget':
+        this.respond(request, { ok: true });
+        break;
+      case Channels.TwitchSendChatMessage: {
+        const st = this.status();
+        this.respond(request, {
+          ok: this.twitchConnected,
+          senderRole: st.activeChatSender,
+          senderLogin: st.activeChatSenderLogin,
+        });
+        break;
+      }
       case 'settings/get-state': {
         const settings = this.loadSettings();
-        this.respond(request, { twitch: { clientId: settings.clientId, clientSecret: settings.clientSecret }, language: settings.language, closeToTray: true });
+        this.respond(request, {
+          twitch: { clientId: settings.clientId, clientSecret: settings.clientSecret },
+          language: settings.language,
+          botAccountEnabled: settings.botAccountEnabled ?? false,
+          preferredChatSender: settings.preferredChatSender ?? 'bot',
+          closeToTray: true,
+        });
         break;
       }
       case 'settings/save': {
-        const payload = request.payload as { twitch?: TwitchSettings; language?: string; closeToTray?: boolean };
-        if (payload?.twitch || payload?.language) {
+        const payload = request.payload as {
+          twitch?: TwitchSettings;
+          language?: string;
+          botAccountEnabled?: boolean;
+          preferredChatSender?: 'bot' | 'broadcaster';
+          closeToTray?: boolean;
+        };
+        if (payload) {
           try {
             const current = this.loadSettings();
             const next: MockSettings = {
               clientId: payload.twitch?.clientId ?? current.clientId,
               clientSecret: payload.twitch?.clientSecret ?? current.clientSecret,
               language: payload.language ?? current.language,
+              botAccountEnabled: payload.botAccountEnabled ?? current.botAccountEnabled,
+              preferredChatSender: payload.preferredChatSender ?? current.preferredChatSender,
             };
             localStorage.setItem(TWITCH_STORAGE_KEY, JSON.stringify(next));
+            this.emitStatus();
           } catch {
             void 0;
           }
@@ -257,7 +390,34 @@ export class MockHost {
         this.respond(request, { ok: true });
         break;
       case Channels.ChatOverlayGetUrl:
-        this.respond(request, { url: CHAT_OVERLAY_URL });
+        this.respond(request, { url: CHAT_OVERLAY_URL, dockUrl: OBS_CHAT_DOCK_URL });
+        break;
+      case Channels.ChatOverlayReload:
+      case 'chat-overlay/reload':
+        this.respond(request, { ok: true });
+        break;
+      case Channels.ChatOverlaySetPreview:
+      case 'chat-overlay/set-preview':
+        this.respond(request, { ok: true });
+        break;
+      case Channels.ObsChatGetState:
+        this.respond(request, structuredClone(this.obsChatSettings));
+        break;
+      case Channels.ObsChatSaveSettings:
+        this.obsChatSettings = request.payload as ChatOverlaySettings;
+        localStorage.setItem(OBS_CHAT_SETTINGS_STORAGE_KEY, JSON.stringify(this.obsChatSettings));
+        this.respond(request, { ok: true });
+        break;
+      case Channels.ObsChatGetUrl:
+        this.respond(request, { url: OBS_CHAT_DOCK_URL });
+        break;
+      case Channels.ObsChatReload:
+      case 'obs-chat/reload':
+        this.respond(request, { ok: true });
+        break;
+      case Channels.ObsChatSetPreview:
+      case 'obs-chat/set-preview':
+        this.respond(request, { ok: true });
         break;
       case Channels.SystemListFonts:
         this.respond(request, { fonts: ['Arial', 'Cairo', 'Inter', 'Segoe UI', 'Times New Roman'] });
@@ -275,14 +435,54 @@ export class MockHost {
         break;
       case Channels.UpdateCheck:
         this.respond(request, {
-          currentVersion: '0.2.7',
-          latestVersion: '0.2.7',
+          currentVersion: '0.2.8',
+          latestVersion: '0.2.8',
           updateAvailable: false,
           releaseUrl: 'https://github.com/Zeen1th/streamer-hub/releases/latest',
-          downloadUrl: 'https://github.com/Zeen1th/streamer-hub/releases/download/v0.2.7/StreamerHub-Setup-v0.2.7.exe',
+          downloadUrl: 'https://github.com/Zeen1th/streamer-hub/releases/download/v0.2.8/StreamerHub-Setup-v0.2.8.exe',
           releaseNotes: 'The current release is installed.',
         });
         break;
+      case Channels.TwitchCheckAvatar: {
+        const payload = request.payload as { username?: string; userId?: string } | undefined;
+        const target = (payload?.username || payload?.userId || 'streamer').trim();
+        const letter = (target[0] || '?').toUpperCase();
+        const avatarSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><defs><linearGradient id="mock_av" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/></linearGradient></defs><rect width="100" height="100" rx="50" fill="url(#mock_av)"/><text x="50" y="54" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, sans-serif" font-weight="700" font-size="44" fill="#ffffff">${letter}</text></svg>`;
+        const avatarUrl = `data:image/svg+xml;utf8,${encodeURIComponent(avatarSvg)}`;
+        const userId = payload?.userId || 'mock-user-1';
+        this.emitEvent(Events.TwitchUserProfile, { userId, avatarUrl });
+        this.respond(request, {
+          ok: true,
+          userId,
+          username: target.toLowerCase(),
+          displayName: target,
+          avatarUrl,
+        });
+        break;
+      }
+      case Channels.ChatOverlayTestMessage: {
+        const payload = request.payload as Partial<ChatMessage> | undefined;
+        if (payload && payload.username) {
+          const letter = (payload.username[0] || '?').toUpperCase();
+          const defaultAvatar = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><defs><linearGradient id="mock_t" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f43f5e"/><stop offset="100%" stop-color="#be123c"/></linearGradient></defs><rect width="100" height="100" rx="50" fill="url(#mock_t)"/><text x="50" y="54" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, sans-serif" font-weight="700" font-size="44" fill="#ffffff">${letter}</text></svg>`)}`;
+          this.emitEvent(Events.TwitchChatMessage, {
+            id: payload.id || crypto.randomUUID(),
+            username: payload.username,
+            userId: payload.userId || 'mock-user',
+            avatarUrl: payload.avatarUrl || defaultAvatar,
+            isBroadcaster: payload.isBroadcaster ?? false,
+            isMod: payload.isMod ?? false,
+            isVip: payload.isVip ?? false,
+            isSubscriber: payload.isSubscriber ?? false,
+            message: payload.message || '',
+            emotes: payload.emotes || [],
+            color: payload.color || '',
+            timestamp: payload.timestamp || new Date().toISOString(),
+          });
+        }
+        this.respond(request, { ok: true });
+        break;
+      }
       case Channels.UpdateInstall:
         this.respond(request, { ok: true });
         break;
@@ -307,18 +507,39 @@ export class MockHost {
   }
 
   private status(): ConnectionStatus {
+    const settings = this.loadSettings();
+    const botEnabled = settings.botAccountEnabled ?? false;
+    const botConnected = botEnabled && this.twitchConnected;
+    const preferredSender = settings.preferredChatSender ?? 'bot';
+    const activeSender = preferredSender === 'bot' && botConnected ? 'bot' : 'broadcaster';
     return {
       coreConnected: true,
       coreVersion: '1.0.0-mock',
       twitchConnected: this.twitchConnected,
       twitchChannel: this.twitchConnected ? 'mock_channel' : '',
       authRequired: false,
+      botAccountEnabled: botEnabled,
+      botConnected,
+      botLogin: botConnected ? 'mock_bot' : '',
+      preferredChatSender: preferredSender,
+      activeChatSender: activeSender,
+      activeChatSenderLogin: activeSender === 'bot' ? 'mock_bot' : (this.twitchConnected ? 'mock_channel' : ''),
     };
   }
 
   private loadChatOverlaySettings(): ChatOverlaySettings {
     try {
       const raw = localStorage.getItem(CHAT_OVERLAY_SETTINGS_STORAGE_KEY);
+      if (raw) return JSON.parse(raw) as ChatOverlaySettings;
+    } catch {
+      void 0;
+    }
+    return { ...DEFAULT_CHAT_OVERLAY_SETTINGS };
+  }
+
+  private loadObsChatSettings(): ChatOverlaySettings {
+    try {
+      const raw = localStorage.getItem(OBS_CHAT_SETTINGS_STORAGE_KEY);
       if (raw) return JSON.parse(raw) as ChatOverlaySettings;
     } catch {
       void 0;
@@ -347,6 +568,53 @@ export class MockHost {
   private persistAutoReplies(): void {
     try {
       localStorage.setItem(AUTO_REPLY_STORAGE_KEY, JSON.stringify(this.autoReplies));
+    } catch {
+      void 0;
+    }
+  }
+
+  private loadSequences(): CommandSequence[] {
+    try {
+      const raw = localStorage.getItem(SEQUENCES_STORAGE_KEY);
+      if (raw) return JSON.parse(raw) as CommandSequence[];
+    } catch {
+      return [];
+    }
+    return [
+      {
+        id: 'seq-default-hydrate',
+        enabled: true,
+        name: 'Hydrate Stack',
+        triggerType: 'both',
+        rewardTitle: 'Hydrate',
+        rewardId: 'mock-reward-hydrate',
+        chatTrigger: '!hydrate',
+        cooldownSeconds: 15,
+        steps: [
+          {
+            id: 'step-1',
+            type: 'chat',
+            chatMessage: '🥤 Hydrate alert! Drink some water, {username}!',
+          },
+          {
+            id: 'step-2',
+            type: 'wait',
+            waitDuration: 3,
+            waitUnit: 'seconds',
+          },
+          {
+            id: 'step-3',
+            type: 'chat',
+            chatMessage: '💧 Refreshed! Thanks {username} for the reminder!',
+          },
+        ],
+      },
+    ];
+  }
+
+  private persistSequences(): void {
+    try {
+      localStorage.setItem(SEQUENCES_STORAGE_KEY, JSON.stringify(this.sequences));
     } catch {
       void 0;
     }
@@ -403,13 +671,21 @@ export class MockHost {
           clientId: parsed.clientId ?? '',
           clientSecret: parsed.clientSecret ?? '',
           language: parsed.language ?? '',
+          botAccountEnabled: parsed.botAccountEnabled ?? false,
+          preferredChatSender: parsed.preferredChatSender ?? 'bot',
         };
       }
     } catch {
       void 0;
     }
     const legacy = this.loadLegacyTwitch();
-    return { clientId: legacy.clientId, clientSecret: legacy.clientSecret, language: '' };
+    return {
+      clientId: legacy.clientId,
+      clientSecret: legacy.clientSecret,
+      language: '',
+      botAccountEnabled: false,
+      preferredChatSender: 'bot',
+    };
   }
 
   private loadAutoReplySettings(): AutoReplySettings {

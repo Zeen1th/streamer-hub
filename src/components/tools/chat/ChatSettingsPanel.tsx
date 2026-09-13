@@ -1,13 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  AlertCircle,
   AtSign,
   Award,
   Copy,
   Check,
+  ExternalLink,
   Filter,
   Image as ImageIcon,
   LayoutGrid,
   Palette,
+  RefreshCw,
+  Save,
+  Search,
+  Send,
   Smile,
   Sparkles,
   Square,
@@ -21,11 +27,14 @@ import { resolveFontStack } from '../../../overlay/tokens';
 import { rpc } from '../../../rpc';
 import {
   Channels,
+  type ChatMessage,
   type ChatOverlayAlignment,
   type ChatOverlaySettings,
 } from '../../../rpc/contracts';
 import type { ChatOverlayPart } from '../../../overlay/ChatMessageCard';
-import { useChatOverlayStore, type DeepPartial } from '../../../store/chatOverlayStore';
+import type { DeepPartial } from '../../../store/chatOverlayStore';
+import { useChatStore, useChatTarget } from './ChatTargetContext';
+import { useConnectionStore } from '../../../store/connectionStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { t } from '../../../i18n/translations';
 import { Button } from '../../ui/Button';
@@ -34,6 +43,7 @@ import { Input } from '../../ui/Input';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Slider } from '../../ui/Slider';
 import { Switch } from '../../ui/Switch';
+import { editSampleMessages } from './sampleMessages';
 
 type SectionId =
   | 'presets'
@@ -61,16 +71,100 @@ interface ChatSettingsPanelProps {
 }
 
 export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
-  const store = useChatOverlayStore();
+  const store = useChatStore();
+  const target = useChatTarget();
   const settings = store.settings;
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
   const sectionRefs = useRef<Partial<Record<SectionId, HTMLElement | null>>>({});
   const [copied, setCopied] = useState(false);
+  const [reloadingObs, setReloadingObs] = useState(false);
+  const [reloadedSuccess, setReloadedSuccess] = useState(false);
   const [installedFonts, setInstalledFonts] = useState<string[]>([]);
   const [fontListState, setFontListState] = useState<'loading' | 'ready' | 'error'>('loading');
 
+  const handleReloadObs = async () => {
+    setReloadingObs(true);
+    try {
+      const ok = await store.reloadObs();
+      if (ok) {
+        setReloadedSuccess(true);
+        window.setTimeout(() => setReloadedSuccess(false), 2500);
+      }
+    } finally {
+      window.setTimeout(() => setReloadingObs(false), 500);
+    }
+  };
+
   const patch = (value: DeepPartial<ChatOverlaySettings>) => void store.updateSettings(value);
+
+  const twitchChannel = useConnectionStore((s) => s.twitchChannel);
+  const twitchConnected = useConnectionStore((s) => s.twitchConnected);
+  const [avatarInput, setAvatarInput] = useState('');
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [avatarResult, setAvatarResult] = useState<{
+    ok: boolean;
+    userId?: string | null;
+    username?: string | null;
+    displayName?: string | null;
+    avatarUrl?: string | null;
+    error?: string | null;
+  } | null>(null);
+  const [testSending, setTestSending] = useState(false);
+
+  useEffect(() => {
+    if (!avatarInput && twitchChannel) {
+      setAvatarInput(twitchChannel);
+    }
+  }, [twitchChannel, avatarInput]);
+
+  const handleCheckAvatar = async () => {
+    const target = avatarInput.trim();
+    if (!target) return;
+    setAvatarLoading(true);
+    setAvatarResult(null);
+    try {
+      const res = await rpc.invoke(Channels.TwitchCheckAvatar, { username: target });
+      setAvatarResult(res);
+      if (res.ok && res.userId && res.avatarUrl) {
+        store.applyProfile(res.userId, res.avatarUrl);
+      }
+    } catch (err: unknown) {
+      setAvatarResult({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setAvatarLoading(false);
+    }
+  };
+
+  const handleSendOverlayTest = async () => {
+    setTestSending(true);
+    try {
+      const targetUser = avatarResult?.displayName || avatarResult?.username || avatarInput.trim() || twitchChannel || 'streamer';
+      const targetAvatar = avatarResult?.avatarUrl;
+      const targetId = avatarResult?.userId || `user-${Date.now()}`;
+      const msg: ChatMessage = {
+        id: `test-${Date.now()}`,
+        username: targetUser,
+        userId: targetId,
+        avatarUrl: targetAvatar || undefined,
+        isBroadcaster: true,
+        isMod: false,
+        isVip: false,
+        isSubscriber: true,
+        message: lang === 'ar' ? 'رسالة تجريبية لفحص الصورة الرمزية في الأوفرلاي!' : 'Avatar test message in live overlay & preview!',
+        timestamp: new Date().toISOString(),
+      };
+      store.addMessage(msg);
+      await rpc.invoke(Channels.ChatOverlayTestMessage, msg);
+    } catch {
+      // ignore
+    } finally {
+      setTestSending(false);
+    }
+  };
 
   // Selecting a part on the canvas scrolls the matching section into view and
   // highlights it, so clicking the username lands you on username styling.
@@ -117,17 +211,59 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-surface-2">
       <header className="flex h-[44px] shrink-0 items-center justify-between gap-2 border-b border-hair px-3">
-        <div className="flex items-center gap-2.5">
-          <Wand2 size={16} className="text-accent-text" />
-          <h2 className="font-display text-base uppercase tracking-[0.04em] text-ink">
-            {t(lang, 'chat.settings')}
+        <div className="flex items-center gap-2 min-w-0">
+          <Wand2 size={16} className="text-accent-text shrink-0" />
+          <h2 className="font-display text-base uppercase tracking-[0.04em] text-ink truncate">
+            {target === 'obs-chat' ? (lang === 'ar' ? 'إعدادات شات OBS' : 'OBS Chat Settings') : t(lang, 'chat.settings')}
           </h2>
         </div>
-        <Switch
-          checked={settings.enabled}
-          onChange={(enabled) => patch({ enabled })}
-          label={t(lang, 'chat.enable')}
-        />
+        <div className="flex items-center gap-1.5 shrink-0">
+          {store.saveState === 'saving' && (
+            <span className="flex items-center gap-1 text-[11px] text-accent-text font-mono">
+              <RefreshCw size={12} className="animate-spin shrink-0" />
+              <span className="hidden sm:inline">{t(lang, 'chat.saving')}</span>
+            </span>
+          )}
+          {store.saveState === 'saved' && (
+            <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-mono">
+              <Check size={12} className="shrink-0" />
+              <span className="hidden sm:inline">{t(lang, 'chat.saved')}</span>
+            </span>
+          )}
+          {store.saveState === 'error' && (
+            <span className="flex items-center gap-1 text-[11px] text-rose-400 font-mono" title={t(lang, 'chat.saveFailed')}>
+              <AlertCircle size={12} className="shrink-0" />
+              <span className="hidden sm:inline">{t(lang, 'chat.saveFailed')}</span>
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void store.saveNow()}
+            disabled={store.saveState === 'saving'}
+            title={t(lang, 'chat.saveSettings')}
+            className="h-7 px-2 text-xs"
+          >
+            <Save size={13} className="me-1 shrink-0" />
+            <span className="hidden md:inline">{t(lang, 'chat.saveSettings')}</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleReloadObs}
+            disabled={reloadingObs || !store.overlayUrl}
+            title={t(lang, 'chat.refreshObsHint')}
+            className="h-7 px-2 text-xs"
+          >
+            <RefreshCw size={14} className={reloadingObs ? 'animate-spin text-accent-text shrink-0' : 'shrink-0'} />
+            <span className="hidden md:inline ms-1">{t(lang, 'chat.refreshObs')}</span>
+          </Button>
+          <Switch
+            checked={settings.enabled}
+            onChange={(enabled) => patch({ enabled })}
+            label={t(lang, 'chat.enable')}
+          />
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto">
@@ -516,6 +652,157 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
               suffix="px"
               onChange={(borderWidth) => patch({ avatar: { borderWidth } })}
             />
+
+            {/* Avatar Diagnostics & Evaluation Card */}
+            <div className="mt-4 space-y-3 rounded border border-rule bg-surface-2 p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-display text-xs uppercase tracking-wider text-ink">
+                  <Sparkles size={13} className="text-primary" />
+                  {t(lang, 'chat.avatarDiagnostics.title')}
+                </div>
+                {twitchConnected ? (
+                  <span className="flex items-center gap-1 font-mono text-[11px] text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    {t(lang, 'chat.avatarDiagnostics.connected')}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 font-mono text-[11px] text-amber-400">
+                    <AlertCircle size={11} />
+                    {t(lang, 'chat.avatarDiagnostics.notConnected')}
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-ink/70">
+                {t(lang, 'chat.avatarDiagnostics.description')}
+              </p>
+
+              <div className="flex items-center gap-2">
+                <Input
+                  value={avatarInput}
+                  onChange={(e) => setAvatarInput(e.target.value)}
+                  placeholder={t(lang, 'chat.avatarDiagnostics.inputPlaceholder')}
+                  className="h-8 text-xs font-mono"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleCheckAvatar();
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleCheckAvatar()}
+                  disabled={avatarLoading || !avatarInput.trim()}
+                  className="h-8 shrink-0 text-xs"
+                >
+                  {avatarLoading ? (
+                    <RefreshCw size={13} className="animate-spin" />
+                  ) : (
+                    <Search size={13} />
+                  )}
+                  {t(lang, 'chat.avatarDiagnostics.checkButton')}
+                </Button>
+              </div>
+
+              {avatarResult && (
+                <div
+                  className={`rounded border p-2.5 text-xs ${
+                    avatarResult.ok
+                      ? 'border-emerald-500/30 bg-emerald-950/20'
+                      : 'border-rose-500/30 bg-rose-950/20'
+                  }`}
+                >
+                  {avatarResult.ok ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="relative flex shrink-0 items-center justify-center overflow-hidden border border-rule bg-surface-3"
+                          style={{
+                            width: `${Math.min(Math.max(settings.avatar.size, 32), 48)}px`,
+                            height: `${Math.min(Math.max(settings.avatar.size, 32), 48)}px`,
+                            borderRadius:
+                              settings.avatar.shape === 'circle'
+                                ? '9999px'
+                                : settings.avatar.shape === 'squircle'
+                                  ? '28%'
+                                  : settings.avatar.shape === 'rounded'
+                                    ? '6px'
+                                    : '0px',
+                            borderWidth: `${settings.avatar.borderWidth}px`,
+                            borderColor: settings.avatar.borderColor || 'transparent',
+                          }}
+                        >
+                          {avatarResult.avatarUrl ? (
+                            <img
+                              src={avatarResult.avatarUrl}
+                              alt={avatarResult.displayName || avatarResult.username || ''}
+                              referrerPolicy="no-referrer"
+                              crossOrigin="anonymous"
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span className="font-mono text-[10px] text-ink/50">N/A</span>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-semibold text-ink">
+                              {avatarResult.displayName || avatarResult.username}
+                            </span>
+                            {avatarResult.userId && (
+                              <span className="font-mono text-[10px] text-ink/60">
+                                ID: {avatarResult.userId}
+                              </span>
+                            )}
+                          </div>
+                          <p className="truncate text-[11px] text-emerald-400">
+                            {avatarResult.avatarUrl
+                              ? t(lang, 'chat.avatarDiagnostics.avatarResolved')
+                              : t(lang, 'chat.avatarDiagnostics.noAvatarUrl')}
+                          </p>
+                        </div>
+                      </div>
+
+                      {avatarResult.avatarUrl && (
+                        <div className="flex items-center gap-1.5 border-t border-rule/50 pt-1">
+                          <a
+                            href={avatarResult.avatarUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex flex-1 items-center gap-1 truncate text-[11px] text-primary hover:underline"
+                          >
+                            <ExternalLink size={11} className="shrink-0" />
+                            <span className="truncate">{avatarResult.avatarUrl}</span>
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 text-rose-300">
+                      <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                      <div className="space-y-0.5">
+                        <span className="font-semibold">
+                          {t(lang, 'chat.avatarDiagnostics.lookupFailed')}
+                        </span>
+                        <p className="text-[11px] opacity-80">
+                          {avatarResult.error || t(lang, 'chat.avatarDiagnostics.unknownError')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleSendOverlayTest()}
+                disabled={testSending}
+                className="h-8 w-full justify-center gap-2 text-xs"
+              >
+                <Send size={12} />
+                {t(lang, 'chat.avatarDiagnostics.sendTestWithAvatar')}
+              </Button>
+            </div>
           </>,
         )}
 
@@ -664,7 +951,10 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
               onChange={(durationMs) => patch({ animation: { durationMs } })}
             />
 
-            <Field label={t(lang, 'chat.obsUrl')} hint={t(lang, 'chat.obsUrlHint2')}>
+            <Field
+              label={target === 'obs-chat' ? (lang === 'ar' ? 'رابط نافذة شات OBS (Dock)' : 'OBS Chat Dock URL') : t(lang, 'chat.obsUrl')}
+              hint={target === 'obs-chat' ? (lang === 'ar' ? 'استخدم هذا الرابط في OBS Studio: Docks -> Custom Browser Docks... (أو كمصدر متصفح)' : 'Add this URL in OBS Studio: Docks -> Custom Browser Docks... (or as a Browser Source).') : t(lang, 'chat.obsUrlHint2')}
+            >
               <div className="flex gap-2">
                 <Input readOnly value={store.overlayUrl} />
                 <Button
@@ -675,11 +965,33 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
                     window.setTimeout(() => setCopied(false), 1500);
                   }}
                   disabled={!store.overlayUrl}
+                  title={t(lang, 'chat.copyUrl')}
                 >
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                 </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleReloadObs}
+                  disabled={reloadingObs || !store.overlayUrl}
+                  title={t(lang, 'chat.refreshObsHint')}
+                >
+                  <RefreshCw size={14} className={reloadingObs ? 'animate-spin text-accent-text' : ''} />
+                </Button>
               </div>
+              {reloadedSuccess && (
+                <p className="mt-1 font-sans text-xs text-primary">{t(lang, 'chat.refreshObsSuccess')}</p>
+              )}
             </Field>
+
+            <ToggleRow
+              label={t(lang, 'chat.obsPreview')}
+              hint={t(lang, 'chat.obsPreviewHint')}
+              checked={store.obsPreviewEnabled}
+              onChange={(enabled) => {
+                const samples = editSampleMessages(lang);
+                void store.setObsPreviewEnabled(enabled, enabled ? samples : undefined);
+              }}
+            />
           </>,
         )}
       </div>
@@ -754,17 +1066,39 @@ function ColorRow({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+
   return (
     <Field label={label}>
       <div className="flex items-center gap-2">
         <input
           type="color"
-          value={value.slice(0, 7)}
-          onChange={(e) => onChange(e.target.value)}
+          value={value && value.startsWith('#') && (value.length === 4 || value.length === 7) ? value.slice(0, 7) : '#ffffff'}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            onChange(e.target.value);
+          }}
           className="h-11 w-14 shrink-0 cursor-pointer border border-ink/25 bg-surface-2"
           aria-label={label}
         />
-        <Input value={value} onChange={(e) => onChange(e.target.value)} spellCheck={false} />
+        <Input
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(e.target.value.trim())) {
+              onChange(e.target.value.trim());
+            }
+          }}
+          onBlur={() => {
+            if (/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(draft.trim())) {
+              onChange(draft.trim());
+            } else {
+              setDraft(value);
+            }
+          }}
+          spellCheck={false}
+        />
       </div>
     </Field>
   );
@@ -854,7 +1188,7 @@ function FontRow({
                 {t(lang, 'chat.fontPreview')}
               </div>
               <div
-                className="mt-1 truncate text-lg text-ink"
+                className="mt-1 truncate text-lg leading-normal pb-1 text-ink"
                 style={{ fontFamily: resolveFontStack(value) }}
               >
                 Stream chat · أهلاً بالبث

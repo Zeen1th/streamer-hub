@@ -9,7 +9,13 @@ import type {
 } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
-import { cooldownRemainingSeconds, hasPermission, parseCommand, renderTemplate } from '../lib/counterRules';
+import {
+  cooldownRemainingSeconds,
+  hasPermission,
+  parseCommand,
+  renderTemplate,
+  stripCounterFromTitle,
+} from '../lib/counterRules';
 import { counterSyncQueue } from '../lib/counterSyncQueue';
 import { titleUpdateQueue } from '../lib/titleUpdateQueue';
 import { RANK_KEYS, t } from '../i18n/translations';
@@ -40,6 +46,9 @@ interface CounterStoreState {
   updateCommand(id: string, action: CounterAction, patch: Partial<CounterCommandConfig>): void;
   updateObs(id: string, patch: Partial<ObsOutputConfig>): void;
   updateTitle(id: string, patch: { titleEnabled?: boolean; titleTemplate?: string }): void;
+  applyTitle(id: string): Promise<boolean>;
+  detachTitle(id: string): Promise<boolean>;
+  setLiveStreamTitle(title: string): Promise<boolean>;
   incrementManual(id: string): void;
   decrementManual(id: string): void;
   resetManual(id: string): void;
@@ -75,12 +84,10 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
       if (!counter.titleEnabled || !counter.titleTemplate?.trim()) return;
 
       let currentTitle: string | null = null;
-      if (counter.titleTemplate.includes('{title}') || counter.titleTemplate.includes('{current_title}')) {
-        try {
-          const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
-          if (titleRes.ok && titleRes.title) currentTitle = titleRes.title;
-        } catch {
-        }
+      try {
+        const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
+        if (titleRes.ok && titleRes.title) currentTitle = titleRes.title;
+      } catch {
       }
 
       const title = renderTemplate(counter.titleTemplate, counter.count, null, currentTitle).trim();
@@ -254,6 +261,8 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
           reset: { commandName: `${slug}reset`, permission: 'everyone', cooldownSeconds: 0 },
         },
         obs: { enabled: false, filePath: '', template: `${name}: {count}` },
+        titleEnabled: false,
+        titleTemplate: `{title} | ${name}: {count}`,
       };
       set((s) => ({ counters: [...s.counters, counter], selectedId: counter.id }));
       persistCounter(counter);
@@ -300,11 +309,110 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
     },
 
     updateTitle: (id, patch) => {
+      const prev = get().counters.find((c) => c.id === id);
       set((s) => ({
         counters: s.counters.map((c) => (c.id === id ? { ...c, ...patch } : c)),
       }));
       const counter = get().counters.find((c) => c.id === id);
-      if (counter) persistCounter(counter, true);
+      if (counter) {
+        if (patch.titleEnabled === true) {
+          persistCounter(counter, true);
+        } else if (patch.titleEnabled === false && prev?.titleEnabled) {
+          // When turning OFF, strip the counter from the live Twitch title
+          persistCounter(counter, false);
+          void titleUpdateQueue.enqueue(async () => {
+            try {
+              const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
+              if (titleRes.ok && titleRes.title) {
+                const cleanTitle = stripCounterFromTitle(titleRes.title, counter.titleTemplate);
+                if (cleanTitle && cleanTitle !== titleRes.title) {
+                  await rpc.invoke(Channels.TwitchUpdateTitle, { title: cleanTitle });
+                  log('system', `${counter.name} · Restored clean stream title: "${cleanTitle}"`);
+                }
+              }
+            } catch {
+            }
+          });
+        } else {
+          // Plain template edit or other update: do not wipe live Twitch title
+          persistCounter(counter, false);
+        }
+      }
+    },
+
+    applyTitle: async (id) => {
+      const counter = get().counters.find((c) => c.id === id);
+      if (!counter || !counter.titleTemplate?.trim()) return false;
+      const template = counter.titleTemplate;
+      try {
+        if (!counter.titleEnabled) {
+          set((s) => ({
+            counters: s.counters.map((c) => (c.id === id ? { ...c, titleEnabled: true } : c)),
+          }));
+          const reenabled = get().counters.find((c) => c.id === id);
+          if (reenabled) persistCounter(reenabled, false);
+        }
+        await titleUpdateQueue.enqueue(async () => {
+          let currentTitle: string | null = null;
+          try {
+            const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
+            if (titleRes.ok && titleRes.title) currentTitle = titleRes.title;
+          } catch {
+          }
+          const title = renderTemplate(template, counter.count, null, currentTitle).trim();
+          if (!title) return;
+          const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
+          if (!result.ok) throw new Error(result.error ?? 'TITLE UPDATE FAILED');
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    detachTitle: async (id) => {
+      const counter = get().counters.find((c) => c.id === id);
+      if (!counter) return false;
+      try {
+        set((s) => ({
+          counters: s.counters.map((c) => (c.id === id ? { ...c, titleEnabled: false } : c)),
+        }));
+        const updated = get().counters.find((c) => c.id === id);
+        if (updated) persistCounter(updated, false);
+
+        await titleUpdateQueue.enqueue(async () => {
+          const titleRes = await rpc.invoke(Channels.TwitchGetTitle, undefined);
+          if (titleRes.ok && titleRes.title) {
+            const cleanTitle = stripCounterFromTitle(titleRes.title, counter.titleTemplate);
+            if (cleanTitle && cleanTitle !== titleRes.title) {
+              await rpc.invoke(Channels.TwitchUpdateTitle, { title: cleanTitle });
+              log('system', `${counter.name} · Detached from title: "${cleanTitle}"`);
+            }
+          }
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    setLiveStreamTitle: async (newTitle: string) => {
+      const trimmed = newTitle.trim();
+      if (!trimmed) return false;
+      try {
+        const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title: trimmed });
+        if (!result.ok) {
+          log('system', `Title update failed: ${result.error ?? 'UNKNOWN'}`);
+          return false;
+        }
+
+        log('system', `Stream title updated to: "${trimmed}"`);
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'TITLE UPDATE FAILED';
+        log('system', message);
+        return false;
+      }
     },
 
     updateObs: (id, patch) => {

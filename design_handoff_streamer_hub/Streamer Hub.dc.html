@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/modernist-a0984cb5-66a9-4973-8497-9243272ff3f5/styles.css">
+<script src="_ds/modernist-a0984cb5-66a9-4973-8497-9243272ff3f5/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&family=IBM+Plex+Mono:wght@400;500;600&family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; }
+  *, *::before, *::after { box-sizing:border-box; }
+  :root, [data-app] {
+    --surface:#f3f2f2; --surface-2:#e8e7e5; --surface-3:#dedcd9;
+    --ink:#201e1d; --muted:rgba(32,30,29,.74); --faint:rgba(32,30,29,.66);
+    --rule:rgba(32,30,29,.4); --hair:rgba(32,30,29,.18);
+    --accent:#ec3013; --accent-soft:rgba(236,48,19,.08); --accent-deep:#ae1800; --on-accent:#faf9f8;
+    /* --accent is chrome only (rules, bars, dots): 3.76:1, fine for graphics, not text.
+       --accent-text / --accent-fill are the 4.5:1-safe pair for type. */
+    --accent-text:#ae1800; --accent-fill:#d62608;
+  }
+  [data-app="dark"] {
+    --surface:#1b1817; --surface-2:#141112; --surface-3:#0f0d0d;
+    --ink:#ece8e5; --muted:rgba(232,231,228,.72); --faint:rgba(232,231,228,.6);
+    --rule:rgba(232,231,228,.3); --hair:rgba(232,231,228,.13);
+    --accent:#ff5436; --accent-soft:rgba(255,84,54,.13); --accent-deep:#ff8f79; --on-accent:#16100e;
+    --accent-text:#ff5436; --accent-fill:#ff5436;
+  }
+  body { background:var(--surface-3); color:var(--ink); font-family:'Archivo',system-ui,sans-serif; font-size:13px; -webkit-font-smoothing:antialiased; }
+  a { color:var(--accent-text); text-underline-offset:3px; }
+  a:hover { color:var(--ink); }
+  ::selection { background:var(--accent-soft); }
+  [data-app] *:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  [data-app] button { font:inherit; color:var(--ink); }
+  [data-app] td, [data-app] th { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  [data-app] [role="radiogroup"] button { white-space:nowrap; }
+  [data-app] input { font:inherit; color:inherit; }
+  .sh-scroll { overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
+  .sh-scroll::-webkit-scrollbar { width:9px; height:9px; }
+  .sh-scroll::-webkit-scrollbar-thumb { background:var(--rule); }
+  .sh-scroll::-webkit-scrollbar-track { background:transparent; }
+  .sh-row:hover { background:var(--accent-soft); }
+  .sh-tool:hover { background:var(--hair); }
+  .sh-mi:hover { background:var(--accent-fill); color:var(--on-accent); }
+  /* No motion anywhere in the app, deliberately. The context menu previously faded in
+     from opacity 0; while an animation is paused at t=0 the 0% keyframe applies
+     whatever the fill-mode, so an occluded or tray-resident WebView2 window could
+     leave the menu invisible but still hit-testable. Fail-open beats a 120ms fade. */
+
+  .sh-table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:13px; }
+  .sh-table th:nth-child(1) { width:20% } .sh-table th:nth-child(2) { width:31% }
+  .sh-table th:nth-child(3) { width:15% } .sh-table th:nth-child(4) { width:8% }
+  .sh-table th:nth-child(5) { width:16% } .sh-table th:nth-child(6) { width:10% }
+  @media (max-width:1180px) {
+    .sh-c-last { display:none }
+    .sh-table th:nth-child(1) { width:23% } .sh-table th:nth-child(2) { width:34% }
+    .sh-table th:nth-child(3) { width:16% } .sh-table th:nth-child(4) { width:9% }
+    .sh-table th:nth-child(5) { width:18% }
+  }
+  @media (max-width:1000px) {
+    .sh-c-writes { display:none }
+    .sh-table th:nth-child(1) { width:28% } .sh-table th:nth-child(2) { width:40% }
+    .sh-table th:nth-child(3) { width:20% } .sh-table th:nth-child(4) { width:12% }
+  }
+  @media (max-width:880px) {
+    .sh-c-cd { display:none }
+    .sh-table th:nth-child(1) { width:34% } .sh-table th:nth-child(2) { width:44% }
+    .sh-table th:nth-child(3) { width:22% }
+  }
+  /* The group tree is never hidden. It is the only home of the group filters and of
+     the Outputs readiness list, so it outranks table width at every size; the table
+     sheds columns instead (ladder above). At 880px it still gets ~396px, which holds
+     Command + What it does + Who. */
+</style>
+</helmet>
+
+<svg aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden"><defs>
+<symbol id="s-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="s-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></symbol>
+<symbol id="s-sq" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16"/></symbol>
+<symbol id="s-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="s-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+<symbol id="s-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+<symbol id="s-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="s-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="s-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="s-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="s-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="s-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+<symbol id="s-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9"/></symbol>
+<symbol id="s-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+</defs></svg>
+
+<div data-app="{{ theme }}" dir="ltr" style="height:100vh;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);color:var(--ink);font-family:'Archivo',system-ui,sans-serif;font-size:13px">
+
+  <div style="height:32px;flex:none;display:flex;align-items:stretch;justify-content:space-between;background:var(--surface-2);border-bottom:1px solid var(--hair)">
+    <div style="display:flex;align-items:center;gap:9px;padding-inline-start:12px">
+      <span style="width:9px;height:9px;background:var(--accent);display:block"></span>
+      <span style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase">Streamer Hub</span>
+    </div>
+    <div style="display:flex;align-items:stretch">
+      <button type="button" onClick="{{ toggleConn }}" title="Toggle connection (demo)" style="display:flex;align-items:center;gap:7px;padding:0 12px;border:0;background:transparent;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:{{ conn.fg }};cursor:pointer">
+        <span aria-hidden="true" style="width:7px;height:7px;display:block;background:{{ conn.dotBg }};border:{{ conn.dotBorder }}"></span>{{ conn.label }}
+      </button>
+      <button type="button" onClick="{{ toggleLang }}" title="Language" style="border:0;background:transparent;padding:0 10px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer">{{ langLabel }}</button>
+      <button type="button" onClick="{{ toggleTheme }}" title="Appearance" style="width:36px;border:0;background:transparent;display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer"><svg width="14" height="14" aria-hidden="true" style="display:block"><use href="{{ themeIcon }}"></use></svg></button>
+      <button type="button" title="Minimize" style="width:40px;border:0;background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="12" height="12" aria-hidden="true" style="display:block"><use href="#s-minus"></use></svg></button>
+      <button type="button" title="Maximize" style="width:40px;border:0;background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="10" height="10" aria-hidden="true" style="display:block"><use href="#s-sq"></use></svg></button>
+      <button type="button" title="Close" style="width:40px;border:0;background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="12" height="12" aria-hidden="true" style="display:block"><use href="#s-x"></use></svg></button>
+    </div>
+  </div>
+
+  <div style="height:34px;flex:none;display:flex;align-items:stretch;background:var(--surface-2);border-bottom:2px solid var(--rule);padding-inline-start:8px">
+    <sc-for list="{{ tabs }}" as="tab" hint-placeholder-count="4">
+      <button type="button" onClick="{{ tab.onClick }}" style="display:flex;align-items:center;padding:0 15px;border:0;font-size:13px;cursor:pointer;font-weight:{{ tab.weight }};background:{{ tab.bg }};color:{{ tab.fg }};box-shadow:{{ tab.shadow }}">{{ tab.label }}</button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ showDisconnected }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:none;display:flex;align-items:center;gap:12px;padding:9px 12px;border-bottom:2px solid var(--accent);background:var(--accent-soft)">
+      <svg width="16" height="16" aria-hidden="true" style="display:block;flex:none;color:var(--accent)"><use href="#s-alert"></use></svg>
+      <div style="flex:1;min-width:0;font-size:12.5px"><strong style="font-weight:800">{{ discTitle }}</strong> <span style="color:var(--muted)">{{ discBody }}</span></div>
+      <button type="button" onClick="{{ toggleConn }}" style="flex:none;border:0;background:var(--accent-fill);color:var(--on-accent);padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer">{{ discCta }}</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isCommands }}" hint-placeholder-val="{{ true }}">
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+
+    <div style="height:38px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--hair);background:var(--surface)">
+      <button type="button" style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;border:0;background:var(--accent-fill);color:var(--on-accent);font-size:12px;font-weight:800;cursor:pointer"><svg width="13" height="13" aria-hidden="true" style="display:block"><use href="#s-plus"></use></svg>{{ tNew }}</button>
+      <button type="button" onClick="{{ duplicateSel }}" disabled="{{ noSel }}" style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;border:1px solid var(--rule);background:transparent;font-size:12px;font-weight:600;cursor:pointer;opacity:{{ selOpacity }}"><svg width="12" height="12" aria-hidden="true" style="display:block"><use href="#s-copy"></use></svg>{{ tDuplicate }}</button>
+      <button type="button" onClick="{{ deleteSel }}" disabled="{{ noSel }}" style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;border:1px solid var(--rule);background:transparent;font-size:12px;font-weight:600;cursor:pointer;opacity:{{ selOpacity }}"><svg width="12" height="12" aria-hidden="true" style="display:block"><use href="#s-trash"></use></svg>{{ tDelete }}</button>
+      <span aria-hidden="true" style="width:1px;height:18px;background:var(--hair);display:block;margin:0 2px"></span>
+      <label style="display:flex;align-items:center;gap:7px;height:26px;width:210px;border:1px solid var(--rule);background:var(--surface-2);padding:0 9px;color:var(--muted)">
+        <svg width="13" height="13" aria-hidden="true" style="display:block"><use href="#s-search"></use></svg>
+        <input value="{{ query }}" onInput="{{ onQuery }}" placeholder="{{ tFilter }}" style="flex:1;min-width:0;border:0;background:transparent;font-size:12px;outline:none;padding:0">
+      </label>
+      <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ false }}">
+        <span style="display:inline-flex;align-items:center;gap:8px;margin-inline-start:6px">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent-deep)">{{ selCount }}</span>
+          <button type="button" onClick="{{ bulkToggle }}" style="height:26px;padding:0 9px;border:1px solid var(--rule);background:transparent;font-size:11.5px;font-weight:600;cursor:pointer">{{ tBulk }}</button>
+        </span>
+      </sc-if>
+      <span style="margin-inline-start:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ countLine }}</span>
+    </div>
+
+    <div style="flex:1;min-height:0;display:flex">
+
+      <div class="sh-tree" style="width:186px;flex:none;border-inline-end:1px solid var(--hair);background:var(--surface-2);display:flex;flex-direction:column">
+        <div style="padding:10px 12px 6px;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">{{ tGroups }}</div>
+        <div style="display:flex;flex-direction:column">
+          <sc-for list="{{ groups }}" as="g" hint-placeholder-count="5">
+            <button type="button" class="sh-tool" onClick="{{ g.onClick }}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;border:0;text-align:start;cursor:pointer;padding:6px 12px 6px {{ g.indent }};font-size:13px;font-weight:{{ g.weight }};background:{{ g.bg }};color:{{ g.fg }};border-inline-start:2px solid {{ g.bar }}">
+              <span>{{ g.label }}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ g.count }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="margin-top:14px;padding:10px 12px 6px;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);border-top:1px solid var(--hair)">{{ tOutputs }}</div>
+        <div style="display:flex;flex-direction:column;gap:6px;padding:0 12px 12px;font-size:12px">
+          <sc-for list="{{ outputs }}" as="o" hint-placeholder-count="3">
+            <span style="display:flex;align-items:center;gap:7px;color:{{ o.fg }}"><span aria-hidden="true" style="width:7px;height:7px;flex:none;display:block;background:{{ o.dotBg }};border:{{ o.dotBorder }}"></span>{{ o.label }}</span>
+          </sc-for>
+        </div>
+        <div style="margin-top:auto;padding:10px 12px;border-top:1px solid var(--hair);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)">{{ tLocal }}</div>
+      </div>
+
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+        <div class="sh-scroll" style="flex:1;min-height:0;overflow-x:hidden">
+          <sc-if value="{{ hasRows }}" hint-placeholder-val="{{ true }}">
+          <table class="sh-table">
+            <thead><tr style="background:var(--surface-2)">
+              <th style="text-align:start;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 9px;border-bottom:2px solid var(--rule);position:sticky;top:0;background:var(--surface-2)">{{ thCommand }}</th>
+              <th style="text-align:start;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 9px;border-bottom:2px solid var(--rule);position:sticky;top:0;background:var(--surface-2)">{{ thDoes }}</th>
+              <th style="text-align:start;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 9px;border-bottom:2px solid var(--rule);position:sticky;top:0;background:var(--surface-2)">{{ thWho }}</th>
+              <th class="sh-c-cd" style="text-align:start;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 9px;border-bottom:2px solid var(--rule);position:sticky;top:0;background:var(--surface-2)">{{ thCd }}</th>
+              <th class="sh-c-writes" style="text-align:start;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 9px;border-bottom:2px solid var(--rule);position:sticky;top:0;background:var(--surface-2)">{{ thWrites }}</th>
+              <th class="sh-c-last" style="text-align:start;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 9px;border-bottom:2px solid var(--rule);position:sticky;top:0;background:var(--surface-2)">{{ thLast }}</th>
+            </tr></thead>
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+              <tbody>
+                <tr class="sh-row" onClick="{{ r.onClick }}" onContextMenu="{{ r.onMenu }}" style="cursor:pointer;background:{{ r.bg }}">
+                  <td style="padding:7px 9px;border-bottom:1px solid var(--hair);border-inline-start:2px solid {{ r.bar }};font-family:{{ r.cmdFont }};font-weight:800;color:{{ r.cmdColor }};text-decoration-line:{{ r.cmdStrike }};text-decoration-thickness:1px;text-underline-offset:2px">{{ r.cmd }}</td>
+                  <td style="padding:7px 9px;border-bottom:1px solid var(--hair);color:{{ r.textColor }}">
+                    <span style="display:flex;align-items:baseline;gap:7px">
+                      <span dir="auto" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.does }} <span style="color:var(--muted)">{{ r.doesMeta }}</span></span>
+                      <span style="flex:none;display:{{ r.tagDisplay }};border:1px solid var(--rule);padding:0 5px;font-size:9.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)">{{ r.tagLabel }}</span>
+                    </span>
+                  </td>
+                  <td style="padding:7px 9px;border-bottom:1px solid var(--hair);color:{{ r.textColor }}">{{ r.who }}</td>
+                  <td class="sh-c-cd" style="padding:7px 9px;border-bottom:1px solid var(--hair);font-family:'IBM Plex Mono',monospace;font-size:12px;color:{{ r.cdColor }}">{{ r.cd }}</td>
+                  <td class="sh-c-writes" style="padding:7px 9px;border-bottom:1px solid var(--hair);font-size:11px;color:{{ r.writesColor }}">{{ r.writes }}</td>
+                  <td class="sh-c-last" style="padding:7px 9px;border-bottom:1px solid var(--hair);font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ r.last }}</td>
+                </tr>
+                <tr style="display:{{ r.errorDisplay }}">
+                  <td colspan="6" style="padding:0 9px 8px 13px;border-bottom:1px solid var(--hair);border-inline-start:2px solid var(--accent);font-size:12px;color:var(--accent-text);white-space:normal">{{ r.errorText }}</td>
+                </tr>
+              </tbody>
+            </sc-for>
+          </table>
+          </sc-if>
+          <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}">
+            <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:48px 24px;text-align:center">
+              <div style="font-size:17px;font-weight:800">{{ emptyTitle }}</div>
+              <div style="font-size:13px;color:var(--muted);max-width:46ch">{{ emptyBody }}</div>
+              <button type="button" style="margin-top:6px;display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;border:0;background:var(--accent-fill);color:var(--on-accent);font-size:12px;font-weight:800;cursor:pointer"><svg width="13" height="13" aria-hidden="true" style="display:block"><use href="#s-plus"></use></svg>{{ tNew }}</button>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="flex:none;border-top:2px solid var(--rule);display:flex;flex-direction:column;background:var(--surface-2);height:{{ logHeight }}">
+          <button type="button" onClick="{{ toggleLog }}" style="height:24px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border:0;border-bottom:1px solid var(--hair);background:transparent;cursor:pointer;position:relative">
+            <span style="display:flex;align-items:center;gap:7px;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">
+              <svg width="10" height="10" aria-hidden="true" style="display:block;transform:{{ logChevron }}"><use href="#s-chev"></use></svg>{{ tLog }}
+            </span>
+            <span aria-hidden="true" style="position:absolute;left:50%;top:-5px;width:34px;height:3px;margin-left:-17px;background:repeating-linear-gradient(90deg,var(--rule) 0 3px,transparent 3px 6px);display:block"></span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ logMeta }}</span>
+          </button>
+          <sc-if value="{{ logOpen }}" hint-placeholder-val="{{ true }}">
+            <div class="sh-scroll" style="flex:1;min-height:0;padding:5px 10px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.75;background:var(--surface)">
+              <sc-for list="{{ logRows }}" as="l" hint-placeholder-count="7">
+                <div><span style="color:var(--faint)">{{ l.time }}</span> &nbsp;<span style="color:{{ l.kindColor }};font-weight:600">{{ l.kind }}</span> &nbsp;<span style="color:{{ l.msgColor }}" dir="auto">{{ l.message }}</span></div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div style="width:{{ inspectorWidth }};flex:none;border-inline-start:2px solid var(--rule);background:var(--surface-2);display:flex;flex-direction:column">
+        <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:12px 14px 10px;border-bottom:1px solid var(--hair);display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+            <div style="min-width:0">
+              <div style="font-family:{{ sel.cmdFont }};font-size:19px;font-weight:800;color:var(--accent-text);line-height:1.15;overflow:hidden;text-overflow:ellipsis" dir="auto">{{ sel.cmd }}</div>
+              <div style="margin-top:3px;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">{{ sel.kindLabel }}</div>
+            </div>
+            <button type="button" onClick="{{ clearSel }}" title="Close" style="width:26px;height:26px;flex:none;border:0;background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="14" height="14" aria-hidden="true" style="display:block"><use href="#s-x"></use></svg></button>
+          </div>
+
+          <div class="sh-scroll" style="flex:1;min-height:0;padding:12px 14px;display:flex;flex-direction:column;gap:14px">
+            <div>
+              <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">{{ tTrigger }}</div>
+              <div style="margin-top:5px;display:flex;align-items:center;border:1px solid var(--rule);background:var(--surface);height:30px">
+                <span aria-hidden="true" style="padding:0 6px 0 8px;font-weight:800;color:var(--accent-text)">{{ sel.prefix }}</span>
+                <input value="{{ sel.word }}" readonly dir="auto" style="flex:1;min-width:0;border:0;background:transparent;font-size:13px;padding:0;outline:none">
+              </div>
+            </div>
+
+            <sc-if value="{{ sel.isCounter }}" hint-placeholder-val="{{ true }}">
+              <div>
+                <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">{{ tEffect }}</div>
+                <div role="radiogroup" style="margin-top:5px;display:flex;border:1px solid var(--rule)">
+                  <sc-for list="{{ sel.effects }}" as="e" hint-placeholder-count="3">
+                    <button type="button" onClick="{{ e.onClick }}" style="flex:1;text-align:center;padding:5px 2px;font-size:12px;cursor:pointer;border:0;border-inline-start:{{ e.divider }};font-weight:{{ e.weight }};background:{{ e.bg }};color:{{ e.fg }}">{{ e.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ sel.isReply }}" hint-placeholder-val="{{ false }}">
+              <div>
+                <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">{{ tMatch }}</div>
+                <div role="radiogroup" style="margin-top:5px;display:flex;border:1px solid var(--rule)">
+                  <sc-for list="{{ sel.matchModes }}" as="m" hint-placeholder-count="4">
+                    <button type="button" onClick="{{ m.onClick }}" style="flex:1;text-align:center;padding:5px 1px;font-size:10.5px;cursor:pointer;border:0;border-inline-start:{{ m.divider }};font-weight:{{ m.weight }};background:{{ m.bg }};color:{{ m.fg }}">{{ m.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">{{ tResponse }}</div>
+                <textarea readonly dir="auto" style="margin-top:5px;width:100%;min-height:56px;resize:vertical;border:1px solid var(--rule);background:var(--surface);padding:7px 9px;font-family:'Cairo','Archivo',sans-serif;font-size:13px;outline:none">{{ sel.response }}</textarea>
+                <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:5px">
+                  <sc-for list="{{ replyTokens }}" as="tk" hint-placeholder-count="3">
+                    <span style="border:1px solid var(--rule);background:var(--surface);padding:2px 7px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ tk }}</span>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <div>
+              <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">{{ tWho }}</div>
+              <div role="radiogroup" style="margin-top:5px;display:flex;border:1px solid var(--rule)">
+                <sc-for list="{{ sel.ranks }}" as="rk" hint-placeholder-count="5">
+                  <button type="button" onClick="{{ rk.onClick }}" style="flex:1;text-align:center;padding:5px 1px;font-size:10.5px;cursor:pointer;border:0;border-inline-start:{{ rk.divider }};font-weight:{{ rk.weight }};background:{{ rk.bg }};color:{{ rk.fg }}">{{ rk.label }}</button>
+                </sc-for>
+              </div>
+            </div>
+
+            <div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between">
+                <span style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">{{ tCooldown }}</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600">{{ sel.cdLabel }}</span>
+              </div>
+              <input type="range" min="0" max="300" value="{{ sel.cd }}" onInput="{{ onCooldown }}" style="margin-top:8px;width:100%;accent-color:var(--accent);cursor:pointer">
+              <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint)"><span>0s</span><span>300s</span></div>
+            </div>
+
+            <div style="height:2px;background:var(--rule)"></div>
+
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">{{ tWritesTo }}</div>
+              <sc-for list="{{ sel.sinks }}" as="s" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                  <div style="min-width:0">
+                    <div style="font-size:13px;font-weight:800;color:{{ s.titleColor }}">{{ s.title }}</div>
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.detail }}</div>
+                  </div>
+                  <button type="button" onClick="{{ s.onToggle }}" role="switch" aria-checked="{{ s.on }}" aria-label="{{ s.title }}" style="flex:none;display:inline-flex;width:34px;height:18px;border:1px solid var(--rule);align-items:center;padding:2px;cursor:pointer;background:{{ s.trackBg }}">
+                    <span aria-hidden="true" style="width:12px;height:12px;display:block;background:{{ s.knobBg }};margin-inline-start:{{ s.knobPush }}"></span>
+                  </button>
+                </div>
+              </sc-for>
+              <sc-if value="{{ sel.hasFile }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;gap:6px">
+                  <input value="{{ sel.filePath }}" readonly dir="ltr" style="flex:1;min-width:0;height:28px;border:1px solid var(--rule);background:var(--surface);padding:0 8px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;outline:none">
+                  <button type="button" title="Browse" style="width:30px;height:28px;flex:none;border:1px solid var(--rule);background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="14" height="14" aria-hidden="true" style="display:block"><use href="#s-folder"></use></svg></button>
+                </div>
+              </sc-if>
+            </div>
+
+            <div style="height:2px;background:var(--rule)"></div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+              <div>
+                <div style="font-size:13px;font-weight:800">{{ tKeybind }}</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ sel.keybind }}</div>
+              </div>
+              <button type="button" style="display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:1px solid var(--rule);background:transparent;font-size:11.5px;font-weight:600;cursor:pointer"><svg width="12" height="12" aria-hidden="true" style="display:block"><use href="#s-key"></use></svg>{{ tRebind }}</button>
+            </div>
+          </div>
+
+          <div style="flex:none;border-top:2px solid var(--rule);padding:10px 14px;background:var(--surface)">
+            <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)">{{ tWritesNow }}</div>
+            <div style="margin-top:6px;border-inline-start:2px solid var(--accent);padding-inline-start:10px;display:flex;flex-direction:column;gap:2px;font-family:'IBM Plex Mono',monospace;font-size:12px">
+              <sc-for list="{{ sel.preview }}" as="p" hint-placeholder-count="2">
+                <span dir="auto" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p }}</span>
+              </sc-for>
+            </div>
+            <div style="margin-top:9px;display:flex;align-items:center;justify-content:space-between">
+              <span style="display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)"><svg width="12" height="12" aria-hidden="true" style="display:block"><use href="#s-check"></use></svg>{{ savedLabel }}</span>
+              <button type="button" onClick="{{ deleteSel }}" style="display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:1px solid var(--rule);background:transparent;font-size:11.5px;font-weight:600;cursor:pointer"><svg width="12" height="12" aria-hidden="true" style="display:block"><use href="#s-trash"></use></svg>{{ tDelete }}</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ noSelection }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center">
+            <div style="font-size:13px;font-weight:800;color:var(--muted)">{{ tNoSelTitle }}</div>
+            <div style="font-size:12px;color:var(--faint);max-width:30ch">{{ tNoSelBody }}</div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isOverlay }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;display:flex">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--surface-3)">
+      <div style="height:34px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--hair);background:var(--surface)">
+        <span style="font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">{{ tPreview }}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint)">1920 × 1080 · 100%</span>
+        <span style="margin-inline-start:auto;display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)"><span aria-hidden="true" style="width:7px;height:7px;display:block;border:1px solid var(--muted)"></span>{{ tServerOff }}</span>
+        <button type="button" style="height:26px;padding:0 10px;border:0;background:var(--accent-fill);color:var(--on-accent);font-size:12px;font-weight:800;cursor:pointer">{{ tTurnOn }}</button>
+      </div>
+      <div style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:24px">
+        <div style="width:100%;max-width:620px;aspect-ratio:16/9;background:repeating-conic-gradient(var(--surface-2) 0% 25%, var(--surface-3) 0% 50%) 0 0/22px 22px;border:1px solid var(--hair);display:flex;flex-direction:column;justify-content:flex-end;gap:8px;padding:16px">
+          <sc-for list="{{ overlayMessages }}" as="m" hint-placeholder-count="4">
+            <div style="display:flex;align-items:flex-start;gap:8px;background:rgba(0,0,0,.82);padding:7px 10px;max-width:82%">
+              <span aria-hidden="true" style="width:20px;height:20px;flex:none;display:block;background:{{ m.avatar }}"></span>
+              <div style="min-width:0">
+                <div style="font-size:12px;font-weight:800;color:{{ m.color }}">{{ m.name }}</div>
+                <div dir="auto" style="font-size:13px;color:#f2f2f2;font-family:'Cairo','Archivo',sans-serif">{{ m.text }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <div class="sh-scroll" style="width:300px;flex:none;border-inline-start:2px solid var(--rule);background:var(--surface-2);padding:14px;display:flex;flex-direction:column;gap:16px">
+      <div style="font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">{{ tOverlaySettings }}</div>
+      <sc-for list="{{ overlayControls }}" as="c" hint-placeholder-count="6">
+        <div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+            <span style="font-size:12.5px;font-weight:800">{{ c.label }}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">{{ c.value }}</span>
+          </div>
+          <div style="margin-top:6px;display:flex;border:1px solid var(--rule)">
+            <sc-for list="{{ c.options }}" as="o" hint-placeholder-count="3">
+              <span style="flex:1;text-align:center;padding:5px 2px;font-size:11px;border-inline-start:{{ o.divider }};font-weight:{{ o.weight }};background:{{ o.bg }};color:{{ o.fg }}">{{ o.label }}</span>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+      <div style="height:2px;background:var(--rule)"></div>
+      <div>
+        <div style="font-size:12.5px;font-weight:800">{{ tBrowserSource }}</div>
+        <div style="margin-top:6px;display:flex;gap:6px">
+          <input value="http://127.0.0.1:49178/overlay" readonly dir="ltr" style="flex:1;min-width:0;height:28px;border:1px solid var(--rule);background:var(--surface);padding:0 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;outline:none">
+          <button type="button" title="Copy" style="width:30px;height:28px;flex:none;border:1px solid var(--rule);background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="13" height="13" aria-hidden="true" style="display:block"><use href="#s-copy"></use></svg></button>
+        </div>
+        <p style="margin:7px 0 0;font-size:11.5px;color:var(--muted)">{{ tBrowserHint }}</p>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isActivity }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+    <div style="height:38px;flex:none;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid var(--hair)">
+      <sc-for list="{{ logFilters }}" as="f" hint-placeholder-count="6">
+        <button type="button" onClick="{{ f.onClick }}" style="height:24px;padding:0 9px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;border:1px solid {{ f.bc }};background:{{ f.bg }};color:{{ f.fg }}">{{ f.label }}</button>
+      </sc-for>
+      <button type="button" style="margin-inline-start:auto;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--rule);background:transparent;font-size:11.5px;font-weight:600;cursor:pointer"><svg width="12" height="12" aria-hidden="true" style="display:block"><use href="#s-trash"></use></svg>{{ tClear }}</button>
+    </div>
+    <div class="sh-scroll" style="flex:1;min-height:0;padding:8px 12px;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.85">
+      <sc-for list="{{ activityRows }}" as="l" hint-placeholder-count="12">
+        <div style="display:flex;gap:12px">
+          <span style="flex:none;color:var(--faint)">{{ l.time }}</span>
+          <span style="flex:none;width:64px;font-weight:600;color:{{ l.kindColor }}">{{ l.kind }}</span>
+          <span style="min-width:0;flex:1;color:{{ l.msgColor }}" dir="auto">{{ l.message }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;min-height:0;display:flex">
+    <div style="width:210px;flex:none;border-inline-end:1px solid var(--hair);background:var(--surface-2);display:flex;flex-direction:column">
+      <div style="padding:10px 12px 6px;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">{{ tSections }}</div>
+      <sc-for list="{{ settingsNav }}" as="s" hint-placeholder-count="6">
+        <button type="button" class="sh-tool" onClick="{{ s.onClick }}" style="display:block;text-align:start;border:0;cursor:pointer;padding:7px 12px;font-size:13px;font-weight:{{ s.weight }};background:{{ s.bg }};color:{{ s.fg }};border-inline-start:2px solid {{ s.bar }}">{{ s.label }}</button>
+      </sc-for>
+    </div>
+    <div class="sh-scroll" style="flex:1;min-width:0;padding:22px 26px">
+      <div style="max-width:660px;display:flex;flex-direction:column;gap:22px">
+        <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-.015em">{{ settingsTitle }}</h1>
+        <div style="height:2px;background:var(--rule)"></div>
+        <sc-for list="{{ settingsFields }}" as="f" hint-placeholder-count="4">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-bottom:16px;border-bottom:1px solid var(--hair)">
+            <div style="min-width:0;max-width:44ch">
+              <div style="font-size:14px;font-weight:800">{{ f.label }}</div>
+              <div style="margin-top:3px;font-size:12.5px;color:var(--muted)">{{ f.hint }}</div>
+            </div>
+            <div style="flex:none">
+              <sc-if value="{{ f.isSegmented }}" hint-placeholder-val="{{ true }}">
+                <div role="radiogroup" style="display:flex;border:1px solid var(--rule)">
+                  <sc-for list="{{ f.options }}" as="o" hint-placeholder-count="3">
+                    <button type="button" onClick="{{ o.onClick }}" style="padding:6px 11px;font-size:11.5px;cursor:pointer;border:0;border-inline-start:{{ o.divider }};font-weight:{{ o.weight }};background:{{ o.bg }};color:{{ o.fg }}">{{ o.label }}</button>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{ f.isSwitch }}" hint-placeholder-val="{{ false }}">
+                <button type="button" onClick="{{ f.onToggle }}" role="switch" aria-checked="{{ f.on }}" aria-label="{{ f.label }}" style="display:inline-flex;width:38px;height:20px;border:1px solid var(--rule);align-items:center;padding:2px;cursor:pointer;background:{{ f.trackBg }}">
+                  <span aria-hidden="true" style="width:14px;height:14px;display:block;background:{{ f.knobBg }};margin-inline-start:{{ f.knobPush }}"></span>
+                </button>
+              </sc-if>
+              <sc-if value="{{ f.isText }}" hint-placeholder-val="{{ false }}">
+                <input value="{{ f.value }}" readonly dir="ltr" placeholder="{{ f.placeholder }}" style="width:250px;height:30px;border:1px solid var(--rule);background:var(--surface);padding:0 9px;font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none">
+              </sc-if>
+              <sc-if value="{{ f.isAction }}" hint-placeholder-val="{{ false }}">
+                <button type="button" style="height:30px;padding:0 12px;border:0;background:var(--accent-fill);color:var(--on-accent);font-size:12px;font-weight:800;cursor:pointer">{{ f.actionLabel }}</button>
+              </sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeMenu }}" onContextMenu="{{ closeMenu }}" style="position:fixed;inset:0;z-index:60"></div>
+    <div role="menu" style="position:fixed;z-index:61;left:{{ menuX }};top:{{ menuY }};min-width:180px;background:var(--surface);border:1px solid var(--rule);box-shadow:0 6px 18px rgba(0,0,0,.22);padding:3px 0">
+      <sc-for list="{{ menuItems }}" as="mi" hint-placeholder-count="5">
+        <button type="button" role="menuitem" class="sh-mi" onClick="{{ mi.onClick }}" style="display:flex;width:100%;align-items:center;justify-content:space-between;gap:16px;border:0;background:transparent;text-align:start;padding:6px 12px;font-size:12.5px;cursor:pointer;border-top:{{ mi.sep }}">
+          <span>{{ mi.label }}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:11px">{{ mi.hint }}</span>
+        </button>
+      </sc-for>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:760},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light' | 'dark'&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;language&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;en&quot;,&quot;ar&quot;],&quot;default&quot;:&quot;en&quot;,&quot;tsType&quot;:&quot;'en' | 'ar'&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;commands&quot;,&quot;overlay&quot;,&quot;activity&quot;,&quot;settings&quot;],&quot;default&quot;:&quot;commands&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;State&quot;},&quot;twitchConnected&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;State&quot;}}">
+const AR = {
+  commands:'الأوامر', overlay:'الأوفرلاي', activity:'السجل', settings:'الإعدادات',
+  neu:'جديد', duplicate:'نسخ', del:'حذف', filter:'ابحث عن أمر…', groups:'المجموعات',
+  outputs:'المخرجات', log:'السجل', trigger:'كلمة التشغيل', effect:'التأثير', who:'من يستطيع استخدامه',
+  cooldown:'مدة الانتظار', writesTo:'يكتب إلى', writesNow:'يكتب الآن', keybind:'اختصار لوحة المفاتيح',
+  rebind:'تغيير', match:'نوع المطابقة', response:'الرد', clear:'مسح', sections:'الأقسام',
+  preview:'المعاينة', serverOff:'الخادم متوقف', turnOn:'تشغيل', overlaySettings:'إعدادات الأوفرلاي',
+  browserSource:'مصدر المتصفح', local:'كل شيء محفوظ محليًا',
+  noSelTitle:'لم يتم اختيار أمر', noSelBody:'اختر صفًا لتحرير إعداداته',
+  emptyTitle:'لا توجد أوامر بعد', emptyBody:'أنشئ أول عداد أو رد تلقائي ليبدأ التفاعل مع الشات.',
+  discTitle:'لن يعمل أي أمر.', discBody:'شات تويتش غير متصل — الجدول أدناه هو إعدادك المحفوظ وليس السلوك الحالي.', discCta:'اتصل بتويتش',
+  connected:'متصل', notConnected:'غير متصل', saved:'تم الحفظ',
+};
+const EN = {
+  commands:'Commands', overlay:'Overlay', activity:'Activity', settings:'Settings',
+  neu:'New', duplicate:'Duplicate', del:'Delete', filter:'Filter commands…', groups:'Groups',
+  outputs:'Outputs', log:'Log', trigger:'Trigger word', effect:'Effect', who:'Who can use it',
+  cooldown:'Cooldown', writesTo:'Writes to', writesNow:'Right now this writes', keybind:'Keybind',
+  rebind:'Rebind', match:'Match mode', response:'Response', clear:'Clear', sections:'Sections',
+  preview:'Preview', serverOff:'Server off', turnOn:'Turn on', overlaySettings:'Overlay settings',
+  browserSource:'Browser source URL', local:'Everything is saved on this PC',
+  noSelTitle:'No command selected', noSelBody:'Pick a row to edit its settings',
+  emptyTitle:'No commands yet', emptyBody:'Create your first counter or automatic reply and chat will start driving it.',
+  discTitle:'No commands will fire.', discBody:'Twitch chat is disconnected — the table below is your saved configuration, not live behaviour.', discCta:'Connect Twitch',
+  connected:'@ali_streams', notConnected:'Not connected', saved:'Saved 21:06:02',
+};
+
+const ROWS = [
+  { id:'c1', group:'counters', cmd:'!death', word:'death', kind:'counter', name:'Deaths', does:'Deaths', meta:'+1', effect:'+1', who:'Everyone', cd:5, sinks:['file','title'], last:'21:04:12', enabled:true, file:'C:\\StreamerHub\\deaths.txt', tmpl:'Deaths: {count}', title:'{title} | [Deaths: {count}]', count:12, keybind:'Ctrl + Alt + D' },
+  { id:'c2', group:'counters', cmd:'!deathdown', word:'deathdown', kind:'counter', name:'Deaths', does:'Deaths', meta:'−1', effect:'−1', who:'Mods', cd:5, sinks:['file','title'], last:'19:58:02', enabled:true, file:'C:\\StreamerHub\\deaths.txt', tmpl:'Deaths: {count}', title:'{title} | [Deaths: {count}]', count:12, keybind:'Not set' },
+  { id:'c3', group:'counters', cmd:'!deathreset', word:'deathreset', kind:'counter', name:'Deaths', does:'Deaths', meta:'→ 0', effect:'Reset', who:'Broadcaster', cd:0, sinks:['file','title'], last:'—', enabled:true, file:'C:\\StreamerHub\\deaths.txt', tmpl:'Deaths: {count}', title:'{title} | [Deaths: {count}]', count:12, keybind:'Not set' },
+  { id:'c4', group:'counters', cmd:'!win', word:'win', kind:'counter', name:'Wins', does:'Wins', meta:'+1', effect:'+1', who:'Subs', cd:10, sinks:['file'], last:'20:41:55', enabled:true, file:'C:\\StreamerHub\\wins.txt', tmpl:'Wins: {count}', title:'', count:3, keybind:'Not set' },
+  { id:'c5', group:'counters', cmd:'!windown', word:'windown', kind:'counter', name:'Wins', does:'Wins', meta:'−1', effect:'−1', who:'Mods', cd:5, sinks:['file'], last:'—', enabled:true, file:'C:\\StreamerHub\\wins.txt', tmpl:'Wins: {count}', title:'', count:3, keybind:'Not set' },
+  { id:'r1', group:'replies', cmd:'!discord', word:'discord', kind:'reply', does:'Prepared reply', meta:'', who:'Everyone', cd:30, sinks:['chat'], last:'20:12:40', enabled:true, match:'Exact', response:'Server: discord.gg/alistreams — see you there {mention}', keybind:'Not set' },
+  { id:'r2', group:'replies', cmd:'السلام عليكم', word:'السلام عليكم', kind:'reply', arabic:true, does:'وعليكم السلام {mention}', meta:'· contains', who:'Everyone', cd:30, sinks:['chat'], last:'20:55:31', enabled:true, match:'Contains', response:'وعليكم السلام {mention} — نورت الاستريم', keybind:'Not set' },
+  { id:'a1', group:'ai', cmd:'!rank', word:'rank', kind:'ai', does:'AI reply', meta:'· Groq llama-3.1-8b-instant', who:'Everyone', cd:60, sinks:['chat'], last:'19:44:11', enabled:true, match:'Exact', response:'Answer in one short sentence, friendly, no emoji.', keybind:'Not set' },
+  { id:'r3', group:'replies', cmd:'!clip', word:'clip', kind:'reply', does:'Prepared reply', meta:'', who:'Everyone', cd:0, sinks:[], last:'—', enabled:false, match:'Exact', response:'', keybind:'Not set' },
+];
+
+const LOG = [
+  ['21:04:12','TRIGGER','accent','ali_streams → !death · Deaths 11 → 12'],
+  ['21:04:12','WRITE','muted','C:\\StreamerHub\\deaths.txt ← “Deaths: 12”'],
+  ['21:04:13','TITLE','muted','Ali plays Elden Ring | [Deaths: 12]'],
+  ['21:03:58','CHAT','muted','kareem: !deaths'],
+  ['21:02:31','SKIP','muted','sara_tv → !death · cooldown 12s'],
+  ['21:01:07','DENY','muted','guest99 → !deathreset · broadcaster only'],
+  ['21:00:12','ERROR','accent','Access denied writing C:\\StreamerHub\\deaths.txt — the file is open in another program'],
+  ['20:58:40','TRIGGER','accent','sara_tv → السلام عليكم · replied as @ali_bot'],
+  ['20:55:02','SYSTEM','muted','Twitch chat connected · #ali_streams'],
+  ['20:54:58','SYSTEM','muted','Keybind registered · Ctrl + Alt + D'],
+  ['20:41:55','TRIGGER','accent','mo_plays → !win · Wins 2 → 3'],
+  ['20:12:40','REPLY','muted','!discord → “Server: discord.gg/alistreams…”'],
+];
+
+const RANKS = ['All','Sub','VIP','Mod','Cast'];
+const RANK_FULL = { All:'Everyone', Sub:'Subs', VIP:'VIP', Mod:'Mods', Cast:'Broadcaster' };
+const MATCHES = ['Exact','Starts','Contains','Regex'];
+const EFFECTS = ['+1','−1','Reset'];
+
+const SETTINGS_SECTIONS = [
+  ['general','General & Appearance','اللغة والمظهر'],
+  ['system','System & Window','النظام والنافذة'],
+  ['keybinds','Keybinds','الاختصارات'],
+  ['twitch','Twitch & Bot','تويتش والبوت'],
+  ['ai','AI Providers','مزودو الذكاء'],
+  ['guide','Setup Guide','دليل الإعداد'],
+];
+
+class Component extends DCLogic {
+  state = {
+    theme: this.props.theme || 'light',
+    lang: this.props.language || 'en',
+    tab: this.props.screen || 'commands',
+    group: 'all',
+    selected: ['c1'],
+    query: '',
+    connected: this.props.twitchConnected !== false,
+    logOpen: true,
+    menu: null,
+    section: 'general',
+    logFilter: 'all',
+    cd: 5,
+    disabled: { r3: true },
+    sinks: {},
+  };
+
+  componentDidMount() {
+    this._key = (e) => { if (e.key === 'Escape') this.setState({ menu: null }); };
+    window.addEventListener('keydown', this._key);
+  }
+  componentWillUnmount() { window.removeEventListener('keydown', this._key); }
+
+  t(k) { return (this.state.lang === 'ar' ? AR : EN)[k] || EN[k]; }
+
+  seg(active, first) {
+    return {
+      bg: active ? 'var(--accent-fill)' : 'transparent',
+      fg: active ? 'var(--on-accent)' : 'var(--ink)',
+      weight: active ? '800' : '500',
+      divider: first ? '0' : '1px solid var(--rule)',
+    };
+  }
+
+  sw(on) {
+    return {
+      on: on ? 'true' : 'false',
+      trackBg: on ? 'var(--accent-fill)' : 'transparent',
+      knobBg: on ? 'var(--on-accent)' : 'var(--rule)',
+      knobPush: on ? 'auto' : '0',
+    };
+  }
+
+  visibleRows() {
+    const { group, query } = this.state;
+    const q = query.trim().toLowerCase();
+    return ROWS.filter((r) => {
+      const enabled = !this.state.disabled[r.id];
+      if (group === 'counters' && r.group !== 'counters') return false;
+      if (group === 'replies' && r.group !== 'replies') return false;
+      if (group === 'ai' && r.group !== 'ai') return false;
+      if (group === 'disabled' && enabled) return false;
+      if (q && !(r.cmd.toLowerCase().includes(q) || String(r.does).toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }
+
+  pick(row) {
+    return (e) => {
+      const multi = e.ctrlKey || e.metaKey || e.shiftKey;
+      this.setState((s) => ({
+        menu: null,
+        selected: multi
+          ? (s.selected.includes(row.id) ? s.selected.filter((x) => x !== row.id) : [...s.selected, row.id])
+          : [row.id],
+        cd: row.cd,
+      }));
+    };
+  }
+
+  openMenu(row) {
+    return (e) => {
+      e.preventDefault();
+      this.setState((s) => ({
+        menu: { x: Math.min(e.clientX, window.innerWidth - 200), y: Math.min(e.clientY, window.innerHeight - 190) },
+        selected: s.selected.includes(row.id) ? s.selected : [row.id],
+        cd: row.cd,
+      }));
+    };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const t = (k) => this.t(k);
+    const rows = this.visibleRows();
+    const sel = ROWS.find((r) => r.id === s.selected[0]) || null;
+    const selCount = s.selected.length;
+    const enabledOf = (r) => !s.disabled[r.id];
+
+    const tabs = [['commands','commands'],['overlay','overlay'],['activity','activity'],['settings','settings']].map(([id, key]) => ({
+      label: t(key),
+      onClick: () => this.setState({ tab: id, menu: null }),
+      weight: s.tab === id ? '800' : '500',
+      bg: s.tab === id ? 'var(--surface)' : 'transparent',
+      fg: s.tab === id ? 'var(--ink)' : 'var(--muted)',
+      shadow: s.tab === id ? 'inset 0 2px 0 var(--accent)' : 'none',
+    }));
+
+    const counts = {
+      all: ROWS.length,
+      counters: ROWS.filter((r) => r.group === 'counters').length,
+      replies: ROWS.filter((r) => r.group === 'replies').length,
+      ai: ROWS.filter((r) => r.group === 'ai').length,
+      disabled: ROWS.filter((r) => !enabledOf(r)).length,
+    };
+    const groupDefs = [
+      ['all', s.lang === 'ar' ? 'كل الأوامر' : 'All commands', '12px'],
+      ['counters', s.lang === 'ar' ? 'العدادات' : 'Counters', '24px'],
+      ['replies', s.lang === 'ar' ? 'ردود جاهزة' : 'Prepared replies', '24px'],
+      ['ai', s.lang === 'ar' ? 'ردود ذكية' : 'AI replies', '24px'],
+      ['disabled', s.lang === 'ar' ? 'معطّلة' : 'Disabled', '24px'],
+    ];
+
+    const logRows = LOG.slice(0, 7).map(([time, kind, tone, message]) => ({
+      time, kind, message,
+      kindColor: tone === 'accent' ? 'var(--accent-deep)' : 'var(--muted)',
+      msgColor: kind === 'ERROR' ? 'var(--accent-text)' : 'var(--ink)',
+    }));
+
+    const activityRows = LOG.filter((l) => s.logFilter === 'all' || l[1].toLowerCase() === s.logFilter).map(([time, kind, tone, message]) => ({
+      time, kind, message,
+      kindColor: tone === 'accent' ? 'var(--accent-deep)' : 'var(--muted)',
+      msgColor: kind === 'ERROR' ? 'var(--accent-text)' : 'var(--ink)',
+    }));
+
+    const section = s.section;
+    const segField = (label, hint, options, value, onPick) => ({
+      label, hint, isSegmented: true, isSwitch: false, isText: false, isAction: false,
+      options: options.map((o, i) => Object.assign({ label: o, onClick: () => onPick(o) }, this.seg(value === o, i === 0))),
+    });
+    const swField = (label, hint, on, onToggle) => Object.assign(
+      { label, hint, isSegmented: false, isSwitch: true, isText: false, isAction: false, onToggle },
+      this.sw(on));
+    const txtField = (label, hint, value, placeholder) => ({ label, hint, isSegmented: false, isSwitch: false, isText: true, isAction: false, value, placeholder: placeholder || '' });
+    const actField = (label, hint, actionLabel) => ({ label, hint, isSegmented: false, isSwitch: false, isText: false, isAction: true, actionLabel });
+
+    let fields = [];
+    let settingsTitle = '';
+    if (section === 'general') {
+      settingsTitle = s.lang === 'ar' ? 'اللغة والمظهر' : 'General & Appearance';
+      fields = [
+        segField(s.lang === 'ar' ? 'اللغة' : 'Language', s.lang === 'ar' ? 'واجهة التطبيق. الهيكل يبقى من اليسار لليمين، والمحتوى العربي ينعكس تلقائيًا.' : 'The app interface. The shell stays left-to-right; Arabic content flips on its own.', ['English','العربية'], s.lang === 'ar' ? 'العربية' : 'English', (o) => this.setState({ lang: o === 'العربية' ? 'ar' : 'en' })),
+        segField(s.lang === 'ar' ? 'المظهر' : 'Appearance', s.lang === 'ar' ? 'اتبع ويندوز افتراضيًا.' : 'Follows Windows by default; override it per machine.', ['Follow Windows','Light','Dark'], s.theme === 'dark' ? 'Dark' : 'Light', (o) => this.setState({ theme: o === 'Dark' ? 'dark' : 'light' })),
+        segField(s.lang === 'ar' ? 'الكثافة' : 'Row density', s.lang === 'ar' ? 'كثافة صفوف الجداول.' : 'How tight the command and log rows sit.', ['Dense','Comfortable'], 'Dense', () => {}),
+      ];
+    } else if (section === 'system') {
+      settingsTitle = s.lang === 'ar' ? 'النظام والنافذة' : 'System & Window';
+      fields = [
+        swField('Start with Windows', 'Launch Streamer Hub when you sign in, minimised to the tray.', true, () => {}),
+        swField('Close to tray', 'The close button hides the window instead of quitting, so commands keep firing.', true, () => {}),
+        swField('Check for updates', 'Look for a new version on launch. Nothing installs without you.', true, () => {}),
+      ];
+    } else if (section === 'keybinds') {
+      settingsTitle = s.lang === 'ar' ? 'الاختصارات' : 'Keybinds';
+      fields = [
+        txtField('Deaths +1', 'Global hotkey — works while OBS or the game has focus.', 'Ctrl + Alt + D'),
+        txtField('Deaths reset', 'Not set yet.', '', 'Press a key combination'),
+        txtField('Wins +1', 'Global hotkey.', 'Ctrl + Alt + W'),
+      ];
+    } else if (section === 'twitch') {
+      settingsTitle = s.lang === 'ar' ? 'تويتش والبوت' : 'Twitch & Bot';
+      fields = [
+        actField('Streamer account', s.connected ? 'Authorised as @ali_streams. Streamer Hub only ever reads chat and updates your title.' : 'Not authorised. Counters and replies stay saved but will not fire.', s.connected ? 'Reconnect' : 'Connect Twitch'),
+        swField('Use a bot account', 'Send replies from a second Twitch account instead of your own.', false, () => {}),
+        actField('Forget login', 'Clears the stored token from this PC. Your counters and rules are untouched.', 'Forget'),
+      ];
+    } else if (section === 'ai') {
+      settingsTitle = s.lang === 'ar' ? 'مزودو الذكاء' : 'AI Providers';
+      fields = [
+        txtField('Groq API key', 'Configured. Used by !rank and any rule set to Groq.', '••••••••••••••••'),
+        txtField('OpenRouter API key', 'Not configured. AI replies fall back to their fallback text.', '', 'sk-or-…'),
+        segField('Default provider', 'Used when a new AI reply is created.', ['Groq','OpenRouter'], 'Groq', () => {}),
+      ];
+    } else {
+      settingsTitle = s.lang === 'ar' ? 'دليل الإعداد' : 'Setup Guide';
+      fields = [
+        actField('1 · Connect Twitch', 'Authorise your channel so chat messages reach the app.', s.connected ? 'Done' : 'Connect'),
+        actField('2 · Create a counter', 'Pick a command word, a rank, and a cooldown.', 'Open Commands'),
+        actField('3 · Point OBS at the file', 'Add a Text (GDI+) source and read from the .txt the counter writes.', 'Copy path'),
+      ];
+    }
+
+    const overlayControl = (label, value, options, active) => ({
+      label, value,
+      options: options.map((o, i) => Object.assign({ label: o }, this.seg(o === active, i === 0))),
+    });
+
+    return {
+      theme: s.theme,
+      themeIcon: s.theme === 'dark' ? '#s-sun' : '#s-moon',
+      toggleTheme: () => this.setState({ theme: s.theme === 'dark' ? 'light' : 'dark' }),
+      langLabel: s.lang === 'ar' ? 'EN' : 'عربي',
+      toggleLang: () => this.setState({ lang: s.lang === 'ar' ? 'en' : 'ar' }),
+      toggleConn: () => this.setState({ connected: !s.connected }),
+
+      conn: s.connected
+        ? { label: t('connected'), fg: 'var(--muted)', dotBg: 'var(--ink)', dotBorder: '0' }
+        : { label: t('notConnected'), fg: 'var(--accent-text)', dotBg: 'transparent', dotBorder: '2px solid var(--accent)' },
+
+      tabs,
+      isCommands: s.tab === 'commands',
+      isOverlay: s.tab === 'overlay',
+      isActivity: s.tab === 'activity',
+      isSettings: s.tab === 'settings',
+
+      showDisconnected: !s.connected,
+      discTitle: t('discTitle'), discBody: t('discBody'), discCta: t('discCta'),
+
+      tNew: t('neu'), tDuplicate: t('duplicate'), tDelete: t('del'), tFilter: t('filter'),
+      tGroups: t('groups'), tOutputs: t('outputs'), tLog: t('log'), tLocal: t('local'),
+      tTrigger: t('trigger'), tEffect: t('effect'), tWho: t('who'), tCooldown: t('cooldown'),
+      tWritesTo: t('writesTo'), tWritesNow: t('writesNow'), tKeybind: t('keybind'), tRebind: t('rebind'),
+      tMatch: t('match'), tResponse: t('response'), tClear: t('clear'), tSections: t('sections'),
+      tPreview: t('preview'), tServerOff: t('serverOff'), tTurnOn: t('turnOn'),
+      tOverlaySettings: t('overlaySettings'), tBrowserSource: t('browserSource'),
+      tBrowserHint: s.lang === 'ar' ? 'أضف مصدر متصفح في OBS بهذا الرابط بمقاس 1920×1080.' : 'Add a Browser source in OBS at this URL, 1920 × 1080.',
+      tNoSelTitle: t('noSelTitle'), tNoSelBody: t('noSelBody'),
+      emptyTitle: t('emptyTitle'), emptyBody: t('emptyBody'),
+      savedLabel: t('saved'),
+
+      thCommand: s.lang === 'ar' ? 'الأمر' : 'Command',
+      thDoes: s.lang === 'ar' ? 'ماذا يفعل' : 'What it does',
+      thWho: s.lang === 'ar' ? 'من' : 'Who',
+      thCd: s.lang === 'ar' ? 'انتظار' : 'CD',
+      thWrites: s.lang === 'ar' ? 'يكتب' : 'Writes',
+      thLast: s.lang === 'ar' ? 'آخر مرة' : 'Last',
+
+      query: s.query,
+      onQuery: (e) => this.setState({ query: e.target.value }),
+      countLine: rows.length + (s.lang === 'ar' ? ' معروض · ' : ' shown · ') + counts.disabled + (s.lang === 'ar' ? ' معطّل' : ' disabled'),
+      hasSel: selCount > 1,
+      noSel: selCount === 0,
+      selOpacity: selCount === 0 ? '.45' : '1',
+      selCount: selCount + (s.lang === 'ar' ? ' محدد' : ' selected'),
+      tBulk: s.lang === 'ar' ? 'تعطيل الكل' : 'Disable all',
+      bulkToggle: () => this.setState((st) => {
+        const d = Object.assign({}, st.disabled);
+        st.selected.forEach((id) => { d[id] = true; });
+        return { disabled: d };
+      }),
+
+      groups: groupDefs.map(([id, label, indent]) => ({
+        label, indent, count: counts[id],
+        onClick: () => this.setState({ group: id }),
+        weight: s.group === id ? '800' : '500',
+        bg: s.group === id ? 'var(--surface)' : 'transparent',
+        fg: id === 'disabled' ? 'var(--muted)' : 'var(--ink)',
+        bar: s.group === id ? 'var(--accent)' : 'transparent',
+      })),
+
+      outputs: [
+        { label: s.lang === 'ar' ? 'ملفات OBS · 2' : 'OBS files · 2', fg: 'var(--ink)', dotBg: 'var(--ink)', dotBorder: '0' },
+        { label: s.lang === 'ar' ? 'عنوان البث' : 'Stream title', fg: 'var(--ink)', dotBg: 'var(--ink)', dotBorder: '0' },
+        { label: s.lang === 'ar' ? 'الأوفرلاي · متوقف' : 'Overlay · off', fg: 'var(--muted)', dotBg: 'transparent', dotBorder: '1px solid var(--muted)' },
+      ],
+
+      hasRows: rows.length > 0,
+      noRows: rows.length === 0,
+      rows: rows.map((r) => {
+        const on = enabledOf(r);
+        const isSel = s.selected.includes(r.id);
+        // A failed write belongs to the command, not to whatever row is highlighted.
+        const failing = r.id === 'c1' && s.connected && on;
+        return {
+          errorDisplay: failing ? 'table-row' : 'none',
+          errorText: failing
+            ? (s.lang === 'ar'
+                ? 'تعذّرت الكتابة إلى ' + r.file + ' — الملف مفتوح في برنامج آخر.'
+                : 'Access denied writing ' + r.file + ' — the file is open in another program.')
+            : '',
+          cmd: r.cmd, does: r.does, doesMeta: r.meta, who: r.who,
+          cd: r.cd === 0 ? (s.lang === 'ar' ? 'لا' : 'Off') : r.cd + 's',
+          cdColor: r.cd === 0 ? 'var(--faint)' : 'var(--ink)',
+          writes: r.sinks.length ? r.sinks.join(' · ') : '—',
+          writesColor: r.id === 'c1' && s.connected ? 'var(--accent-text)' : 'var(--muted)',
+          last: r.last,
+          bg: isSel ? 'var(--accent-soft)' : 'transparent',
+          bar: isSel ? 'var(--accent)' : 'transparent',
+          // Disabled is signalled by FORM (strikethrough + tag), never by opacity:
+          // dimming multiplies against the token alpha and sinks contrast to ~2:1.
+          cmdStrike: on ? 'none' : 'line-through',
+          tagDisplay: on ? 'none' : 'inline-block',
+          tagLabel: s.lang === 'ar' ? 'معطّل' : 'Disabled',
+          textColor: on ? 'var(--ink)' : 'var(--muted)',
+          cmdFont: r.arabic ? "'Cairo','Archivo',sans-serif" : "'Archivo',system-ui,sans-serif",
+          cmdColor: on ? 'var(--accent-text)' : 'var(--muted)',
+          onClick: this.pick(r),
+          onMenu: this.openMenu(r),
+        };
+      }),
+      logOpen: s.logOpen,
+      logHeight: s.logOpen ? '150px' : '24px',
+      logChevron: s.logOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+      logChevronRotate: s.logOpen,
+      toggleLog: () => this.setState({ logOpen: !s.logOpen }),
+      logMeta: s.connected ? 'live · 38 msg/min' : (s.lang === 'ar' ? 'متوقف' : 'paused'),
+      logRows,
+
+      logFilters: ['all','trigger','write','deny','skip','error'].map((f) => ({
+        label: f === 'all' ? (s.lang === 'ar' ? 'الكل' : 'All') : f.toUpperCase(),
+        onClick: () => this.setState({ logFilter: f }),
+        bc: s.logFilter === f ? 'var(--accent)' : 'var(--rule)',
+        bg: s.logFilter === f ? 'var(--accent-fill)' : 'transparent',
+        fg: s.logFilter === f ? 'var(--on-accent)' : 'var(--muted)',
+      })),
+      activityRows,
+
+      inspectorWidth: '298px',
+      hasSelection: !!sel,
+      noSelection: !sel,
+      clearSel: () => this.setState({ selected: [] }),
+      deleteSel: () => this.setState({ selected: [], menu: null }),
+      duplicateSel: () => this.setState({ menu: null }),
+
+      sel: sel ? {
+        cmd: sel.cmd,
+        cmdFont: sel.arabic ? "'Cairo','Archivo',sans-serif" : "'Archivo',system-ui,sans-serif",
+        kindLabel: sel.kind === 'counter'
+          ? (s.lang === 'ar' ? 'أمر عدّاد · ' : 'Counter command · ') + sel.name
+          : sel.kind === 'ai' ? (s.lang === 'ar' ? 'رد ذكي' : 'AI reply') : (s.lang === 'ar' ? 'رد جاهز' : 'Prepared reply'),
+        prefix: sel.arabic ? '“' : '!',
+        word: sel.word,
+        isCounter: sel.kind === 'counter',
+        isReply: sel.kind !== 'counter',
+        response: sel.response || '',
+        effects: EFFECTS.map((e, i) => Object.assign({ label: e, onClick: () => {} }, this.seg(e === sel.effect, i === 0))),
+        matchModes: MATCHES.map((m, i) => Object.assign({ label: m, onClick: () => {} }, this.seg(m === sel.match, i === 0))),
+        ranks: RANKS.map((r, i) => Object.assign({ label: r, onClick: () => {} }, this.seg(RANK_FULL[r] === sel.who, i === 0))),
+        cd: s.cd,
+        cdLabel: Number(s.cd) === 0 ? (s.lang === 'ar' ? 'بدون' : 'Off') : s.cd + 's',
+        hasFile: sel.sinks.includes('file'),
+        filePath: sel.file || '',
+        keybind: sel.keybind,
+        sinks: [
+          Object.assign({ title: s.lang === 'ar' ? 'ملف نص OBS' : 'OBS text file', detail: sel.tmpl || '—', titleColor: sel.sinks.includes('file') ? 'var(--ink)' : 'var(--muted)', onToggle: () => {} }, this.sw(sel.sinks.includes('file'))),
+          Object.assign({ title: s.lang === 'ar' ? 'عنوان البث' : 'Stream title', detail: sel.title || (s.lang === 'ar' ? 'غير مفعّل' : 'Not set'), titleColor: sel.sinks.includes('title') ? 'var(--ink)' : 'var(--muted)', onToggle: () => {} }, this.sw(sel.sinks.includes('title'))),
+          Object.assign({ title: s.lang === 'ar' ? 'رد في الشات' : 'Chat reply', detail: sel.sinks.includes('chat') ? (s.lang === 'ar' ? 'يُرسل باسم @ali_bot' : 'Sent as @ali_bot') : (s.lang === 'ar' ? 'غير مفعّل' : 'Not set'), titleColor: sel.sinks.includes('chat') ? 'var(--ink)' : 'var(--muted)', onToggle: () => {} }, this.sw(sel.sinks.includes('chat'))),
+        ],
+        preview: sel.kind === 'counter'
+          ? [sel.tmpl.replace('{count}', sel.count), sel.title ? sel.title.replace('{title}', 'Ali plays Elden Ring').replace('{count}', sel.count) : (s.lang === 'ar' ? 'العنوان لا يتغيّر' : 'Title unchanged')]
+          : [sel.response ? sel.response.replace('{mention}', '@viewer') : (s.lang === 'ar' ? 'لا يوجد رد بعد' : 'No response yet')],
+      } : null,
+      onCooldown: (e) => this.setState({ cd: Number(e.target.value) }),
+      replyTokens: ['{mention}','{username}','{message}'],
+
+      overlayMessages: [
+        { name: 'kareem', text: 'gg that boss took forever', color: '#7ad3ff', avatar: '#3f4a52' },
+        { name: 'sara_tv', text: 'السلام عليكم شباب', color: '#ffb46b', avatar: '#524438' },
+        { name: 'ali_bot', text: 'وعليكم السلام @sara_tv — نورت الاستريم', color: '#ff9d86', avatar: '#5a3a34' },
+        { name: 'mo_plays', text: '!death', color: '#a6e78b', avatar: '#3d4f38' },
+      ],
+      overlayControls: [
+        overlayControl(s.lang === 'ar' ? 'المظهر' : 'Card style', 'Solid', ['Solid','Outline','Bare'], 'Solid'),
+        overlayControl(s.lang === 'ar' ? 'حجم الخط' : 'Text size', '20px', ['S','M','L'], 'M'),
+        overlayControl(s.lang === 'ar' ? 'الاتجاه' : 'Grow direction', 'Up', ['Up','Down'], 'Up'),
+        overlayControl(s.lang === 'ar' ? 'الصور الرمزية' : 'Avatars', 'On', ['On','Off'], 'On'),
+        overlayControl(s.lang === 'ar' ? 'إخفاء الأوامر' : 'Hide commands', 'Off', ['On','Off'], 'Off'),
+        overlayControl(s.lang === 'ar' ? 'مدة الرسالة' : 'Message lifetime', '30s', ['15s','30s','Never'], '30s'),
+      ],
+
+      settingsNav: SETTINGS_SECTIONS.map(([id, en, ar]) => ({
+        label: s.lang === 'ar' ? ar : en,
+        onClick: () => this.setState({ section: id }),
+        weight: section === id ? '800' : '500',
+        bg: section === id ? 'var(--surface)' : 'transparent',
+        fg: 'var(--ink)',
+        bar: section === id ? 'var(--accent)' : 'transparent',
+      })),
+      settingsTitle,
+      settingsFields: fields,
+
+      menuOpen: !!s.menu,
+      menuX: s.menu ? s.menu.x + 'px' : '0px',
+      menuY: s.menu ? s.menu.y + 'px' : '0px',
+      closeMenu: () => this.setState({ menu: null }),
+      menuItems: [
+        { label: s.lang === 'ar' ? 'تحرير' : 'Edit', hint: 'Enter', sep: '0', onClick: () => this.setState({ menu: null }) },
+        { label: t('duplicate'), hint: 'Ctrl+D', sep: '0', onClick: () => this.setState({ menu: null }) },
+        { label: s.lang === 'ar' ? 'نسخ الأمر' : 'Copy command', hint: 'Ctrl+C', sep: '0', onClick: () => this.setState({ menu: null }) },
+        { label: s.lang === 'ar' ? 'تعطيل' : 'Disable', hint: '', sep: '1px solid var(--hair)', onClick: () => this.setState((st) => {
+            const d = Object.assign({}, st.disabled);
+            st.selected.forEach((id) => { d[id] = !d[id]; });
+            return { disabled: d, menu: null };
+          }) },
+        { label: t('del'), hint: 'Del', sep: '1px solid var(--hair)', onClick: () => this.setState({ menu: null, selected: [] }) },
+      ],
+    };
+  }
+}
+
+</script>
+</body>
+</html>

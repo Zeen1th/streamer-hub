@@ -94,9 +94,16 @@ export function ChatMessageCard({
           alt=""
           width={settings.avatar.size}
           height={settings.avatar.size}
+          referrerPolicy="no-referrer"
           data-pending={message.avatarUrl === CHAT_OVERLAY_AVATAR_FALLBACK ? 'true' : undefined}
           onError={(event) => {
-            event.currentTarget.src = CHAT_OVERLAY_AVATAR_FALLBACK;
+            const currentSrc = event.currentTarget.src;
+            const originalSrc = message.avatarUrl;
+            if (originalSrc && originalSrc !== CHAT_OVERLAY_AVATAR_FALLBACK && currentSrc !== originalSrc) {
+              event.currentTarget.src = originalSrc;
+            } else {
+              event.currentTarget.src = CHAT_OVERLAY_AVATAR_FALLBACK;
+            }
           }}
           {...partProps('avatar')}
         />
@@ -106,7 +113,7 @@ export function ChatMessageCard({
         {(showUsername || showBadge) && (
           <div className="co-header" data-dir={identityDir} dir={identityDir}>
             {showUsername && (
-              <span className="co-username" style={usernameStyle} {...partProps('username')}>
+              <span className="co-username" dir="auto" style={usernameStyle} {...partProps('username')}>
                 {message.username}
               </span>
             )}

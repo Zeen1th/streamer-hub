@@ -519,3 +519,23 @@ export function formatBidiText(text: string, isRtl: boolean): string {
   // \u2067 is Right-to-Left Isolate (RLI), \u2069 is Pop Directional Isolate (PDI)
   return `\u2067${text}\u2069`;
 }
+
+export const DEFAULT_CHAT_INSPECTOR_WIDTH = 420;
+export const MIN_CHAT_INSPECTOR_WIDTH = 320;
+export const MAX_CHAT_INSPECTOR_WIDTH = 680;
+
+export function clampChatInspectorWidth(
+  width: number,
+  containerWidth?: number,
+  min = MIN_CHAT_INSPECTOR_WIDTH,
+  max = MAX_CHAT_INSPECTOR_WIDTH,
+  reservedCanvasWidth = 320,
+): number {
+  if (typeof width !== 'number' || Number.isNaN(width)) return DEFAULT_CHAT_INSPECTOR_WIDTH;
+  const dynamicMax =
+    typeof containerWidth === 'number' && Number.isFinite(containerWidth)
+      ? Math.max(min, Math.min(max, containerWidth - reservedCanvasWidth))
+      : max;
+  return Math.max(min, Math.min(Math.round(width), dynamicMax));
+}
+

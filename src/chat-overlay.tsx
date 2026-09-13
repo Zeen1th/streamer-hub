@@ -1,7 +1,13 @@
+import '@fontsource/barlow/400.css';
 import '@fontsource/barlow/500.css';
+import '@fontsource/barlow/600.css';
 import '@fontsource/barlow/700.css';
+import '@fontsource/cairo/400.css';
+import '@fontsource/cairo/500.css';
 import '@fontsource/cairo/600.css';
 import '@fontsource/cairo/700.css';
+import '@fontsource/cairo/800.css';
+import '@fontsource/cairo/900.css';
 import '@fontsource/cinzel/600.css';
 import '@fontsource/cinzel/700.css';
 import '@fontsource/jetbrains-mono/500.css';
@@ -28,7 +34,9 @@ type EnvelopeKind =
   | 'disconnected'
   | 'profile'
   | 'clear'
-  | 'emotes';
+  | 'emotes'
+  | 'reload'
+  | 'preview';
 
 const KNOWN_KINDS: readonly EnvelopeKind[] = [
   'hello',
@@ -39,6 +47,8 @@ const KNOWN_KINDS: readonly EnvelopeKind[] = [
   'profile',
   'clear',
   'emotes',
+  'reload',
+  'preview',
 ];
 
 interface OverlayEnvelope {
@@ -65,6 +75,11 @@ interface ClearPayload {
   id?: string;
 }
 
+interface PreviewPayload {
+  enabled?: boolean;
+  messages?: unknown[];
+}
+
 const pageStyles = `
   html, body, #chat-overlay-root {
     width: 100%;
@@ -81,6 +96,7 @@ const pageStyles = `
 function OverlayApp() {
   const [settings, setSettings] = useState<ChatOverlaySettings>(DEFAULT_CHAT_OVERLAY_SETTINGS);
   const [messages, setMessages] = useState<NormalizedChatOverlayMessage[]>([]);
+  const [previewMessages, setPreviewMessages] = useState<NormalizedChatOverlayMessage[] | null>(null);
   const [providers, setProviders] = useState<Record<string, ThirdPartyEmoteMap>>({});
   const [fit, setFit] = useState(1);
 
@@ -176,12 +192,28 @@ function OverlayApp() {
               if (typeof oldest === 'string') seenMessageIds.current.delete(oldest);
             }
 
+            setPreviewMessages(null);
             setMessages((current) => [...current, message]);
 
-            // 0 means messages never expire.
+              // 0 means messages never expire.
             const duration = active.flow.durationSeconds;
             if (duration > 0) {
               window.setTimeout(() => removeMessage(message.id), duration * 1000);
+            }
+            return;
+          }
+          case 'reload': {
+            window.location.reload();
+            return;
+          }
+          case 'preview': {
+            const payload = envelope.payload as PreviewPayload;
+            if (payload?.enabled && Array.isArray(payload.messages) && payload.messages.length > 0) {
+              setPreviewMessages(
+                payload.messages.map((m) => normalizeChatOverlayMessage(m as Partial<ChatMessage>)),
+              );
+            } else {
+              setPreviewMessages(null);
             }
             return;
           }
@@ -237,13 +269,19 @@ function OverlayApp() {
   );
 
   const isExact = Math.abs(fit - 1) < 0.001;
+  const displayMessages = previewMessages ?? messages;
 
   return (
     <div
       className={isExact ? undefined : 'co-fit'}
       style={isExact ? undefined : { transform: `scale(${fit})` }}
     >
-      <ChatScene settings={settings} messages={messages} thirdParty={thirdParty} />
+      <ChatScene
+        settings={settings}
+        messages={displayMessages}
+        thirdParty={thirdParty}
+        alwaysRenderBlock={Boolean(previewMessages && previewMessages.length > 0)}
+      />
     </div>
   );
 }

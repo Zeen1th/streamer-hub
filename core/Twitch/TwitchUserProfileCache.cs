@@ -34,6 +34,31 @@ public sealed class TwitchUserProfileCache
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
+    public string? LastFetchError { get; private set; }
+
+    public bool HasAvatar(string userId, out string? avatarUrl)
+    {
+        avatarUrl = null;
+        if (string.IsNullOrWhiteSpace(userId)) return false;
+
+        lock (_cacheLock)
+        {
+            if (!_avatarUrls.TryGetValue(userId.Trim(), out var entry)) return false;
+            if (string.IsNullOrWhiteSpace(entry.AvatarUrl)) return false;
+            avatarUrl = entry.AvatarUrl;
+            return true;
+        }
+    }
+
+    public void Set(string userId, string? avatarUrl)
+    {
+        if (string.IsNullOrWhiteSpace(userId)) return;
+        lock (_cacheLock)
+        {
+            _avatarUrls[userId.Trim()] = new CacheEntry(avatarUrl, _clock());
+        }
+    }
+
     public bool TryGet(string userId, out string? avatarUrl)
     {
         avatarUrl = null;
@@ -82,28 +107,35 @@ public sealed class TwitchUserProfileCache
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 IReadOnlyDictionary<string, string?> resolved;
+                Exception? fetchError = null;
                 try
                 {
                     resolved = await fetchAsync(batch, cancellationToken).ConfigureAwait(false);
+                    LastFetchError = null;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     throw;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    fetchError = ex;
+                    LastFetchError = ex.Message;
                     resolved = new Dictionary<string, string?>(StringComparer.Ordinal);
                 }
 
                 var now = _clock();
                 lock (_cacheLock)
                 {
-                    foreach (var userId in batch)
+                    if (fetchError is null)
                     {
-                        var avatarUrl = resolved.TryGetValue(userId, out var candidate) && !string.IsNullOrWhiteSpace(candidate)
-                            ? candidate
-                            : null;
-                        _avatarUrls[userId] = new CacheEntry(avatarUrl, now);
+                        foreach (var userId in batch)
+                        {
+                            var avatarUrl = resolved.TryGetValue(userId, out var candidate) && !string.IsNullOrWhiteSpace(candidate)
+                                ? candidate
+                                : null;
+                            _avatarUrls[userId] = new CacheEntry(avatarUrl, now);
+                        }
                     }
                 }
             }

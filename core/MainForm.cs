@@ -180,22 +180,34 @@ public sealed class MainForm : Form
 
         var environmentOptions = new CoreWebView2EnvironmentOptions();
         var debugPort = Environment.GetEnvironmentVariable("STREAMERHUB_DEBUG_PORT");
+        var browserArgs = "--disable-http-cache";
         if (!string.IsNullOrEmpty(debugPort))
         {
-            environmentOptions.AdditionalBrowserArguments = $"--remote-debugging-port={debugPort}";
+            browserArgs += $" --remote-debugging-port={debugPort}";
         }
+        environmentOptions.AdditionalBrowserArguments = browserArgs;
         var environment = await CoreWebView2Environment.CreateAsync(
             null, Path.Combine(localData, "WebView2"), environmentOptions);
         await _webView.EnsureCoreWebView2Async(environment);
+        try
+        {
+            await _webView.CoreWebView2.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.DiskCache);
+        }
+        catch { }
         _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
         _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
         _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
         var wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+        var devDist = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "dist"));
+        if (Directory.Exists(devDist) && File.Exists(Path.Combine(devDist, ".vite", "manifest.json")))
+        {
+            wwwroot = devDist;
+        }
         _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
             "app.streamerhub", wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 
-        _chatOverlayServer = new ChatOverlayServer(wwwroot, _settings.ChatOverlay);
+        _chatOverlayServer = new ChatOverlayServer(wwwroot, _settings.ChatOverlay, _settings.ObsChat);
         await _chatOverlayServer.StartAsync(_shutdown.Token);
         _host = new HostController(this, _webView, _settings, _chatOverlayServer, appData, _shutdown.Token);
         await _host.InitializeAsync();

@@ -229,7 +229,7 @@ test('provides a repeatable installer payload for updater debug flow', async () 
   const state = await invoke(host, PROTOCOL_VERSION, Channels.UpdateCheck, undefined);
 
   assert.equal(state.updateAvailable, false);
-  assert.match(state.downloadUrl, /StreamerHub-Setup-v0\.2\.7\.exe$/);
+  assert.match(state.downloadUrl, /StreamerHub-Setup-v0\.2\.8\.exe$/);
 
   const install = await invoke(host, PROTOCOL_VERSION, Channels.UpdateInstall, {
     downloadUrl: state.downloadUrl,
@@ -268,3 +268,176 @@ test('keeps forwarding existing status and chat events in mock mode', async () =
   assert.equal(chat.username, 'viewer');
   assert.equal(chat.message, '!death');
 });
+
+test('handles Twitch title query and update through mock host', async () => {
+  const { Channels, Events, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const initial = await invoke(host, PROTOCOL_VERSION, Channels.TwitchGetTitle, undefined);
+  assert.equal(initial.ok, true);
+  assert.equal(initial.title, 'Chill Gaming Stream');
+
+  const filePathRes = await invoke(host, PROTOCOL_VERSION, Channels.TwitchGetTitleFilePath, undefined);
+  assert.ok(filePathRes.path.includes('title.txt'));
+
+  const titleChangedPromise = waitForEvent(host, Events.TwitchTitleChanged);
+  const updateResult = await invoke(host, PROTOCOL_VERSION, Channels.TwitchUpdateTitle, {
+    title: 'Elden Ring No Hit Run | Deaths: 0',
+  });
+  assert.deepEqual(updateResult, { ok: true });
+
+  const titleChangedEvent = await titleChangedPromise;
+  assert.equal(titleChangedEvent.title, 'Elden Ring No Hit Run | Deaths: 0');
+
+  const updated = await invoke(host, PROTOCOL_VERSION, Channels.TwitchGetTitle, undefined);
+  assert.equal(updated.ok, true);
+  assert.equal(updated.title, 'Elden Ring No Hit Run | Deaths: 0');
+});
+
+test('handles Twitch avatar lookup and test message broadcast through mock host', async () => {
+  const { Channels, Events, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const profileEventPromise = waitForEvent(host, Events.TwitchUserProfile);
+  const avatarCheckResult = await invoke(host, PROTOCOL_VERSION, Channels.TwitchCheckAvatar, {
+    username: 'teststreamer',
+  });
+
+  assert.equal(avatarCheckResult.ok, true);
+  assert.equal(avatarCheckResult.username, 'teststreamer');
+  assert.ok(avatarCheckResult.avatarUrl.startsWith('data:image/svg+xml'));
+
+  const profileEvent = await profileEventPromise;
+  assert.equal(profileEvent.userId, avatarCheckResult.userId);
+  assert.equal(profileEvent.avatarUrl, avatarCheckResult.avatarUrl);
+
+  const chatEventPromise = waitForEvent(host, Events.TwitchChatMessage);
+  const testMsgResult = await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlayTestMessage, {
+    username: 'teststreamer',
+    message: 'Testing avatar rendering in overlay',
+    avatarUrl: avatarCheckResult.avatarUrl,
+  });
+
+  assert.deepEqual(testMsgResult, { ok: true });
+  const chatEvent = await chatEventPromise;
+  assert.equal(chatEvent.username, 'teststreamer');
+  assert.equal(chatEvent.message, 'Testing avatar rendering in overlay');
+  assert.equal(chatEvent.avatarUrl, avatarCheckResult.avatarUrl);
+});
+
+test('resolves active chat sender with bot default, broadcaster override, and offline fallback', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  // 1. Initially bot is disabled -> active sender should be broadcaster
+  const initialSettings = await invoke(host, PROTOCOL_VERSION, Channels.SettingsGetState, undefined);
+  assert.equal(initialSettings.botAccountEnabled, false);
+  assert.equal(initialSettings.preferredChatSender, 'bot');
+
+  let sendResult = await invoke(host, PROTOCOL_VERSION, Channels.TwitchSendChatMessage, { message: 'Hello stream' });
+  assert.equal(sendResult.ok, true);
+  assert.equal(sendResult.senderRole, 'broadcaster');
+  assert.equal(sendResult.senderLogin, 'mock_channel');
+
+  // 2. Enable bot -> default preference 'bot' is used, active sender becomes bot
+  await invoke(host, PROTOCOL_VERSION, Channels.SettingsSave, { botAccountEnabled: true });
+  const updatedSettings = await invoke(host, PROTOCOL_VERSION, Channels.SettingsGetState, undefined);
+  assert.equal(updatedSettings.botAccountEnabled, true);
+
+  sendResult = await invoke(host, PROTOCOL_VERSION, Channels.TwitchSendChatMessage, { message: 'Hello from bot' });
+  assert.equal(sendResult.ok, true);
+  assert.equal(sendResult.senderRole, 'bot');
+  assert.equal(sendResult.senderLogin, 'mock_bot');
+
+  // 3. Explicitly set preferredChatSender to 'broadcaster'
+  await invoke(host, PROTOCOL_VERSION, Channels.SettingsSave, { preferredChatSender: 'broadcaster' });
+  sendResult = await invoke(host, PROTOCOL_VERSION, Channels.TwitchSendChatMessage, { message: 'Hello from main' });
+  assert.equal(sendResult.ok, true);
+  assert.equal(sendResult.senderRole, 'broadcaster');
+  assert.equal(sendResult.senderLogin, 'mock_channel');
+
+  // 4. Switch preference back to 'bot' but disable bot -> falls back cleanly to broadcaster
+  await invoke(host, PROTOCOL_VERSION, Channels.SettingsSave, {
+    preferredChatSender: 'bot',
+    botAccountEnabled: false,
+  });
+  sendResult = await invoke(host, PROTOCOL_VERSION, Channels.TwitchSendChatMessage, { message: 'Fallback test' });
+  assert.equal(sendResult.ok, true);
+  assert.equal(sendResult.senderRole, 'broadcaster');
+  assert.equal(sendResult.senderLogin, 'mock_channel');
+});
+
+test('handles ChatOverlayReload and ChatOverlaySetPreview through mock host', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const reloadResult = await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlayReload, undefined);
+  assert.deepEqual(reloadResult, { ok: true });
+
+  const previewResult = await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlaySetPreview, {
+    enabled: true,
+    messages: [
+      {
+        id: 'msg-1',
+        username: 'ViewerOne',
+        message: 'Hello from test preview!',
+      },
+    ],
+  });
+  assert.deepEqual(previewResult, { ok: true });
+
+  const previewDisableResult = await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlaySetPreview, {
+    enabled: false,
+  });
+  assert.deepEqual(previewDisableResult, { ok: true });
+});
+
+test('handles ObsChat channels and keeps settings isolated from ChatOverlay', async () => {
+  localStorage.removeItem('streamer-hub-mock-chat-overlay-settings');
+  localStorage.removeItem('streamer-hub-mock-obs-chat-settings');
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const urlResult = await invoke(host, PROTOCOL_VERSION, Channels.ObsChatGetUrl, undefined);
+  assert.equal(urlResult.url, 'http://127.0.0.1:49178/obs-chat.html');
+
+  const initialObs = await invoke(host, PROTOCOL_VERSION, Channels.ObsChatGetState, undefined);
+  assert.ok(initialObs);
+
+  const initialOverlay = await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlayGetState, undefined);
+  assert.ok(initialOverlay);
+
+  const nextObs = {
+    ...initialObs,
+    flow: { ...initialObs.flow, maxMessages: 15 },
+    bubble: {
+      ...initialObs.bubble,
+      background: { ...initialObs.bubble.background, color: '#191919' },
+    },
+  };
+
+  const saveResult = await invoke(host, PROTOCOL_VERSION, Channels.ObsChatSaveSettings, nextObs);
+  assert.deepEqual(saveResult, { ok: true });
+
+  const fetchedObs = await invoke(host, PROTOCOL_VERSION, Channels.ObsChatGetState, undefined);
+  assert.equal(fetchedObs.flow.maxMessages, 15);
+  assert.equal(fetchedObs.bubble.background.color, '#191919');
+
+  // Verify stream overlay settings remain untouched
+  const fetchedOverlay = await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlayGetState, undefined);
+  assert.notEqual(fetchedOverlay.flow.maxMessages, 15);
+  assert.notEqual(fetchedOverlay.bubble.background.color, '#191919');
+
+  const reloadResult = await invoke(host, PROTOCOL_VERSION, Channels.ObsChatReload, undefined);
+  assert.deepEqual(reloadResult, { ok: true });
+
+  const previewResult = await invoke(host, PROTOCOL_VERSION, Channels.ObsChatSetPreview, {
+    enabled: true,
+    messages: [{ id: 'test-obs', username: 'Streamer', message: 'Testing OBS dock' }],
+  });
+  assert.deepEqual(previewResult, { ok: true });
+});
+
+
+
+

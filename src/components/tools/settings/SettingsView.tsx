@@ -1,6 +1,7 @@
-import { Bot, KeyRound, LogOut, Radio, Sparkles } from 'lucide-react';
+import { AlertCircle, Bot, Check, Crown, KeyRound, LogOut, Radio, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { t } from '../../../i18n/translations';
+import { THEME_OPTIONS } from '../../../lib/theme';
 import { isMockMode, rpc } from '../../../rpc';
 import { Channels } from '../../../rpc/contracts';
 import { useConnectionStore } from '../../../store/connectionStore';
@@ -29,6 +30,8 @@ export function SettingsView() {
   const setCloseToTray = useSettingsStore((s) => s.setCloseToTray);
   const botAccountEnabled = useSettingsStore((s) => s.botAccountEnabled);
   const setBotAccountEnabled = useSettingsStore((s) => s.setBotAccountEnabled);
+  const preferredChatSender = useSettingsStore((s) => s.preferredChatSender);
+  const setPreferredChatSender = useSettingsStore((s) => s.setPreferredChatSender);
   const openRouterConfigured = useSettingsStore((s) => s.openRouterConfigured);
   const groqConfigured = useSettingsStore((s) => s.groqConfigured);
   const saveOpenRouterKey = useSettingsStore((s) => s.saveOpenRouterKey);
@@ -44,6 +47,8 @@ export function SettingsView() {
   const twitchChannel = useConnectionStore((s) => s.twitchChannel);
   const botConnected = useConnectionStore((s) => s.botConnected);
   const botLogin = useConnectionStore((s) => s.botLogin);
+  const activeChatSender = useConnectionStore((s) => s.activeChatSender);
+  const activeChatSenderLogin = useConnectionStore((s) => s.activeChatSenderLogin);
 
   const mockMode = isMockMode;
   const lang = language === 'ar' ? 'ar' : 'en';
@@ -60,40 +65,42 @@ export function SettingsView() {
   ];
 
   return (
-    <section className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] bg-surface">
-      <nav aria-label="Settings sections" className="border-e border-rule bg-surface-2 py-3" role="tree">
-        <div className="ui-label px-[10px] pb-2 text-muted">{t(lang, 'settings.title')}</div>
-        {sections.map((section) => {
-          const isActive = activeSection === section.id;
-          return (
-            <button
-              key={section.id}
-              type="button"
-              role="treeitem"
-              aria-selected={isActive}
-              onClick={() => setActiveSection(section.id)}
-              className={`relative flex h-[30px] w-full items-center px-[10px] text-start font-sans text-[12px] font-semibold ${isActive ? 'bg-surface text-ink before:absolute before:inset-y-0 before:start-0 before:w-[3px] before:bg-accent' : 'text-muted hover:bg-surface hover:text-ink'}`}
-            >
-              <span>{section.label}</span>
-            </button>
-          );
-        })}
+    <section className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] bg-[#23282e]">
+      <nav aria-label="Settings sections" className="border-e border-white/[0.08] bg-[#1a2228] py-3" role="tree">
+        <div className="ui-label px-3.5 pb-2 font-bold text-[#9aa3af]">{t(lang, 'settings.title')}</div>
+        <div className="space-y-0.5">
+          {sections.map((section) => {
+            const isActive = activeSection === section.id;
+            return (
+              <button
+                key={section.id}
+                type="button"
+                role="treeitem"
+                aria-selected={isActive}
+                onClick={() => setActiveSection(section.id)}
+                className={`relative flex h-[32px] w-[calc(100%-16px)] mx-2 items-center px-2.5 rounded-[6px] text-start font-sans text-[12.5px] font-medium transition-colors ${isActive ? 'bg-[#2A3138] text-white font-bold shadow-xs border border-white/[0.12]' : 'text-[#9aa3af] hover:bg-white/[0.05] hover:text-[#f0f3f7]'}`}
+              >
+                <span>{section.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       <div className="app-scroll min-h-0 overflow-auto">
-        <div className="w-[660px] max-w-full px-[26px] py-[22px]">
-          <h1 className="font-sans text-[24px] font-bold uppercase leading-none tracking-[-0.02em] text-ink">
+        <div className="w-[680px] max-w-full px-7 py-6">
+          <h1 className="font-sans text-[22px] font-bold tracking-tight text-ink">
             {sections.find((section) => section.id === activeSection)?.label}
           </h1>
-          <div className="mb-5 mt-4 h-[2px] bg-rule" />
+          <div className="mb-6 mt-3 h-px bg-rule" />
 
       {/* SECTION 1: General & Appearance */}
       {activeSection === 'general' && (
         <section className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className="flex flex-col gap-6">
             {/* Language Selection */}
             <Card title={t(lang, 'settings.language')}>
-              <p className="mb-4 font-sans text-xs text-ink/65">
+              <p className="mb-3 font-sans text-xs text-muted">
                 {t(lang, 'settings.languageHint')}
               </p>
               <SegmentedControl
@@ -109,19 +116,52 @@ export function SettingsView() {
 
             {/* Theme Selection */}
             <Card title={t(lang, 'settings.theme')}>
-              <p className="mb-4 font-sans text-xs text-ink/65">
+              <p className="mb-3 font-sans text-xs text-muted">
                 {t(lang, 'settings.themeHint')}
               </p>
-              <SegmentedControl
-                name="app-theme"
-                value={theme}
-                options={[
-                  { value: 'system', label: lang === 'ar' ? 'النظام' : 'System' },
-                  { value: 'light', label: t(lang, 'settings.themeLight') },
-                  { value: 'dark', label: t(lang, 'settings.themeDark') },
-                ]}
-                onChange={(value) => setTheme(value as typeof theme)}
-              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {THEME_OPTIONS.map((opt) => {
+                  const isSelected = theme === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setTheme(opt.id)}
+                      className={`relative flex flex-col justify-between rounded-[5px] border p-3 text-start transition-all ${
+                        isSelected
+                          ? 'border-accent bg-accent/15 shadow-xs ring-1 ring-accent/40'
+                          : 'border-[#384048] bg-[#2e3338] hover:border-[#4d5a6c] hover:bg-[#343a40]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="size-4 rounded-full border border-black/30 shadow-xs shrink-0"
+                            style={{
+                              backgroundColor: opt.surfaceColor,
+                              outline: `2px solid ${opt.accentColor}`,
+                              outlineOffset: '1px',
+                            }}
+                          />
+                          <span className="font-sans text-xs font-bold text-ink">
+                            {t(lang, opt.labelKey)}
+                          </span>
+                        </div>
+                        {isSelected && (
+                          <span className="flex size-4 items-center justify-center rounded-full bg-accent text-on-accent">
+                            <Check size={10} strokeWidth={3} />
+                          </span>
+                        )}
+                      </div>
+                      {opt.hintKey && (
+                        <p className="font-sans text-[11px] leading-relaxed text-ink/60">
+                          {t(lang, opt.hintKey)}
+                        </p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </Card>
           </div>
         </section>
@@ -289,46 +329,102 @@ export function SettingsView() {
                 </div>
 
                 {botAccountEnabled && (
-                  <div className="flex items-center justify-between border-t border-rule pt-3">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`size-2.5 ${
-                          botConnected ? 'bg-emerald-500' : 'bg-ink/30'
-                        }`}
-                      />
-                      <span className="font-sans text-xs font-bold uppercase tracking-[0.1em] text-muted">
-                        {botConnected
-                          ? botLogin
-                            ? `@${botLogin}`
+                  <>
+                    <div className="flex items-center justify-between border-t border-rule pt-3">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`size-2.5 ${
+                            botConnected ? 'bg-emerald-500' : 'bg-ink/30'
+                          }`}
+                        />
+                        <span className="font-sans text-xs font-bold uppercase tracking-[0.1em] text-muted">
+                          {botConnected
+                            ? botLogin
+                              ? `@${botLogin}`
+                              : lang === 'ar'
+                                ? 'البوت متصل'
+                                : 'Bot connected'
                             : lang === 'ar'
-                              ? 'البوت متصل'
-                              : 'Bot connected'
-                          : lang === 'ar'
-                            ? 'غير متصل'
-                            : 'Offline'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {botConnected && (
+                              ? 'غير متصل'
+                              : 'Offline'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {botConnected && (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => rpc.invoke(Channels.TwitchBotForget).catch(() => undefined)}
+                          >
+                            <LogOut size={13} />
+                            {lang === 'ar' ? 'إزالة' : 'Remove'}
+                          </Button>
+                        )}
                         <Button
-                          variant="danger"
                           size="sm"
-                          onClick={() => rpc.invoke(Channels.TwitchBotForget).catch(() => undefined)}
+                          disabled={mockMode}
+                          onClick={() => rpc.invoke(Channels.TwitchBotAuthorize).catch(() => undefined)}
                         >
-                          <LogOut size={13} />
-                          {lang === 'ar' ? 'إزالة' : 'Remove'}
+                          <Bot size={13} />
+                          {t(lang, 'settings.botAccountConnect')}
                         </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        disabled={mockMode}
-                        onClick={() => rpc.invoke(Channels.TwitchBotAuthorize).catch(() => undefined)}
-                      >
-                        <Bot size={13} />
-                        {t(lang, 'settings.botAccountConnect')}
-                      </Button>
+                      </div>
                     </div>
-                  </div>
+
+                    {/* Sender Selection */}
+                    <div className="space-y-2 border-t border-rule pt-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-sans text-xs font-bold uppercase tracking-[0.08em] text-ink">
+                          {t(lang, 'settings.activeSender')}
+                        </span>
+                      </div>
+                      <p className="font-sans text-xs text-ink/65">
+                        {t(lang, 'settings.activeSenderHint')}
+                      </p>
+                      <SegmentedControl
+                        value={preferredChatSender}
+                        onChange={(val) => setPreferredChatSender(val as 'bot' | 'broadcaster')}
+                        options={[
+                          {
+                            value: 'bot',
+                            label: botLogin ? `@${botLogin} (${t(lang, 'settings.senderBot')})` : t(lang, 'settings.senderBot'),
+                          },
+                          {
+                            value: 'broadcaster',
+                            label: twitchChannel ? `@${twitchChannel} (${t(lang, 'settings.senderBroadcaster')})` : t(lang, 'settings.senderBroadcaster'),
+                          },
+                        ]}
+                      />
+                    </div>
+
+                    {/* Active Sender Visual Indicator Banner */}
+                    <div
+                      className={`rounded border px-3 py-2.5 text-xs ${
+                        activeChatSender === 'bot'
+                          ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300'
+                          : preferredChatSender === 'bot' && !botConnected
+                            ? 'border-amber-500/30 bg-amber-950/20 text-amber-300'
+                            : 'border-primary/30 bg-primary/10 text-ink'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {activeChatSender === 'bot' ? (
+                          <Bot size={15} className="shrink-0 text-emerald-400" />
+                        ) : preferredChatSender === 'bot' && !botConnected ? (
+                          <AlertCircle size={15} className="shrink-0 text-amber-400" />
+                        ) : (
+                          <Crown size={15} className="shrink-0 text-primary" />
+                        )}
+                        <span className="font-semibold">
+                          {activeChatSender === 'bot'
+                            ? t(lang, 'settings.senderBotActive', { name: activeChatSenderLogin || botLogin || 'Bot' })
+                            : preferredChatSender === 'bot' && !botConnected
+                              ? t(lang, 'settings.senderBotOfflineFallback', { name: twitchChannel || 'Broadcaster' })
+                              : t(lang, 'settings.senderBroadcasterActive', { name: activeChatSenderLogin || twitchChannel || 'Broadcaster' })}
+                        </span>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             </Card>

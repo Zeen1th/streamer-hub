@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import type { Language } from '../i18n/translations';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
-import type { ThemePreference } from '../lib/theme';
+import type { ChatSenderRole } from '../rpc/contracts';
+import type { DarkThemeVariant, ThemePreference } from '../lib/theme';
+import { isDarkTheme } from '../lib/theme';
 
 export type { Language };
 export type Theme = ThemePreference;
@@ -12,13 +14,15 @@ interface SettingsState {
   clientSecret: string;
   language: Language | '';
   theme: Theme;
+  lastDarkTheme: DarkThemeVariant;
   botAccountEnabled: boolean;
+  preferredChatSender: ChatSenderRole;
   startupEnabled: boolean;
   closeToTray: boolean;
   loaded: boolean;
   openRouterConfigured: boolean;
   groqConfigured: boolean;
-  hydrate(clientId: string, clientSecret: string, language: string, botAccountEnabled?: boolean, startupEnabled?: boolean, closeToTray?: boolean): void;
+  hydrate(clientId: string, clientSecret: string, language: string, botAccountEnabled?: boolean, preferredChatSender?: ChatSenderRole, startupEnabled?: boolean, closeToTray?: boolean): void;
   hydrateOpenRouter(configured: boolean, groqConfigured: boolean): void;
   saveOpenRouterKey(provider: 'openrouter' | 'groq', apiKey: string): Promise<boolean>;
   removeOpenRouterKey(provider: 'openrouter' | 'groq'): Promise<boolean>;
@@ -27,17 +31,19 @@ interface SettingsState {
   setLanguage(language: Language): void;
   setTheme(theme: Theme): void;
   setBotAccountEnabled(enabled: boolean): void;
+  setPreferredChatSender(sender: ChatSenderRole): void;
   setStartupEnabled(enabled: boolean): void;
   setCloseToTray(enabled: boolean): void;
 }
 
 function persist(get: () => SettingsState) {
-  const { clientId, clientSecret, language, botAccountEnabled, startupEnabled, closeToTray } = get();
+  const { clientId, clientSecret, language, botAccountEnabled, preferredChatSender, startupEnabled, closeToTray } = get();
   rpc
     .invoke(Channels.SettingsSave, {
       twitch: { clientId: clientId.trim(), clientSecret: clientSecret.trim() },
       language: language || 'en',
       botAccountEnabled,
+      preferredChatSender,
       startupEnabled,
       closeToTray,
     })
@@ -48,19 +54,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   clientId: '',
   clientSecret: '',
   language: '',
-  theme: ((localStorage.getItem('streamer-hub-theme') as Theme | null) ?? 'system'),
+  theme: ((localStorage.getItem('streamer-hub-theme') as Theme | null) ?? 'dark'),
+  lastDarkTheme: (() => {
+    const stored = localStorage.getItem('streamer-hub-last-dark-theme');
+    return stored && isDarkTheme(stored) ? (stored as DarkThemeVariant) : 'dark';
+  })(),
   botAccountEnabled: false,
+  preferredChatSender: 'bot',
   startupEnabled: true,
   closeToTray: true,
   loaded: false,
   openRouterConfigured: false,
   groqConfigured: false,
-  hydrate: (clientId, clientSecret, language, botAccountEnabled, startupEnabled, closeToTray) =>
+  hydrate: (clientId, clientSecret, language, botAccountEnabled, preferredChatSender, startupEnabled, closeToTray) =>
     set({
       clientId,
       clientSecret,
       language: language === 'ar' ? 'ar' : language === 'en' ? 'en' : '',
       botAccountEnabled: botAccountEnabled ?? false,
+      preferredChatSender: preferredChatSender ?? 'bot',
       startupEnabled: startupEnabled ?? true,
       closeToTray: closeToTray ?? true,
       loaded: true,
@@ -108,9 +120,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ botAccountEnabled: enabled });
     persist(get);
   },
+  setPreferredChatSender: (sender) => {
+    set({ preferredChatSender: sender });
+    persist(get);
+  },
   setTheme: (theme) => {
-    set({ theme });
+    const nextLastDark = isDarkTheme(theme) ? theme : get().lastDarkTheme;
+    set({ theme, lastDarkTheme: nextLastDark });
     localStorage.setItem('streamer-hub-theme', theme);
+    if (isDarkTheme(theme)) {
+      localStorage.setItem('streamer-hub-last-dark-theme', theme);
+    }
   },
 }));
 

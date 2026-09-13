@@ -3,7 +3,7 @@ import type { LogKind } from '../rpc/contracts';
 import { clampInspectorWidth, DEFAULT_INSPECTOR_WIDTH, type CommandGroup } from '../lib/commandProjection';
 
 export type ToolId = 'home' | 'counter' | 'autoReplies' | 'chat' | 'feed' | 'settings';
-export type AppTab = 'commands' | 'overlay' | 'activity' | 'settings';
+export type AppTab = 'home' | 'commands' | 'overlay' | 'obs-chat' | 'activity' | 'settings';
 export type SettingsSection = 'general' | 'system' | 'keybinds' | 'twitch' | 'ai' | 'guide';
 
 interface ToolState {
@@ -30,11 +30,11 @@ interface ToolState {
 }
 
 const toolToTab = (tool: ToolId): AppTab =>
-  tool === 'chat' ? 'overlay' : tool === 'feed' ? 'activity' : tool === 'settings' ? 'settings' : 'commands';
+  tool === 'home' ? 'home' : tool === 'chat' ? 'overlay' : tool === 'feed' ? 'activity' : tool === 'settings' ? 'settings' : 'commands';
 
 export const useToolStore = create<ToolState>((set) => ({
   activeTool: 'home',
-  activeTab: 'commands',
+  activeTab: 'home',
   group: 'all',
   selected: [],
   query: '',
@@ -48,7 +48,20 @@ export const useToolStore = create<ToolState>((set) => ({
       : DEFAULT_INSPECTOR_WIDTH,
   ),
   setActiveTool: (activeTool) => set({ activeTool, activeTab: toolToTab(activeTool) }),
-  setTab: (activeTab) => set({ activeTab, activeTool: activeTab === 'overlay' ? 'chat' : activeTab === 'activity' ? 'feed' : activeTab === 'settings' ? 'settings' : 'home', menu: null }),
+  setTab: (activeTab) => set({
+    activeTab,
+    activeTool:
+      activeTab === 'home'
+        ? 'home'
+        : activeTab === 'overlay' || activeTab === 'obs-chat'
+          ? 'chat'
+          : activeTab === 'activity'
+            ? 'feed'
+            : activeTab === 'settings'
+              ? 'settings'
+              : 'counter',
+    menu: null,
+  }),
   setGroup: (group) => set({ group, selected: [], menu: null }),
   setSelected: (selected) => set({ selected, menu: null }),
   setQuery: (query) => set({ query }),

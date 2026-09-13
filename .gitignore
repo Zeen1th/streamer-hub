@@ -15,3 +15,5 @@ release/
 .impeccable/
 *.tsbuildinfo
 .worktrees/
+.deploy/
+.superpowers/

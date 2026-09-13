@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatOverlaySettings } from '../../../rpc/contracts';
-import { useChatOverlayStore } from '../../../store/chatOverlayStore';
+import { useChatStore } from './ChatTargetContext';
 
 /**
  * Undo/redo over settings snapshots.
@@ -12,9 +12,9 @@ import { useChatOverlayStore } from '../../../store/chatOverlayStore';
  * release.
  */
 export function useSettingsHistory(limit = 50) {
-  const settings = useChatOverlayStore((s) => s.settings);
-  const loadState = useChatOverlayStore((s) => s.loadState);
-  const updateSettings = useChatOverlayStore((s) => s.updateSettings);
+  const settings = useChatStore((s) => s.settings);
+  const loadState = useChatStore((s) => s.loadState);
+  const updateSettings = useChatStore((s) => s.updateSettings);
 
   const past = useRef<ChatOverlaySettings[]>([]);
   const future = useRef<ChatOverlaySettings[]>([]);

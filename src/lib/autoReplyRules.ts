@@ -1,3 +1,6 @@
+import { extractBaseTitle, hasCounterPattern, stripCounterFromTitle } from './counterRules.ts';
+import type { AiConditionRule, AiUserRestriction, ChatMessage } from '../rpc/contracts';
+
 export interface AutoReplyRule {
   id: string;
   trigger: string;
@@ -67,9 +70,42 @@ export function nextTitleCounters<T extends { count: number }>(counters: readonl
   return counters.map((counter) => ({ ...counter, count: Math.max(0, Math.trunc(counter.count) + delta) }));
 }
 
-export function renderStreamTitle(template: string, counts: number | Record<string, number>): string {
-  if (typeof counts === 'number') return template.replaceAll('{count}', String(Math.max(0, Math.trunc(counts))));
-  return template.replace(/\{(count\d+)\}/g, (_, token: string) => String(Math.max(0, Math.trunc(counts[token] ?? 0))));
+export function normalizeAutoReplyTemplate(template: string): string {
+  return template.replace(/\{count\d*\}/g, '{count}');
+}
+
+export function hasAutoReplyTitlePattern(rawTitle: string, template?: string | null): boolean {
+  if (!rawTitle?.trim() || !template?.trim()) return false;
+  return hasCounterPattern(rawTitle, normalizeAutoReplyTemplate(template));
+}
+
+export function stripAutoReplyFromTitle(rawTitle: string, template?: string | null): string {
+  if (!rawTitle?.trim()) return '';
+  if (!template?.trim()) return rawTitle.trim();
+  return stripCounterFromTitle(rawTitle, normalizeAutoReplyTemplate(template));
+}
+
+export function renderStreamTitle(
+  template: string,
+  counts: number | Record<string, number>,
+  currentTitle?: string | null,
+): string {
+  const normalized = normalizeAutoReplyTemplate(template);
+  const base = currentTitle ? extractBaseTitle(currentTitle, normalized) : '';
+  let rendered = template
+    .replaceAll('{current_title}', base)
+    .replaceAll('{title}', base);
+
+  if (typeof counts === 'number') {
+    return rendered.replaceAll('{count}', String(Math.max(0, Math.trunc(counts))));
+  }
+
+  rendered = rendered.replace(/\{(count\d+)\}/g, (_, token: string) => String(Math.max(0, Math.trunc(counts[token] ?? 0))));
+  if (rendered.includes('{count}')) {
+    const fallback = counts.count ?? counts.count1 ?? 0;
+    rendered = rendered.replaceAll('{count}', String(Math.max(0, Math.trunc(fallback))));
+  }
+  return rendered;
 }
 
 export function insertTemplateToken(value: string, token: string, cursor: number | null): string {
@@ -105,3 +141,97 @@ export function cooldownRemainingSeconds(
   const remaining = Math.ceil((lastTriggeredAt + cooldownSeconds * 1000 - now) / 1000);
   return remaining > 0 ? remaining : null;
 }
+
+export function normalizeUsername(username: string): string {
+  return username.trim().replace(/^@+/, '').toLowerCase();
+}
+
+export function checkUserRestriction(
+  restriction: AiUserRestriction | undefined,
+  targetUsers: readonly string[] | undefined,
+  username: string,
+): boolean {
+  if (!restriction || restriction === 'none') return true;
+  const cleanUser = normalizeUsername(username);
+  if (!cleanUser) return false;
+  const set = new Set((targetUsers ?? []).map(normalizeUsername).filter(Boolean));
+  if (restriction === 'allowlist') {
+    return set.has(cleanUser);
+  }
+  if (restriction === 'blocklist') {
+    return !set.has(cleanUser);
+  }
+  return true;
+}
+
+export interface AiConditionEvaluationResult {
+  action: 'proceed' | 'ignore' | 'static_reply';
+  instructions: string;
+  staticReply?: string;
+  matchedCondition?: AiConditionRule;
+}
+
+export function evaluateAiConditions(
+  conditions: readonly AiConditionRule[] | undefined,
+  message: ChatMessage,
+  defaultInstructions: string,
+): AiConditionEvaluationResult {
+  if (!conditions || conditions.length === 0) {
+    return { action: 'proceed', instructions: defaultInstructions };
+  }
+
+  const cleanUser = normalizeUsername(message.username);
+  const text = message.message.toLowerCase();
+
+  for (const condition of conditions) {
+    let matched = false;
+
+    if (condition.ifType === 'username') {
+      const targets = condition.ifValue
+        .split(/[,;\s]+/)
+        .map(normalizeUsername)
+        .filter(Boolean);
+      matched = targets.includes(cleanUser);
+    } else if (condition.ifType === 'role') {
+      const role = condition.ifValue.trim().toLowerCase();
+      if (role === 'broadcaster') matched = message.isBroadcaster;
+      else if (role === 'mod' || role === 'moderator') matched = message.isMod || message.isBroadcaster;
+      else if (role === 'vip') matched = message.isVip || message.isMod || message.isBroadcaster;
+      else if (role === 'subscriber' || role === 'sub') matched = message.isSubscriber || message.isMod || message.isBroadcaster;
+    } else if (condition.ifType === 'message_contains') {
+      const query = condition.ifValue.trim().toLowerCase();
+      if (query && text.includes(query)) {
+        matched = true;
+      }
+    }
+
+    if (matched) {
+      if (condition.thenType === 'ignore') {
+        return { action: 'ignore', instructions: '', matchedCondition: condition };
+      }
+      if (condition.thenType === 'static_reply') {
+        return { action: 'static_reply', instructions: '', staticReply: condition.thenValue, matchedCondition: condition };
+      }
+      if (condition.thenType === 'instructions') {
+        return { action: 'proceed', instructions: condition.thenValue || defaultInstructions, matchedCondition: condition };
+      }
+    }
+  }
+
+  return { action: 'proceed', instructions: defaultInstructions };
+}
+
+export function selectBestMatchingAutoReply<T extends {
+  enabled: boolean;
+  responseMode?: 'static' | 'ai';
+  aiUserRestriction?: AiUserRestriction;
+  aiTargetUsers?: string[];
+}>(candidates: readonly T[]): T | null {
+  if (!candidates.length) return null;
+  // Specific user targeted AI rules (allowlist) take precedence over general broadcast rules
+  const specificRule = candidates.find(
+    (r) => r.responseMode === 'ai' && r.aiUserRestriction === 'allowlist',
+  );
+  return specificRule ?? candidates[0];
+}
+

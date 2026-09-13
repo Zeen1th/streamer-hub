@@ -25,13 +25,25 @@ public sealed class ChatOverlayHostBridge
 
     public ChatOverlaySettings GetState() => _settings.ChatOverlay;
 
+    public ChatOverlaySettings GetObsChatState() => _settings.ObsChat;
+
     public string GetUrl() => _server.OverlayUrl?.ToString() ?? string.Empty;
+
+    public string GetDockUrl() => _server.DockUrl?.ToString() ?? string.Empty;
 
     public async Task<bool> SaveSettingsAsync(ChatOverlaySettings settings, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
         _settings.SetChatOverlay(settings);
-        await _server.UpdateSettingsAsync(_settings.ChatOverlay, cancellationToken).ConfigureAwait(false);
+        await _server.UpdateSettingsAsync(_settings.ChatOverlay, "overlay", cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> SaveObsChatSettingsAsync(ChatOverlaySettings settings, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        _settings.SetObsChat(settings);
+        await _server.UpdateSettingsAsync(_settings.ObsChat, "obs-chat", cancellationToken).ConfigureAwait(false);
         return true;
     }
 
@@ -51,6 +63,18 @@ public sealed class ChatOverlayHostBridge
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> providers,
         CancellationToken cancellationToken = default) =>
         await _server.PublishEmotesAsync(providers, cancellationToken).ConfigureAwait(false);
+
+    public async Task ReloadAsync(CancellationToken cancellationToken = default) =>
+        await _server.ReloadAsync("overlay", cancellationToken).ConfigureAwait(false);
+
+    public async Task ReloadObsChatAsync(CancellationToken cancellationToken = default) =>
+        await _server.ReloadAsync("obs-chat", cancellationToken).ConfigureAwait(false);
+
+    public async Task SetPreviewAsync(bool enabled, IReadOnlyList<ChatMessage>? sampleMessages = null, CancellationToken cancellationToken = default) =>
+        await _server.SetPreviewAsync(enabled, sampleMessages, "overlay", cancellationToken).ConfigureAwait(false);
+
+    public async Task SetObsChatPreviewAsync(bool enabled, IReadOnlyList<ChatMessage>? sampleMessages = null, CancellationToken cancellationToken = default) =>
+        await _server.SetPreviewAsync(enabled, sampleMessages, "obs-chat", cancellationToken).ConfigureAwait(false);
 }
 
 public sealed class HostController : IDisposable
@@ -61,23 +85,27 @@ public sealed class HostController : IDisposable
     private sealed record SaveKeybindsPayload(List<ActionKeybind>? Bindings);
     private sealed record ObsWritePayload(string FilePath, string Content);
     private sealed record SaveFilePayload(string DefaultName);
-    private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null, bool? StartupEnabled = null, bool? CloseToTray = null);
+    private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null, string? PreferredChatSender = null, bool? StartupEnabled = null, bool? CloseToTray = null);
     private sealed record SaveAutoReplyPayload(AutoReply? Rule);
     private sealed record SaveAutoReplySettingsPayload(AutoReplySettings? Settings);
     private sealed record DeleteAutoReplyPayload(string RuleId);
     private sealed record SendChatMessagePayload(string Message);
     private sealed record UpdateTitlePayload(string Title);
+    private sealed record CheckAvatarPayload(string? Username, string? UserId);
     private sealed record SaveOpenRouterPayload(string Provider, string? ApiKey);
-    private sealed record GenerateAutoReplyPayload(string RuleId, ChatMessage? Message, bool? Send = null);
-    private sealed record GenerateAutoReplyResponse(bool Ok, string? Message = null, bool UsedFallback = false, string? Error = null);
+    private sealed record GenerateAutoReplyPayload(string RuleId, ChatMessage? Message, bool? Send = null, string? OverrideInstructions = null);
+    private sealed record GenerateAutoReplyResponse(bool Ok, string? Message = null, bool UsedFallback = false, string? Error = null, string? SenderRole = null, string? SenderLogin = null);
     private sealed record UpdateCheckResponse(string CurrentVersion, string LatestVersion, bool UpdateAvailable, string ReleaseUrl, string? DownloadUrl = null, string? ReleaseNotes = null);
     private sealed record UpdateInstallPayload(string DownloadUrl);
     private sealed record BeginResizePayload(string Edge);
+    private sealed record SaveSequencePayload(CommandSequence? Sequence);
+    private sealed record DeleteSequencePayload(string SequenceId);
 
     private readonly MainForm _form;
     private readonly WebView2 _webView;
     private readonly CancellationToken _shutdown;
     private readonly SettingsStore _settings;
+    private readonly string _appData;
     private readonly ChatOverlayHostBridge _chatOverlay;
     private readonly ObsFileWriter _obs = new();
     private readonly TokenVault _tokens;
@@ -89,6 +117,9 @@ public sealed class HostController : IDisposable
     private const string UpdateRepository = "Zeen1th/streamer-hub";
     private readonly ITwitchClient _twitch = new TwitchIrcClient();
     private readonly ITwitchClient _botTwitch = new TwitchIrcClient();
+    private readonly TwitchEventSubClient _eventSub = new();
+    private readonly HashSet<string> _seenRedemptionIds = new(StringComparer.Ordinal);
+    private readonly object _seenRedemptionsLock = new();
     private readonly TwitchUserProfileCache _twitchUserProfiles = new();
     private readonly EmoteRegistry _emotes = new();
     private const int ProfileBatchSize = 100;
@@ -120,6 +151,7 @@ public sealed class HostController : IDisposable
         _webView = webView;
         _shutdown = shutdown;
         _settings = settings;
+        _appData = appData;
         _chatOverlay = new ChatOverlayHostBridge(settings, chatOverlayServer);
         _tokens = new TokenVault(Path.Combine(appData, "token.bin"));
         _botTokens = new TokenVault(Path.Combine(appData, "bot-token.bin"));
@@ -131,6 +163,7 @@ public sealed class HostController : IDisposable
         WireTwitch();
         WireBotState();
         RefreshKeybinds();
+        chatOverlayServer.ChatSendRequested += async msg => await SendChatMessageCoreAsync(msg).ConfigureAwait(false);
     }
 
     private string Lang => _settings.Language == "ar" ? "ar" : "en";
@@ -283,6 +316,7 @@ public sealed class HostController : IDisposable
         _dispatcher.Register(Channels.TwitchForget, (_, _) =>
         {
             _tokens.Delete();
+            _eventSub.Disconnect();
             _twitch.Disconnect();
             _botTwitch.Disconnect();
             _botLogin = string.Empty;
@@ -306,7 +340,7 @@ public sealed class HostController : IDisposable
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
-            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, startupEnabled = _settings.StartupEnabled, closeToTray = _settings.CloseToTray ?? true }));
+            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, preferredChatSender = _settings.PreferredChatSender, startupEnabled = _settings.StartupEnabled, closeToTray = _settings.CloseToTray ?? true }));
         _dispatcher.Register(Channels.ChatOverlayGetState, (_, _) =>
             Task.FromResult<object?>(_chatOverlay.GetState()));
         _dispatcher.Register(Channels.ChatOverlaySaveSettings, async (payload, ct) =>
@@ -314,10 +348,23 @@ public sealed class HostController : IDisposable
             var settings = Json.Deserialize<ChatOverlaySettings>(payload ?? default);
             if (settings is null) return new { ok = false };
             var ok = await _chatOverlay.SaveSettingsAsync(settings, ct).ConfigureAwait(false);
+            if (ok) _settings.Flush();
             return new { ok };
         });
         _dispatcher.Register(Channels.ChatOverlayGetUrl, (_, _) =>
-            Task.FromResult<object?>(new { url = _chatOverlay.GetUrl() }));
+            Task.FromResult<object?>(new { url = _chatOverlay.GetUrl(), dockUrl = _chatOverlay.GetDockUrl() }));
+        _dispatcher.Register(Channels.ObsChatGetState, (_, _) =>
+            Task.FromResult<object?>(_chatOverlay.GetObsChatState()));
+        _dispatcher.Register(Channels.ObsChatSaveSettings, async (payload, ct) =>
+        {
+            var settings = Json.Deserialize<ChatOverlaySettings>(payload ?? default);
+            if (settings is null) return new { ok = false };
+            var ok = await _chatOverlay.SaveObsChatSettingsAsync(settings, ct).ConfigureAwait(false);
+            if (ok) _settings.Flush();
+            return new { ok };
+        });
+        _dispatcher.Register(Channels.ObsChatGetUrl, (_, _) =>
+            Task.FromResult<object?>(new { url = _chatOverlay.GetDockUrl() }));
         _dispatcher.Register(Channels.SystemListFonts, (_, _) =>
             Task.FromResult<object?>(new { fonts = InstalledFontCatalog.GetFamilies() }));
         _dispatcher.Register(Channels.SettingsSave, (payload, _) =>
@@ -335,6 +382,10 @@ public sealed class HostController : IDisposable
             {
                 _settings.SetCloseToTray(request.CloseToTray.Value);
             }
+            if (!string.IsNullOrWhiteSpace(request.PreferredChatSender))
+            {
+                _settings.SetPreferredChatSender(request.PreferredChatSender);
+            }
             if (request.BotAccountEnabled.HasValue)
             {
                 _settings.SetBotAccountEnabled(request.BotAccountEnabled.Value);
@@ -345,6 +396,7 @@ public sealed class HostController : IDisposable
                 }
                 else _botTwitch.Disconnect();
             }
+            EmitStatus();
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.OpenRouterGetState, (_, _) =>
@@ -404,10 +456,20 @@ public sealed class HostController : IDisposable
                 AiUserCooldownSeconds = Math.Clamp(request.Rule.AiUserCooldownSeconds, 0, 3600),
                 ResponseMode = request.Rule.ResponseMode == "ai" ? "ai" : "static",
                 AiInstructions = aiInstructions[..Math.Min(aiInstructions.Length, 2000)],
-                AiModel = string.IsNullOrWhiteSpace(aiModel) ? (request.Rule.AiProvider == "groq" ? "openai/gpt-oss-20b" : "meta-llama/llama-3.2-3b-instruct:free") : aiModel[..Math.Min(aiModel.Length, 120)],
-                AiProvider = request.Rule.AiProvider == "groq" ? "groq" : "openrouter",
+                AiModel = string.IsNullOrWhiteSpace(aiModel) ? (request.Rule.AiProvider == "openrouter" ? "meta-llama/llama-3.2-3b-instruct:free" : "llama-3.1-8b-instant") : aiModel[..Math.Min(aiModel.Length, 120)],
+                AiProvider = request.Rule.AiProvider == "openrouter" ? "openrouter" : "groq",
                 AiMaxTokens = Math.Clamp(request.Rule.AiMaxTokens, 40, 240),
                 AiFallback = aiFallback[..Math.Min(aiFallback.Length, 500)],
+                AiUserRestriction = request.Rule.AiUserRestriction is "allowlist" or "blocklist" ? request.Rule.AiUserRestriction : "none",
+                AiTargetUsers = request.Rule.AiTargetUsers?.Select(u => u.Trim().TrimStart('@')).Where(u => u.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new(),
+                AiConditions = request.Rule.AiConditions?.Select(c => c with
+                {
+                    Id = string.IsNullOrWhiteSpace(c.Id) ? Guid.NewGuid().ToString() : c.Id,
+                    IfType = c.IfType is "username" or "role" or "message_contains" ? c.IfType : "username",
+                    IfValue = c.IfValue?.Trim() ?? string.Empty,
+                    ThenType = c.ThenType is "instructions" or "static_reply" or "ignore" ? c.ThenType : "instructions",
+                    ThenValue = c.ThenValue?.Trim() ?? string.Empty,
+                }).ToList() ?? new(),
             });
             RefreshKeybinds();
             return Task.FromResult<object?>(new { ok = true });
@@ -421,18 +483,47 @@ public sealed class HostController : IDisposable
             RefreshKeybinds();
             return Task.FromResult<object?>(new { ok = true });
         });
+        _dispatcher.Register(Channels.SequencesGetState, (_, _) => Task.FromResult<object?>(_settings.Sequences));
+        _dispatcher.Register(Channels.SequencesSave, (payload, _) =>
+        {
+            var request = Json.Deserialize<SaveSequencePayload>(payload ?? default);
+            if (request?.Sequence is null || string.IsNullOrWhiteSpace(request.Sequence.Id))
+                return Task.FromResult<object?>(new { ok = false });
+            _settings.SaveSequence(request.Sequence);
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.SequencesDelete, (payload, _) =>
+        {
+            var request = Json.Deserialize<DeleteSequencePayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.SequenceId))
+                return Task.FromResult<object?>(new { ok = false });
+            _settings.DeleteSequence(request.SequenceId);
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.TwitchChannelPointsGetRewards, async (_, ct) =>
+        {
+            if (_twitch.State != TwitchState.Connected)
+                return new { ok = false, rewards = Array.Empty<TwitchRewardInfo>(), error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.GetCustomRewardsAsync(ct).ConfigureAwait(false);
+            return new { ok = result.Ok, rewards = result.Rewards, error = result.Error };
+        });
         _dispatcher.Register(Channels.TwitchSendChatMessage, async (payload, _) =>
         {
             var request = Json.Deserialize<SendChatMessagePayload>(payload ?? default);
             if (request is null || string.IsNullOrWhiteSpace(request.Message))
                 return new { ok = false, error = "EMPTY MESSAGE" };
+            var (_, senderRole, senderLogin) = ResolveActiveChatSender();
             var ok = await SendChatMessageCoreAsync(request.Message).ConfigureAwait(false);
-            return new { ok, error = ok ? null : "TWITCH CHAT IS NOT CONNECTED" };
+            return new { ok, senderRole, senderLogin, error = ok ? null : "TWITCH CHAT IS NOT CONNECTED" };
         });
         _dispatcher.Register(Channels.TwitchGetTitle, async (_, _) =>
         {
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
             var result = await _twitch.GetChannelTitleAsync().ConfigureAwait(false);
+            if (result.Ok && !string.IsNullOrWhiteSpace(result.Title))
+            {
+                await WriteTitleFileAsync(result.Title).ConfigureAwait(false);
+            }
             return new { ok = result.Ok, title = result.Title, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchUpdateTitle, async (payload, _) =>
@@ -441,8 +532,170 @@ public sealed class HostController : IDisposable
             if (request is null || string.IsNullOrWhiteSpace(request.Title)) return new { ok = false, error = "EMPTY TITLE" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
             var result = await _twitch.UpdateChannelTitleAsync(request.Title).ConfigureAwait(false);
-            if (!result.Ok) Log("system", $"TWITCH TITLE UPDATE FAILED · {result.Error ?? "UNKNOWN ERROR"} · RECONNECT TWITCH IF THE TOKEN PREDATES TITLE PERMISSION");
+            if (result.Ok)
+            {
+                await WriteTitleFileAsync(request.Title).ConfigureAwait(false);
+                PostEvent(Events.TwitchTitleChanged, new { title = request.Title });
+            }
+            else
+            {
+                Log("system", $"TWITCH TITLE UPDATE FAILED · {result.Error ?? "UNKNOWN ERROR"} · RECONNECT TWITCH IF THE TOKEN PREDATES TITLE PERMISSION");
+            }
             return new { ok = result.Ok, error = result.Ok ? null : result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchGetTitleFilePath, (_, _) =>
+        {
+            var titlePath = Path.Combine(_appData, "title.txt");
+            return Task.FromResult<object?>(new { path = titlePath });
+        });
+        _dispatcher.Register(Channels.TwitchCheckAvatar, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<CheckAvatarPayload>(payload ?? default);
+            var target = request?.Username ?? request?.UserId;
+            if (_twitch.State != TwitchState.Connected)
+            {
+                return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            }
+            var result = await _twitch.CheckUserProfileAsync(target, ct).ConfigureAwait(false);
+            if (result.Ok && !string.IsNullOrWhiteSpace(result.UserId) && !string.IsNullOrWhiteSpace(result.AvatarUrl))
+            {
+                _twitchUserProfiles.Set(result.UserId, result.AvatarUrl);
+                PostEvent(Events.TwitchUserProfile, new { userId = result.UserId, avatarUrl = result.AvatarUrl });
+                await _chatOverlay.PublishProfileAsync(result.UserId, result.AvatarUrl, null, ct).ConfigureAwait(false);
+            }
+            return new
+            {
+                ok = result.Ok,
+                userId = result.UserId,
+                username = result.Login,
+                displayName = result.DisplayName,
+                avatarUrl = result.AvatarUrl,
+                error = result.Error,
+            };
+        });
+        _dispatcher.Register(Channels.TwitchModerationCheckMod, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, isMod = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, isMod = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.CheckIsModeratorAsync(request.Target, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, isMod = result.IsMod, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationTimeout, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationTimeoutPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var duration = request.DurationSeconds.GetValueOrDefault(60);
+            var result = await _twitch.TimeoutUserAsync(request.Target, duration, request.Reason, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationSmartTimeout, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationSmartTimeoutPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, wasMod = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, wasMod = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var duration = request.DurationSeconds.GetValueOrDefault(60);
+            var result = await _twitch.SmartModTimeoutAsync(request.Target, duration, request.Reason, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, wasMod = result.WasMod, target = result.TargetUser, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationBan, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationBanPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.BanUserAsync(request.Target, request.Reason, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationUnban, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.UnbanUserAsync(request.Target, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationMod, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.ModUserAsync(request.Target, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationUnmod, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.UnmodUserAsync(request.Target, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationVip, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.VipUserAsync(request.Target, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationUnvip, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.UnvipUserAsync(request.Target, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationClear, async (_, ct) =>
+        {
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.ClearChatAsync(ct).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchModerationShoutout, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.SendShoutoutAsync(request.Target, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.ChatOverlayTestMessage, async (payload, ct) =>
+        {
+            var message = Json.Deserialize<ChatMessage>(payload ?? default);
+            if (message is null) return new { ok = false, error = "EMPTY_MESSAGE" };
+            var msg = message with
+            {
+                Id = string.IsNullOrWhiteSpace(message.Id) ? $"test-{Guid.NewGuid():N}" : message.Id,
+                Timestamp = string.IsNullOrWhiteSpace(message.Timestamp) ? DateTime.UtcNow.ToString("O") : message.Timestamp,
+            };
+            await PublishChatOverlayMessageAsync(msg).ConfigureAwait(false);
+            return new { ok = true };
+        });
+        _dispatcher.Register(Channels.ChatOverlayReload, async (_, ct) =>
+        {
+            await _chatOverlay.ReloadAsync(ct).ConfigureAwait(false);
+            return new { ok = true };
+        });
+        _dispatcher.Register(Channels.ChatOverlaySetPreview, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ChatOverlaySetPreviewPayload>(payload ?? default);
+            var enabled = request?.Enabled ?? false;
+            await _chatOverlay.SetPreviewAsync(enabled, request?.Messages, ct).ConfigureAwait(false);
+            return new { ok = true };
+        });
+        _dispatcher.Register(Channels.ObsChatReload, async (_, ct) =>
+        {
+            await _chatOverlay.ReloadObsChatAsync(ct).ConfigureAwait(false);
+            return new { ok = true };
+        });
+        _dispatcher.Register(Channels.ObsChatSetPreview, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ChatOverlaySetPreviewPayload>(payload ?? default);
+            var enabled = request?.Enabled ?? false;
+            await _chatOverlay.SetObsChatPreviewAsync(enabled, request?.Messages, ct).ConfigureAwait(false);
+            return new { ok = true };
         });
         _dispatcher.Register(Channels.AutoRepliesGenerate, async (payload, ct) =>
         {
@@ -460,24 +713,28 @@ public sealed class HostController : IDisposable
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown);
             timeout.CancelAfter(TimeSpan.FromSeconds(25));
-            var generated = await _openRouter.GenerateAsync(provider, key, rule.AiModel, rule.AiInstructions, request.Message, rule.AiMaxTokens, timeout.Token).ConfigureAwait(false);
+            var effectiveInstructions = !string.IsNullOrWhiteSpace(request.OverrideInstructions)
+                ? request.OverrideInstructions
+                : rule.AiInstructions;
+            var generated = await _openRouter.GenerateAsync(provider, key, rule.AiModel, effectiveInstructions, request.Message, rule.AiMaxTokens, timeout.Token).ConfigureAwait(false);
+            var (_, senderRole, senderLogin) = ResolveActiveChatSender();
             if (!generated.Ok || string.IsNullOrWhiteSpace(generated.Message))
             {
                 Log("system", $"AI reply failed ({provider}) · {generated.Error ?? "EMPTY RESPONSE"}");
                 var fallback = rule.AiFallback.Trim();
                 if (string.IsNullOrWhiteSpace(fallback))
-                    return new GenerateAutoReplyResponse(false, Error: generated.Error ?? "AI DID NOT RETURN A MESSAGE");
-                if (!shouldSend) return new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error);
+                    return new GenerateAutoReplyResponse(false, Error: generated.Error ?? "AI DID NOT RETURN A MESSAGE", SenderRole: senderRole, SenderLogin: senderLogin);
+                if (!shouldSend) return new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error, SenderRole: senderRole, SenderLogin: senderLogin);
                 var fallbackOk = await SendChatMessageCoreAsync(fallback).ConfigureAwait(false);
                 return fallbackOk
-                    ? new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error)
-                    : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED");
+                    ? new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error, SenderRole: senderRole, SenderLogin: senderLogin)
+                    : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED", SenderRole: senderRole, SenderLogin: senderLogin);
             }
-            if (!shouldSend) return new GenerateAutoReplyResponse(true, generated.Message);
+            if (!shouldSend) return new GenerateAutoReplyResponse(true, generated.Message, SenderRole: senderRole, SenderLogin: senderLogin);
             var sent = await SendChatMessageCoreAsync(generated.Message).ConfigureAwait(false);
             return sent
-                ? new GenerateAutoReplyResponse(true, generated.Message)
-                : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED");
+                ? new GenerateAutoReplyResponse(true, generated.Message, SenderRole: senderRole, SenderLogin: senderLogin)
+                : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED", SenderRole: senderRole, SenderLogin: senderLogin);
         });
     }
 
@@ -639,12 +896,58 @@ public sealed class HostController : IDisposable
             Log("system", CoreStrings.L(Lang, "chat-relayed") + $"{publishedMessage.Username}: {publishedMessage.Message}");
             PostEvent(Events.TwitchChatMessage, publishedMessage);
             _ = PublishChatOverlayMessageAsync(publishedMessage);
+            if (!string.IsNullOrWhiteSpace(publishedMessage.CustomRewardId))
+            {
+                var redemptionId = $"irc-{publishedMessage.Id}";
+                bool isNew;
+                lock (_seenRedemptionsLock)
+                {
+                    isNew = _seenRedemptionIds.Add(redemptionId);
+                }
+                if (isNew)
+                {
+                    var redemption = new ChannelPointsRedemption
+                    {
+                        Id = redemptionId,
+                        RewardId = publishedMessage.CustomRewardId,
+                        RewardTitle = string.Empty,
+                        UserId = publishedMessage.UserId ?? string.Empty,
+                        UserName = publishedMessage.Username,
+                        UserLogin = publishedMessage.Username.ToLowerInvariant(),
+                        UserInput = publishedMessage.Message,
+                        RedeemedAt = publishedMessage.Timestamp,
+                    };
+                    PostEvent(Events.TwitchChannelPointsRedeemed, redemption);
+                    Log("trigger", $"CHANNEL POINTS REDEEMED (CHAT) · {publishedMessage.Username} (Reward ID: {publishedMessage.CustomRewardId})");
+                }
+            }
             if (!string.IsNullOrWhiteSpace(message.UserId) && !_twitchUserProfiles.TryGet(message.UserId, out _))
             {
                 QueueTwitchUserProfile(message.UserId, message.Username);
             }
         };
         _twitch.ChatCleared += clear => _ = PublishChatClearAsync(clear);
+        _eventSub.ChannelPointsRedeemed += redemption =>
+        {
+            bool isNew;
+            lock (_seenRedemptionsLock)
+            {
+                isNew = _seenRedemptionIds.Add(redemption.Id);
+            }
+            if (isNew)
+            {
+                PostEvent(Events.TwitchChannelPointsRedeemed, redemption);
+                Log("trigger", $"CHANNEL POINTS REDEEMED · {redemption.UserName} redeemed '{redemption.RewardTitle}'");
+            }
+        };
+        _eventSub.ChannelTitleUpdated += updatedTitle =>
+        {
+            if (string.IsNullOrWhiteSpace(updatedTitle)) return;
+            _twitch.SetLastKnownTitle(updatedTitle);
+            _ = WriteTitleFileAsync(updatedTitle);
+            PostEvent(Events.TwitchTitleChanged, new { title = updatedTitle });
+        };
+        _eventSub.LogMessage += msg => Log("system", msg);
         _twitch.Info += info =>
         {
             var message = info.Key switch
@@ -671,6 +974,19 @@ public sealed class HostController : IDisposable
             _ = SetChatOverlayConnectedAsync(state == TwitchState.Connected);
             EmitStatus();
         };
+    }
+
+    private async Task WriteTitleFileAsync(string title)
+    {
+        try
+        {
+            var titlePath = Path.Combine(_appData, "title.txt");
+            await _obs.WriteAsync(titlePath, title, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log("system", $"FAILED TO WRITE TITLE FILE: {ex.Message}");
+        }
     }
 
     private void WireBotState()
@@ -714,6 +1030,16 @@ public sealed class HostController : IDisposable
         }
     }
 
+    private (ITwitchClient client, string senderRole, string senderLogin) ResolveActiveChatSender()
+    {
+        var preferBot = _settings.PreferredChatSender != "broadcaster";
+        if (preferBot && _settings.BotAccountEnabled && _botTwitch.State == TwitchState.Connected)
+        {
+            return (_botTwitch, "bot", _botLogin);
+        }
+        return (_twitch, "broadcaster", _twitchChannel);
+    }
+
     private async Task<bool> SendChatMessageCoreAsync(string message)
     {
         if (string.IsNullOrWhiteSpace(message)) return false;
@@ -723,7 +1049,7 @@ public sealed class HostController : IDisposable
             var elapsed = DateTime.UtcNow - _lastChatSentAt;
             if (elapsed < TimeSpan.FromSeconds(1))
                 await Task.Delay(TimeSpan.FromSeconds(1) - elapsed).ConfigureAwait(false);
-            var chatClient = _settings.BotAccountEnabled && _botTwitch.State == TwitchState.Connected ? _botTwitch : _twitch;
+            var (chatClient, _, _) = ResolveActiveChatSender();
             var ok = await chatClient.SendChatMessageAsync(message.Trim()).ConfigureAwait(false);
             if (ok) _lastChatSentAt = DateTime.UtcNow;
             return ok;
@@ -734,17 +1060,24 @@ public sealed class HostController : IDisposable
         }
     }
 
-    private object BuildStatus() => new ConnectionStatus
+    private object BuildStatus()
     {
-        CoreConnected = true,
-        CoreVersion = typeof(HostController).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
-        TwitchConnected = _twitch.State == TwitchState.Connected,
-        TwitchChannel = _twitchChannel,
-        AuthRequired = _authRequired,
-        BotAccountEnabled = _settings.BotAccountEnabled,
-        BotConnected = _botTwitch.State == TwitchState.Connected,
-        BotLogin = _botLogin,
-    };
+        var (_, activeRole, activeLogin) = ResolveActiveChatSender();
+        return new ConnectionStatus
+        {
+            CoreConnected = true,
+            CoreVersion = typeof(HostController).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
+            TwitchConnected = _twitch.State == TwitchState.Connected,
+            TwitchChannel = _twitchChannel,
+            AuthRequired = _authRequired,
+            BotAccountEnabled = _settings.BotAccountEnabled,
+            BotConnected = _botTwitch.State == TwitchState.Connected,
+            BotLogin = _botLogin,
+            PreferredChatSender = _settings.PreferredChatSender,
+            ActiveChatSender = activeRole,
+            ActiveChatSenderLogin = activeLogin,
+        };
+    }
 
     private async Task<UpdateCheckResponse> CheckForUpdateAsync(CancellationToken ct)
     {
@@ -885,6 +1218,7 @@ public sealed class HostController : IDisposable
         if (!string.IsNullOrWhiteSpace(broadcasterUserId))
         {
             _ = RefreshEmotesAsync(broadcasterUserId);
+            _eventSub.Connect(tokens.AccessToken, broadcasterUserId);
         }
         if (_settings.BotAccountEnabled)
         {
@@ -1050,6 +1384,7 @@ public sealed class HostController : IDisposable
     {
         try
         {
+            _eventSub.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _twitch.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _botTwitch.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }

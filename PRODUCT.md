@@ -57,5 +57,8 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
   - Moderator deletions, timeouts, and chat clears remove messages from the overlay immediately.
 - **Settings & UI**:
   - Sectioned navigation: General, Twitch Connection, Bot Account, Appearance, and Step-by-Step Setup Guide.
+  - High-contrast, unwashed dark themes: Solar Amber, Abyss Sapphire, Midnight Violet, Tokyo Rose, and Crimson Dark.
+  - Generously scaled 116% interface with enlarged typography for optimal legibility during live streaming.
   - Full English and Arabic localization with Cairo typography and stable LTR shell controls.
+
 

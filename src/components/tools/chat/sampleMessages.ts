@@ -1,5 +1,10 @@
 import { CHAT_OVERLAY_AVATAR_FALLBACK, type NormalizedChatOverlayMessage } from '../../../lib/chatOverlay';
 
+function makeSampleAvatar(bg1: string, bg2: string, letter: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><defs><linearGradient id="g_${letter}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${bg1}"/><stop offset="100%" stop-color="${bg2}"/></linearGradient></defs><rect width="100" height="100" rx="50" fill="url(#g_${letter})"/><text x="50" y="54" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, sans-serif" font-weight="700" font-size="44" fill="#ffffff">${letter}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 type Sample = Omit<NormalizedChatOverlayMessage, 'avatarUrl' | 'timestamp'> & { avatarUrl?: string };
 
 function build(sample: Sample): NormalizedChatOverlayMessage {
@@ -25,6 +30,7 @@ export function editSampleMessages(lang: 'en' | 'ar'): NormalizedChatOverlayMess
       id: 'sample-broadcaster',
       username: 'zeen1_th',
       userId: 'sample-1',
+      avatarUrl: makeSampleAvatar('#f43f5e', '#be123c', 'Z'),
       isBroadcaster: true,
       isMod: false,
       isVip: false,
@@ -37,6 +43,7 @@ export function editSampleMessages(lang: 'en' | 'ar'): NormalizedChatOverlayMess
       id: 'sample-long',
       username: 'VeryLongUsernameHere',
       userId: 'sample-2',
+      avatarUrl: makeSampleAvatar('#0284c7', '#0369a1', 'V'),
       isBroadcaster: false,
       isMod: false,
       isVip: false,
@@ -50,6 +57,7 @@ export function editSampleMessages(lang: 'en' | 'ar'): NormalizedChatOverlayMess
       id: 'sample-rtl',
       username: 'basil_ar',
       userId: 'sample-3',
+      avatarUrl: makeSampleAvatar('#16a34a', '#15803d', 'B'),
       isBroadcaster: false,
       isMod: true,
       isVip: false,
@@ -62,6 +70,7 @@ export function editSampleMessages(lang: 'en' | 'ar'): NormalizedChatOverlayMess
       id: 'sample-mixed',
       username: 'mixed_dir',
       userId: 'sample-4',
+      avatarUrl: makeSampleAvatar('#d946ef', '#c026d3', 'M'),
       isBroadcaster: false,
       isMod: false,
       isVip: true,
@@ -74,6 +83,7 @@ export function editSampleMessages(lang: 'en' | 'ar'): NormalizedChatOverlayMess
       id: 'sample-emote-only',
       username: 'emoteFan',
       userId: 'sample-5',
+      avatarUrl: makeSampleAvatar('#8b5cf6', '#7c3aed', 'E'),
       isBroadcaster: false,
       isMod: false,
       isVip: false,
@@ -102,6 +112,7 @@ export function editSampleMessages(lang: 'en' | 'ar'): NormalizedChatOverlayMess
       id: 'sample-short',
       username: 'lurker',
       userId: 'sample-7',
+      avatarUrl: makeSampleAvatar('#f59e0b', '#d97706', 'L'),
       isBroadcaster: false,
       isMod: false,
       isVip: false,

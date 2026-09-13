@@ -137,12 +137,20 @@
   letter-spacing: var(--co-username-spacing);
   text-transform: var(--co-username-transform);
   color: var(--co-username-custom, var(--co-role-color));
-  line-height: 1.1;
+  line-height: 1.35;
+  padding-bottom: 3px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   unicode-bidi: isolate;
   display: inline-block;
+  vertical-align: middle;
+}
+
+:is([data-card-dir='rtl'], [data-dir='rtl']) .co-username,
+.co-username[dir='rtl'],
+:lang(ar) .co-username {
+  letter-spacing: normal !important;
 }
 
 .co-badge {
@@ -151,14 +159,21 @@
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 0.1em 0.5em;
+  padding: 0.15em 0.5em 0.25em;
   border-radius: 0.4em;
   border: 1px solid var(--co-role-color);
   color: var(--co-role-color);
   background: transparent;
-  line-height: 1.2;
+  line-height: 1.35;
   unicode-bidi: isolate;
   display: inline-block;
+  vertical-align: middle;
+}
+
+:is([data-card-dir='rtl'], [data-dir='rtl']) .co-badge,
+.co-badge[dir='rtl'],
+:lang(ar) .co-badge {
+  letter-spacing: normal !important;
 }
 
 .co-text {
@@ -185,6 +200,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding-bottom: 2px;
 }
 
 /* Inline username sits before the text rather than on its own line. */

@@ -45,6 +45,7 @@ export interface ChatOverlayState {
   serverState: ServerState;
   loadState: LoadState;
   saveState: SaveState;
+  obsPreviewEnabled: boolean;
   hydrate(settings: Partial<ChatOverlaySettings>, overlayUrl?: string): void;
   setCoreConnected(connected: boolean): void;
   addMessage(message: Partial<ChatMessage>): void;
@@ -55,7 +56,13 @@ export interface ChatOverlayState {
   /** Moderation: remove one message, every message from a user, or all. */
   clearByScope(scope: 'message' | 'user' | 'all', id?: string): void;
   updateSettings(patch: DeepPartial<ChatOverlaySettings>): Promise<void>;
+  saveNow(): Promise<boolean>;
   load(): Promise<void>;
+  setObsPreviewEnabled(
+    enabled: boolean,
+    sampleMessages?: readonly (NormalizedChatOverlayMessage | ChatMessage)[],
+  ): Promise<void>;
+  reloadObs(): Promise<boolean>;
 }
 
 export type DeepPartial<T> = {
@@ -66,11 +73,13 @@ export interface ChatOverlayStoreDeps {
   loadSettings: () => Promise<ChatOverlaySettings>;
   saveSettings: (settings: ChatOverlaySettings) => Promise<boolean>;
   getOverlayUrl: () => Promise<string>;
+  setPreview?: (enabled: boolean, sampleMessages?: readonly (NormalizedChatOverlayMessage | ChatMessage)[]) => Promise<void>;
+  reloadObs?: () => Promise<boolean>;
   schedule: (callback: () => void, ms: number) => number;
   cancel: (id: number) => void;
 }
 
-const defaultDeps: ChatOverlayStoreDeps = {
+export const defaultOverlayDeps: ChatOverlayStoreDeps = {
   loadSettings: async () => {
     const { rpc } = await import('../rpc');
     return await rpc.invoke(Channels.ChatOverlayGetState);
@@ -84,6 +93,60 @@ const defaultDeps: ChatOverlayStoreDeps = {
     const { rpc } = await import('../rpc');
     const res = await rpc.invoke(Channels.ChatOverlayGetUrl);
     return res.url;
+  },
+  setPreview: async (enabled, sampleMessages) => {
+    const { rpc } = await import('../rpc');
+    await rpc.invoke(Channels.ChatOverlaySetPreview, {
+      enabled,
+      messages: enabled && sampleMessages ? (sampleMessages as ChatMessage[]) : undefined,
+    });
+  },
+  reloadObs: async () => {
+    const { rpc } = await import('../rpc');
+    const res = await rpc.invoke(Channels.ChatOverlayReload);
+    return Boolean(res.ok);
+  },
+  schedule: (cb, ms) => {
+    if (typeof window !== 'undefined') {
+      return window.setTimeout(cb, ms);
+    }
+    return setTimeout(cb, ms) as unknown as number;
+  },
+  cancel: (id) => {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(id);
+    } else {
+      clearTimeout(id);
+    }
+  },
+};
+
+export const defaultObsChatDeps: ChatOverlayStoreDeps = {
+  loadSettings: async () => {
+    const { rpc } = await import('../rpc');
+    return await rpc.invoke(Channels.ObsChatGetState);
+  },
+  saveSettings: async (settings: ChatOverlaySettings) => {
+    const { rpc } = await import('../rpc');
+    const res = await rpc.invoke(Channels.ObsChatSaveSettings, settings);
+    return res.ok;
+  },
+  getOverlayUrl: async () => {
+    const { rpc } = await import('../rpc');
+    const res = await rpc.invoke(Channels.ObsChatGetUrl);
+    return res.url;
+  },
+  setPreview: async (enabled, sampleMessages) => {
+    const { rpc } = await import('../rpc');
+    await rpc.invoke(Channels.ObsChatSetPreview, {
+      enabled,
+      messages: enabled && sampleMessages ? (sampleMessages as ChatMessage[]) : undefined,
+    });
+  },
+  reloadObs: async () => {
+    const { rpc } = await import('../rpc');
+    const res = await rpc.invoke(Channels.ObsChatReload);
+    return Boolean(res.ok);
   },
   schedule: (cb, ms) => {
     if (typeof window !== 'undefined') {
@@ -110,15 +173,44 @@ export function selectVisibleChatMessages(state: { settings: ChatOverlaySettings
 export function createChatOverlayStore(
   customDeps?: Partial<ChatOverlayStoreDeps>,
 ): UseBoundStore<StoreApi<ChatOverlayState>> {
-  const deps: ChatOverlayStoreDeps = { ...defaultDeps, ...customDeps };
+  const deps: ChatOverlayStoreDeps = { ...defaultOverlayDeps, ...customDeps };
 
-  return create<ChatOverlayState>((set, get) => ({
-    settings: DEFAULT_CHAT_OVERLAY_SETTINGS,
-    messages: [],
-    overlayUrl: '',
+  let activeSave: Promise<boolean> | null = null;
+  let queuedSettings: ChatOverlaySettings | null = null;
+
+  return create<ChatOverlayState>((set, get) => {
+    const flushSave = async (settingsToSave: ChatOverlaySettings): Promise<boolean> => {
+      queuedSettings = settingsToSave;
+      if (activeSave) {
+        return activeSave;
+      }
+
+      set({ saveState: 'saving' });
+      let lastResult = false;
+      while (queuedSettings !== null) {
+        const nextBatch = queuedSettings;
+        queuedSettings = null;
+        try {
+          activeSave = deps.saveSettings(nextBatch);
+          lastResult = await activeSave;
+        } catch {
+          lastResult = false;
+        } finally {
+          activeSave = null;
+        }
+      }
+      set({ saveState: lastResult ? 'saved' : 'error' });
+      return lastResult;
+    };
+
+    return {
+      settings: DEFAULT_CHAT_OVERLAY_SETTINGS,
+      messages: [],
+      overlayUrl: '',
     serverState: 'idle',
     loadState: 'idle',
     saveState: 'idle',
+    obsPreviewEnabled: false,
 
     hydrate: (settings, overlayUrl) => {
       const normalized = normalizeChatOverlaySettings(settings);
@@ -241,14 +333,12 @@ export function createChatOverlayStore(
     updateSettings: async (patch) => {
       const current = get().settings;
       const normalized = normalizeChatOverlaySettings(deepMerge(current, patch));
-      set({ settings: normalized, saveState: 'saving' });
+      set({ settings: normalized });
+      await flushSave(normalized);
+    },
 
-      try {
-        const ok = await deps.saveSettings(normalized);
-        set({ saveState: ok ? 'saved' : 'error' });
-      } catch {
-        set({ saveState: 'error' });
-      }
+    saveNow: async () => {
+      return await flushSave(get().settings);
     },
 
     load: async () => {
@@ -273,7 +363,40 @@ export function createChatOverlayStore(
         });
       }
     },
-  }));
+
+    setObsPreviewEnabled: async (enabled, sampleMessages) => {
+      set({ obsPreviewEnabled: enabled });
+      try {
+        if (deps.setPreview) {
+          await deps.setPreview(enabled, sampleMessages);
+        } else {
+          const { rpc } = await import('../rpc');
+          await rpc.invoke(Channels.ChatOverlaySetPreview, {
+            enabled,
+            messages: enabled && sampleMessages ? (sampleMessages as ChatMessage[]) : undefined,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    },
+
+    reloadObs: async () => {
+      try {
+        if (deps.reloadObs) {
+          return await deps.reloadObs();
+        }
+        const { rpc } = await import('../rpc');
+        const res = await rpc.invoke(Channels.ChatOverlayReload);
+        return Boolean(res.ok);
+      } catch {
+        return false;
+      }
+    },
+  };
+});
 }
 
-export const useChatOverlayStore = createChatOverlayStore();
+export const useChatOverlayStore = createChatOverlayStore(defaultOverlayDeps);
+export const useObsChatOverlayStore = createChatOverlayStore(defaultObsChatDeps);
+

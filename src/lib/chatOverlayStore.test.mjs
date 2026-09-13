@@ -239,3 +239,37 @@ test('clears the whole overlay on a full chat clear', () => {
 
   assert.deepEqual(store.getState().messages, []);
 });
+
+test('saveNow explicitly flushes current settings', async () => {
+  const { store, saved } = harness();
+  store.getState().hydrate(settings(), 'http://overlay.test');
+
+  const ok = await store.getState().saveNow();
+  assert.equal(ok, true);
+  assert.equal(saved.length, 1);
+  assert.equal(store.getState().saveState, 'saved');
+});
+
+test('sequential save queue serializes rapid concurrent updates and preserves final value', async () => {
+  const { store, saved } = harness({
+    saveSettings: async (val) => {
+      // Introduce micro-delay to simulate async RPC transit
+      await new Promise((r) => setTimeout(r, 10));
+      saved.push(val);
+      return true;
+    },
+  });
+  store.getState().hydrate(settings(), 'http://overlay.test');
+
+  // Trigger rapid concurrent updates like scrubbing a slider
+  const p1 = store.getState().updateSettings({ text: { size: 20 } });
+  const p2 = store.getState().updateSettings({ text: { size: 30 } });
+  const p3 = store.getState().updateSettings({ text: { size: 45 } });
+
+  await Promise.all([p1, p2, p3]);
+
+  assert.equal(store.getState().settings.text.size, 45);
+  assert.equal(saved[saved.length - 1].text.size, 45, 'last saved value matches latest update');
+  assert.equal(store.getState().saveState, 'saved');
+});
+

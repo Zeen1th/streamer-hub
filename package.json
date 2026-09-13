@@ -1,13 +1,14 @@
 {
   "name": "streamer-hub",
   "private": true,
-  "version": "0.2.7",
+  "version": "0.2.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test": "node --test src/lib/*.test.mjs src/rpc/mockHost.test.mjs"
   },
   "dependencies": {
     "@fontsource/archivo": "^5.3.0",

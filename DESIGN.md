@@ -3,21 +3,22 @@ name: Streamer Hub
 description: A channel's command sheet — every counter, reply and AI rule as one row in one table.
 colors:
   signal-red: "#ec3013"
-  signal-red-dark: "#ff5436"
+  signal-red-dark: "#8b5cf6"
   accent-text: "#ae1800"
-  accent-text-dark: "#ff5436"
+  accent-text-dark: "#a78bfa"
   accent-fill: "#d62608"
-  accent-fill-dark: "#ff5436"
+  accent-fill-dark: "#7c3aed"
+  accent-cyan: "#06b6d4"
   ink: "#201e1d"
-  ink-dark: "#ece8e5"
+  ink-dark: "#ffffff"
   surface: "#f3f2f2"
-  surface-dark: "#121212"
+  surface-dark: "#111216"
   surface-2: "#e8e7e5"
-  surface-2-dark: "#0a0a0a"
+  surface-2-dark: "#16171d"
   surface-3: "#dedcd9"
-  surface-3-dark: "#050505"
+  surface-3-dark: "#1e2027"
   on-accent: "#faf9f8"
-  on-accent-dark: "#0a0a0a"
+  on-accent-dark: "#ffffff"
 typography:
   display:
     fontFamily: "Archivo, system-ui, sans-serif"
@@ -40,7 +41,7 @@ typography:
     fontSize: "10px"
     fontWeight: 600
     lineHeight: 1.4
-    letterSpacing: "0.1em"
+    letterSpacing: "0.08em"
   mono:
     fontFamily: "'IBM Plex Mono', ui-monospace, monospace"
     fontSize: "11.5px"
@@ -51,7 +52,10 @@ typography:
     fontSize: "13px"
     fontWeight: 400
 rounded:
-  all: "0px"
+  card: "8px"
+  button: "6px"
+  input: "6px"
+  pill: "9999px"
 spacing:
   xs: "2px"
   sm: "6px"
@@ -110,6 +114,10 @@ app is meant to be opened, changed, and closed in under a minute.
 - A permanent "Right now this writes" footer showing the literal output strings
 - Zero corner radius, 2 px structural rules, 1 px hairlines inside them
 - Light and dark are one identity, not two themes; default follows Windows
+
+**Core Development & Design Rules**
+- Do not make major architectural or destructive assumptions.
+- If requirements are ambiguous or key context is missing, pause and ask clarifying questions before executing changes.
 
 ## Colors
 

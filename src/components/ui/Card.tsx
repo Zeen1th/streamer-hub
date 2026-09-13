@@ -10,16 +10,16 @@ interface CardProps {
 
 export function Card({ title, action, className, children }: CardProps) {
   return (
-    <section className={cn('border-t border-rule bg-surface', className)}>
+    <section className={cn('rounded-[5px] border border-[#384048] bg-[#2e3338] p-4 shadow-xs transition-colors', className)}>
       {title && (
-        <header className="flex min-h-[34px] items-center justify-between gap-4 border-b border-hair py-2">
-          <h2 className="font-sans text-[12px] font-extrabold uppercase leading-tight tracking-[0.06em] text-ink">
+        <header className="flex min-h-[30px] items-center justify-between gap-4 border-b border-[#384048] pb-2.5 mb-3">
+          <h2 className="font-sans text-[13px] font-bold tracking-wide text-[#f0f3fa]">
             {title}
           </h2>
           {action && <div className="shrink-0">{action}</div>}
         </header>
       )}
-      <div className="py-3">{children}</div>
+      <div>{children}</div>
     </section>
   );
 }

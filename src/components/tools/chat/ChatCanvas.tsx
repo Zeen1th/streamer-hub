@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Eye, Image as ImageIcon, MousePointer2, Redo2, Sparkles, Trash2, Tv, Undo2, X } from 'lucide-react';
-import { CHAT_OVERLAY_CANVAS } from '../../../rpc/contracts';
+import { Eye, Image as ImageIcon, MousePointer2, Redo2, RotateCw, Sparkles, Trash2, Tv, Undo2, X } from 'lucide-react';
+import { CHAT_OVERLAY_CANVAS, Channels } from '../../../rpc/contracts';
+import { rpc } from '../../../rpc';
 import {
   DEFAULT_SNAP,
   RESIZE_HANDLES,
@@ -17,7 +18,8 @@ import {
 } from '../../../lib/canvasGeometry';
 import { ChatScene } from '../../../overlay/ChatScene';
 import type { ChatOverlayPart } from '../../../overlay/ChatMessageCard';
-import { useChatOverlayStore, selectVisibleChatMessages } from '../../../store/chatOverlayStore';
+import { selectVisibleChatMessages } from '../../../store/chatOverlayStore';
+import { useChatStore } from './ChatTargetContext';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { t } from '../../../i18n/translations';
 import { Button } from '../../ui/Button';
@@ -58,7 +60,7 @@ export function ChatCanvas({
   canUndo,
   canRedo,
 }: ChatCanvasProps) {
-  const store = useChatOverlayStore();
+  const store = useChatStore();
   const settings = store.settings;
   const liveMessages = selectVisibleChatMessages(store);
   const language = useSettingsStore((s) => s.language);
@@ -228,10 +230,11 @@ export function ChatCanvas({
   const sendTestMessage = () => {
     const samples = editSampleMessages(lang);
     const pick = samples[Math.floor(Math.random() * samples.length)];
-    store.addMessage({
+    const msg = {
       id: `test-${Date.now()}`,
       username: pick.username,
       userId: pick.userId,
+      avatarUrl: pick.avatarUrl,
       isBroadcaster: pick.isBroadcaster,
       isMod: pick.isMod,
       isVip: pick.isVip,
@@ -240,7 +243,24 @@ export function ChatCanvas({
       emotes: pick.emotes,
       color: pick.color,
       timestamp: new Date().toISOString(),
-    });
+    };
+    store.addMessage(msg);
+    void rpc.invoke(Channels.ChatOverlayTestMessage, msg).catch(() => {});
+  };
+
+  const [reloadingObs, setReloadingObs] = useState(false);
+  const handleReloadObs = async () => {
+    setReloadingObs(true);
+    try {
+      await store.reloadObs();
+    } finally {
+      window.setTimeout(() => setReloadingObs(false), 600);
+    }
+  };
+
+  const toggleObsPreview = () => {
+    const next = !store.obsPreviewEnabled;
+    void store.setObsPreviewEnabled(next, next ? editSampleMessages(lang) : undefined);
   };
 
   return (
@@ -309,15 +329,33 @@ export function ChatCanvas({
             </>
           )}
 
+          <Button
+            variant={store.obsPreviewEnabled ? 'primary' : 'outline'}
+            size="sm"
+            onClick={toggleObsPreview}
+            title={t(lang, 'chat.obsPreviewHint')}
+          >
+            <Tv size={13} /> {t(lang, 'chat.obsPreview')}
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleReloadObs}
+            disabled={reloadingObs}
+            title={t(lang, 'chat.refreshObsHint')}
+          >
+            <RotateCw size={14} className={reloadingObs ? 'animate-spin text-accent-text' : ''} />
+          </Button>
+
+          <Button variant="outline" size="sm" onClick={sendTestMessage} title={t(lang, 'chat.preview.test')}>
+            <Sparkles size={14} /> {t(lang, 'chat.preview.test')}
+          </Button>
+
           {!isEdit && (
-            <>
-              <Button variant="outline" size="sm" onClick={sendTestMessage}>
-                <Sparkles size={14} /> {t(lang, 'chat.preview.test')}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => store.clearMessages()}>
-                <Trash2 size={14} />
-              </Button>
-            </>
+            <Button variant="ghost" size="sm" onClick={() => store.clearMessages()} title="Clear">
+              <Trash2 size={14} />
+            </Button>
           )}
         </div>
       </div>

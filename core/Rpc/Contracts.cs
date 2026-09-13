@@ -88,6 +88,18 @@ public sealed record AutoReply
     public string AiProvider { get; init; } = "openrouter";
     public int AiMaxTokens { get; init; } = 120;
     public string AiFallback { get; init; } = string.Empty;
+    public string AiUserRestriction { get; init; } = "none";
+    public List<string> AiTargetUsers { get; init; } = new();
+    public List<AiConditionRule> AiConditions { get; init; } = new();
+}
+
+public sealed record AiConditionRule
+{
+    public string Id { get; init; } = string.Empty;
+    public string IfType { get; init; } = "username";
+    public string IfValue { get; init; } = string.Empty;
+    public string ThenType { get; init; } = "instructions";
+    public string ThenValue { get; init; } = string.Empty;
 }
 
 public sealed record TitleCounter
@@ -109,6 +121,63 @@ public sealed record OpenRouterSettingsState
     public bool GroqConfigured { get; init; }
 }
 
+public sealed record SequenceStep
+{
+    public string Id { get; init; } = string.Empty;
+    public string Type { get; init; } = "chat"; // "chat" | "counter" | "command" | "wait" | "moderation"
+    public double? WaitDuration { get; init; }
+    public string? WaitUnit { get; init; } = "seconds"; // "seconds" | "minutes"
+    public string? ChatMessage { get; init; }
+    public string? CounterId { get; init; }
+    public string? CounterAction { get; init; } // "increase" | "decrease" | "reset"
+    public string? CommandTrigger { get; init; }
+    public string? ModerationAction { get; init; } // "smart_timeout" | "timeout" | "ban" | "unban" | "mod" | "unmod" | "vip" | "unvip" | "clear_chat" | "shoutout"
+    public string? TargetUser { get; init; }
+    public int? DurationSeconds { get; init; }
+    public string? Reason { get; init; }
+}
+
+public sealed record ModerationTargetPayload(string? Target);
+public sealed record ModerationTimeoutPayload(string? Target, int? DurationSeconds = null, string? Reason = null);
+public sealed record ModerationSmartTimeoutPayload(string? Target, int? DurationSeconds = null, string? Reason = null);
+public sealed record ModerationBanPayload(string? Target, string? Reason = null);
+
+
+public sealed record CommandSequence
+{
+    public string Id { get; init; } = string.Empty;
+    public bool Enabled { get; init; } = true;
+    public string Name { get; init; } = string.Empty;
+    public string TriggerType { get; init; } = "channel_points"; // "channel_points" | "chat" | "both"
+    public string? RewardTitle { get; init; }
+    public string? RewardId { get; init; }
+    public string? ChatTrigger { get; init; }
+    public int CooldownSeconds { get; init; }
+    public List<SequenceStep> Steps { get; init; } = new();
+}
+
+public sealed record ChannelPointsRedemption
+{
+    public string Id { get; init; } = string.Empty;
+    public string RewardId { get; init; } = string.Empty;
+    public string RewardTitle { get; init; } = string.Empty;
+    public int? RewardCost { get; init; }
+    public string UserId { get; init; } = string.Empty;
+    public string UserName { get; init; } = string.Empty;
+    public string UserLogin { get; init; } = string.Empty;
+    public string? UserInput { get; init; }
+    public string RedeemedAt { get; init; } = string.Empty;
+}
+
+public sealed record TwitchRewardInfo
+{
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public int Cost { get; init; }
+    public string? Prompt { get; init; }
+    public bool? UserInputRequired { get; init; }
+}
+
 /// <summary>
 /// Chat overlay settings, carried verbatim.
 ///
@@ -124,6 +193,8 @@ public sealed record ChatOverlaySettings
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Values { get; init; } = new();
 }
+
+public sealed record ChatOverlaySetPreviewPayload(bool Enabled, List<ChatMessage>? Messages = null);
 
 /// <summary>
 /// One emote occurrence from the IRC <c>emotes</c> tag.
@@ -150,6 +221,7 @@ public sealed record ChatMessage
     public IReadOnlyList<EmoteRange> Emotes { get; init; } = Array.Empty<EmoteRange>();
     /// <summary>The user's chosen Twitch chat colour, when they have set one.</summary>
     public string? Color { get; init; }
+    public string? CustomRewardId { get; init; }
 }
 
 public enum ChatClearScope
@@ -172,6 +244,9 @@ public sealed record ConnectionStatus
     public bool BotAccountEnabled { get; init; }
     public bool BotConnected { get; init; }
     public string BotLogin { get; init; } = string.Empty;
+    public string PreferredChatSender { get; init; } = "bot";
+    public string ActiveChatSender { get; init; } = "broadcaster";
+    public string ActiveChatSenderLogin { get; init; } = string.Empty;
 }
 
 public sealed record LogPayload

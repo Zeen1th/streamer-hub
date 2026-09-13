@@ -14,14 +14,14 @@ import type {
  */
 
 const FONT_STACKS: Record<string, string> = {
-  barlow: '"Barlow", "Segoe UI", sans-serif',
+  barlow: '"Barlow", "Cairo", "Segoe UI", sans-serif',
   cairo: '"Cairo", "Segoe UI", sans-serif',
-  cinzel: '"Cinzel", Georgia, serif',
-  'jetbrains-mono': '"JetBrains Mono", ui-monospace, monospace',
-  system: 'ui-sans-serif, system-ui, sans-serif',
+  cinzel: '"Cinzel", "Cairo", Georgia, serif',
+  'jetbrains-mono': '"JetBrains Mono", "Cairo", ui-monospace, monospace',
+  system: '"Cairo", ui-sans-serif, system-ui, sans-serif',
 };
 
-const FALLBACK_STACK = 'ui-sans-serif, system-ui, sans-serif';
+const FALLBACK_STACK = '"Cairo", "Segoe UI", system-ui, sans-serif';
 
 export function resolveFontStack(font: ChatOverlayFontChoice): string {
   if (font.family === 'custom') {

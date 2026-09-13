@@ -4,6 +4,13 @@ cd /d "%~dp0"
 
 taskkill /IM StreamerHub.exe /F >nul 2>&1
 
+if exist "%LOCALAPPDATA%\StreamerHub\WebView2\EBWebView\Default\Cache" (
+    rmdir /s /q "%LOCALAPPDATA%\StreamerHub\WebView2\EBWebView\Default\Cache" >nul 2>&1
+)
+if exist "%LOCALAPPDATA%\StreamerHub\WebView2\EBWebView\Default\Code Cache" (
+    rmdir /s /q "%LOCALAPPDATA%\StreamerHub\WebView2\EBWebView\Default\Code Cache" >nul 2>&1
+)
+
 echo [Streamer Hub] Building frontend...
 call npm run build
 if errorlevel 1 goto :fail

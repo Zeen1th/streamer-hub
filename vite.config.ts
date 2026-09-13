@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         app: 'index.html',
         chatOverlay: 'src/chat-overlay.html',
+        obsChat: 'src/obs-chat.html',
       },
     },
   },

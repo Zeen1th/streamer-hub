@@ -172,7 +172,7 @@ export function CounterConfigPanel({ counter, onClose }: CounterConfigPanelProps
             <Switch
               label={t(lang, "config.counterTitle")}
               checked={counter.titleEnabled ?? false}
-              onChange={(titleEnabled) => updateTitle(counter.id, { titleEnabled })}
+              onChange={(titleEnabled) => updateTitle(counter.id, { titleEnabled, titleTemplate: counter.titleTemplate || `{title} | ${counter.name}: {count}` })}
             />
           </div>
           {counter.titleEnabled && <div className="mt-4 space-y-4">
@@ -182,7 +182,7 @@ export function CounterConfigPanel({ counter, onClose }: CounterConfigPanelProps
                 className="text-start"
                 value={counter.titleTemplate ?? ""}
                 onChange={(event) => updateTitle(counter.id, { titleTemplate: event.target.value })}
-                placeholder={counter.name + ": {count}"}
+                placeholder={`{title} | ${counter.name}: {count}`}
                 spellCheck={false}
                 aria-label={t(lang, "config.counterTitleTemplate")}
               />

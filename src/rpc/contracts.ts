@@ -103,6 +103,21 @@ export interface AutoReply {
   aiProvider?: 'openrouter' | 'groq';
   aiMaxTokens?: number;
   aiFallback?: string;
+  aiUserRestriction?: AiUserRestriction;
+  aiTargetUsers?: string[];
+  aiConditions?: AiConditionRule[];
+}
+
+export type AiUserRestriction = 'none' | 'allowlist' | 'blocklist';
+export type AiConditionIfType = 'username' | 'role' | 'message_contains';
+export type AiConditionThenType = 'instructions' | 'static_reply' | 'ignore';
+
+export interface AiConditionRule {
+  id: string;
+  ifType: AiConditionIfType;
+  ifValue: string;
+  thenType: AiConditionThenType;
+  thenValue: string;
 }
 
 export interface TitleCounter {
@@ -119,6 +134,69 @@ export interface AutoReplySettings {
 export interface OpenRouterSettingsState {
   configured: boolean;
   groqConfigured: boolean;
+}
+
+export type ModerationAction =
+  | 'smart_timeout'
+  | 'timeout'
+  | 'ban'
+  | 'unban'
+  | 'mod'
+  | 'unmod'
+  | 'vip'
+  | 'unvip'
+  | 'clear_chat'
+  | 'shoutout';
+
+export type SequenceStepType = 'chat' | 'counter' | 'command' | 'wait' | 'moderation';
+export type SequenceWaitUnit = 'seconds' | 'minutes';
+export type SequenceTriggerType = 'channel_points' | 'chat' | 'both';
+
+export interface SequenceStep {
+  id: string;
+  type: SequenceStepType;
+  waitDuration?: number;
+  waitUnit?: SequenceWaitUnit;
+  chatMessage?: string;
+  counterId?: string;
+  counterAction?: CounterAction;
+  commandTrigger?: string;
+  moderationAction?: ModerationAction;
+  targetUser?: string;
+  durationSeconds?: number;
+  reason?: string;
+}
+
+export interface CommandSequence {
+  id: string;
+  enabled: boolean;
+  name: string;
+  triggerType: SequenceTriggerType;
+  rewardTitle?: string;
+  rewardId?: string;
+  chatTrigger?: string;
+  cooldownSeconds: number;
+  steps: SequenceStep[];
+}
+
+export interface ChannelPointsRedemption {
+  id: string;
+  rewardId: string;
+  rewardTitle: string;
+  rewardCost?: number;
+  userId: string;
+  userName: string;
+  userLogin: string;
+  userInput?: string;
+  redeemedAt: string;
+}
+
+export interface TwitchRewardInfo {
+  id: string;
+  title: string;
+  cost: number;
+  prompt?: string;
+  userInputRequired?: boolean;
 }
 
 export type ChatOverlayDisplayMode = 'stacked' | 'latest';
@@ -304,7 +382,13 @@ export interface ChatMessage {
   emotes?: EmoteRange[];
   /** From the IRC `color` tag. Absent when the user has not set one. */
   color?: string;
+  /** From the IRC `custom-reward-id` tag when redeemed via Channel Points */
+  customRewardId?: string;
 }
+
+export type ChatSenderRole = 'bot' | 'broadcaster';
+
+export type ChatClearScope = 'message' | 'user' | 'all';
 
 export interface ConnectionStatus {
   coreConnected: boolean;
@@ -316,6 +400,9 @@ export interface ConnectionStatus {
   startupEnabled?: boolean;
   botConnected?: boolean;
   botLogin?: string;
+  preferredChatSender?: ChatSenderRole;
+  activeChatSender?: ChatSenderRole;
+  activeChatSenderLogin?: string;
 }
 
 export type LogKind =
@@ -373,9 +460,34 @@ export const Channels = {
   AutoRepliesSettingsSave: 'auto-replies/settings-save',
   AutoRepliesSave: 'auto-replies/save',
   AutoRepliesDelete: 'auto-replies/delete',
+  SequencesGetState: 'sequences/get-state',
+  SequencesSave: 'sequences/save',
+  SequencesDelete: 'sequences/delete',
+  TwitchChannelPointsGetRewards: 'twitch/channel-points-get-rewards',
   TwitchSendChatMessage: 'twitch/send-chat-message',
   TwitchGetTitle: 'twitch/get-title',
   TwitchUpdateTitle: 'twitch/update-title',
+  TwitchGetTitleFilePath: 'twitch/get-title-file-path',
+  TwitchCheckAvatar: 'twitch/check-avatar',
+  TwitchModerationCheckMod: 'twitch/moderation/check-mod',
+  TwitchModerationTimeout: 'twitch/moderation/timeout',
+  TwitchModerationSmartTimeout: 'twitch/moderation/smart-timeout',
+  TwitchModerationBan: 'twitch/moderation/ban',
+  TwitchModerationUnban: 'twitch/moderation/unban',
+  TwitchModerationMod: 'twitch/moderation/mod',
+  TwitchModerationUnmod: 'twitch/moderation/unmod',
+  TwitchModerationVip: 'twitch/moderation/vip',
+  TwitchModerationUnvip: 'twitch/moderation/unvip',
+  TwitchModerationClear: 'twitch/moderation/clear',
+  TwitchModerationShoutout: 'twitch/moderation/shoutout',
+  ChatOverlayTestMessage: 'chat-overlay/test-message',
+  ChatOverlayReload: 'chat-overlay/reload',
+  ChatOverlaySetPreview: 'chat-overlay/set-preview',
+  ObsChatGetState: 'obs-chat/get-state',
+  ObsChatSaveSettings: 'obs-chat/save-settings',
+  ObsChatGetUrl: 'obs-chat/get-url',
+  ObsChatReload: 'obs-chat/reload',
+  ObsChatSetPreview: 'obs-chat/set-preview',
   UpdateCheck: 'update/check',
   UpdateInstall: 'update/install',
 } as const;
@@ -389,6 +501,8 @@ export const Events = {
   TwitchUserProfile: 'twitch/user-profile',
   /** A moderator deleted a message, timed out a user, or cleared chat. */
   TwitchChatCleared: 'twitch/chat-cleared',
+  TwitchChannelPointsRedeemed: 'twitch/channel-points-redeemed',
+  TwitchTitleChanged: 'twitch/title-changed',
   WindowMaximizedChanged: 'window/maximized-changed',
   CoreLog: 'core/log',
   KeybindTriggered: 'keybind/triggered',
@@ -421,14 +535,14 @@ export interface HostApi {
   [Channels.TwitchForget]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchBotAuthorize]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchBotForget]: { request: undefined; response: { ok: boolean } };
-  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; startupEnabled?: boolean; closeToTray?: boolean } };
+  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; preferredChatSender?: ChatSenderRole; startupEnabled?: boolean; closeToTray?: boolean } };
   [Channels.SettingsSave]: {
-    request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; startupEnabled?: boolean; closeToTray?: boolean };
+    request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; preferredChatSender?: ChatSenderRole; startupEnabled?: boolean; closeToTray?: boolean };
     response: { ok: boolean };
   };
   [Channels.ChatOverlayGetState]: { request: undefined; response: ChatOverlaySettings };
   [Channels.ChatOverlaySaveSettings]: { request: ChatOverlaySettings; response: { ok: boolean } };
-  [Channels.ChatOverlayGetUrl]: { request: undefined; response: { url: string } };
+  [Channels.ChatOverlayGetUrl]: { request: undefined; response: { url: string; dockUrl?: string } };
   [Channels.SystemListFonts]: { request: undefined; response: { fonts: string[] } };
   [Channels.OpenRouterGetState]: { request: undefined; response: OpenRouterSettingsState };
   [Channels.OpenRouterSave]: { request: { provider: 'openrouter' | 'groq'; apiKey: string | null }; response: { ok: boolean; configured: boolean } };
@@ -439,10 +553,81 @@ export interface HostApi {
   [Channels.AutoRepliesSettingsSave]: { request: AutoReplySettings; response: { ok: boolean } };
   [Channels.AutoRepliesSave]: { request: { rule: AutoReply }; response: { ok: boolean } };
   [Channels.AutoRepliesDelete]: { request: { ruleId: string }; response: { ok: boolean } };
-  [Channels.AutoRepliesGenerate]: { request: { ruleId: string; message: ChatMessage; send?: boolean }; response: { ok: boolean; message?: string; usedFallback?: boolean; error?: string } };
-  [Channels.TwitchSendChatMessage]: { request: { message: string }; response: { ok: boolean; error?: string } };
+  [Channels.AutoRepliesGenerate]: { request: { ruleId: string; message: ChatMessage; send?: boolean; overrideInstructions?: string }; response: { ok: boolean; message?: string; usedFallback?: boolean; senderRole?: ChatSenderRole; senderLogin?: string; error?: string } };
+  [Channels.SequencesGetState]: { request: undefined; response: CommandSequence[] };
+  [Channels.SequencesSave]: { request: { sequence: CommandSequence }; response: { ok: boolean } };
+  [Channels.SequencesDelete]: { request: { sequenceId: string }; response: { ok: boolean } };
+  [Channels.TwitchChannelPointsGetRewards]: { request: undefined; response: { ok: boolean; rewards: TwitchRewardInfo[]; error?: string } };
+  [Channels.TwitchSendChatMessage]: { request: { message: string }; response: { ok: boolean; senderRole?: ChatSenderRole; senderLogin?: string; error?: string } };
   [Channels.TwitchGetTitle]: { request: undefined; response: { ok: boolean; title?: string | null; error?: string } };
   [Channels.TwitchUpdateTitle]: { request: { title: string }; response: { ok: boolean; error?: string } };
+  [Channels.TwitchGetTitleFilePath]: { request: undefined; response: { path: string } };
+  [Channels.TwitchCheckAvatar]: {
+    request: { username?: string; userId?: string };
+    response: {
+      ok: boolean;
+      userId?: string | null;
+      username?: string | null;
+      displayName?: string | null;
+      avatarUrl?: string | null;
+      error?: string | null;
+    };
+  };
+  [Channels.TwitchModerationCheckMod]: {
+    request: { target: string };
+    response: { ok: boolean; isMod: boolean; error?: string };
+  };
+  [Channels.TwitchModerationTimeout]: {
+    request: { target: string; durationSeconds?: number; reason?: string };
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.TwitchModerationSmartTimeout]: {
+    request: { target: string; durationSeconds?: number; reason?: string };
+    response: { ok: boolean; wasMod?: boolean; target?: string; error?: string };
+  };
+  [Channels.TwitchModerationBan]: {
+    request: { target: string; reason?: string };
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.TwitchModerationUnban]: {
+    request: { target: string };
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.TwitchModerationMod]: {
+    request: { target: string };
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.TwitchModerationUnmod]: {
+    request: { target: string };
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.TwitchModerationVip]: {
+    request: { target: string };
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.TwitchModerationUnvip]: {
+    request: { target: string };
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.TwitchModerationClear]: {
+    request: undefined;
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.TwitchModerationShoutout]: {
+    request: { target: string };
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.ChatOverlayTestMessage]: {
+    request: Partial<ChatMessage> & { message: string; username: string };
+    response: { ok: boolean; error?: string };
+  };
+  [Channels.ChatOverlayReload]: { request: undefined; response: { ok: boolean } };
+  [Channels.ChatOverlaySetPreview]: { request: { enabled: boolean; messages?: Partial<ChatMessage>[] }; response: { ok: boolean } };
+  [Channels.ObsChatGetState]: { request: undefined; response: ChatOverlaySettings };
+  [Channels.ObsChatSaveSettings]: { request: ChatOverlaySettings; response: { ok: boolean } };
+  [Channels.ObsChatGetUrl]: { request: undefined; response: { url: string } };
+  [Channels.ObsChatReload]: { request: undefined; response: { ok: boolean } };
+  [Channels.ObsChatSetPreview]: { request: { enabled: boolean; messages?: Partial<ChatMessage>[] }; response: { ok: boolean } };
   [Channels.UpdateCheck]: { request: undefined; response: UpdateState };
   [Channels.UpdateInstall]: { request: { downloadUrl: string }; response: { ok: boolean; error?: string } };
 }
@@ -452,6 +637,8 @@ export interface EventMap {
   [Events.TwitchChatMessage]: ChatMessage;
   [Events.TwitchUserProfile]: { userId: string; avatarUrl: string; color?: string };
   [Events.TwitchChatCleared]: { scope: 'message' | 'user' | 'all'; id?: string };
+  [Events.TwitchChannelPointsRedeemed]: ChannelPointsRedemption;
+  [Events.TwitchTitleChanged]: { title: string };
   [Events.WindowMaximizedChanged]: { isMaximized: boolean };
   [Events.CoreLog]: { message: string };
   [Events.KeybindTriggered]: { bindingId: string };

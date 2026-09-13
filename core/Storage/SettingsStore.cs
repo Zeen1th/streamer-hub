@@ -18,13 +18,16 @@ public sealed class SettingsStore : IDisposable
     {
         public List<Counter> Counters { get; init; } = new();
         public List<AutoReply> AutoReplies { get; init; } = new();
+        public List<CommandSequence> Sequences { get; init; } = new();
         public List<ActionKeybind> Keybinds { get; init; } = new();
         public AutoReplySettings AutoReplySettings { get; init; } = new();
         public TwitchSettings Twitch { get; init; } = new();
         public ChatOverlaySettings ChatOverlay { get; init; } = new();
+        public ChatOverlaySettings ObsChat { get; init; } = new();
         public WindowSettings Window { get; init; } = new();
         public string Language { get; init; } = string.Empty;
         public bool BotAccountEnabled { get; init; }
+        public string PreferredChatSender { get; init; } = "bot";
         public bool StartupEnabled { get; init; } = true;
         public bool? CloseToTray { get; init; }
     }
@@ -49,6 +52,11 @@ public sealed class SettingsStore : IDisposable
     public IReadOnlyList<AutoReply> AutoReplies
     {
         get { lock (_lock) return _document.AutoReplies; }
+    }
+
+    public IReadOnlyList<CommandSequence> Sequences
+    {
+        get { lock (_lock) return _document.Sequences; }
     }
 
     public IReadOnlyList<ActionKeybind> Keybinds
@@ -86,6 +94,17 @@ public sealed class SettingsStore : IDisposable
     public void SetChatOverlay(ChatOverlaySettings settings)
     {
         lock (_lock) _document = _document with { ChatOverlay = settings ?? new() };
+        ScheduleSave();
+    }
+
+    public ChatOverlaySettings ObsChat
+    {
+        get { lock (_lock) return _document.ObsChat; }
+    }
+
+    public void SetObsChat(ChatOverlaySettings settings)
+    {
+        lock (_lock) _document = _document with { ObsChat = settings ?? new() };
         ScheduleSave();
     }
 
@@ -129,6 +148,18 @@ public sealed class SettingsStore : IDisposable
     public void SetBotAccountEnabled(bool enabled)
     {
         lock (_lock) _document = _document with { BotAccountEnabled = enabled };
+        ScheduleSave();
+    }
+
+    public string PreferredChatSender
+    {
+        get { lock (_lock) return string.IsNullOrWhiteSpace(_document.PreferredChatSender) ? "bot" : _document.PreferredChatSender; }
+    }
+
+    public void SetPreferredChatSender(string sender)
+    {
+        var normalized = sender?.Trim().ToLowerInvariant() == "broadcaster" ? "broadcaster" : "bot";
+        lock (_lock) _document = _document with { PreferredChatSender = normalized };
         ScheduleSave();
     }
 
@@ -191,6 +222,27 @@ public sealed class SettingsStore : IDisposable
         lock (_lock)
         {
             _document = _document with { AutoReplies = _document.AutoReplies.Where(r => r.Id != ruleId).ToList() };
+        }
+        ScheduleSave();
+    }
+
+    public void SaveSequence(CommandSequence sequence)
+    {
+        lock (_lock)
+        {
+            var sequences = _document.Sequences.Any(s => s.Id == sequence.Id)
+                ? _document.Sequences.Select(s => s.Id == sequence.Id ? sequence : s).ToList()
+                : _document.Sequences.Append(sequence).ToList();
+            _document = _document with { Sequences = sequences };
+        }
+        ScheduleSave();
+    }
+
+    public void DeleteSequence(string sequenceId)
+    {
+        lock (_lock)
+        {
+            _document = _document with { Sequences = _document.Sequences.Where(s => s.Id != sequenceId).ToList() };
         }
         ScheduleSave();
     }
@@ -266,6 +318,7 @@ public sealed class SettingsStore : IDisposable
         return value with
         {
             ChatOverlay = value.ChatOverlay ?? new(),
+            ObsChat = value.ObsChat ?? new(),
             Language = NormalizeLanguage(value.Language),
         };
     }
@@ -305,9 +358,23 @@ public sealed class SettingsStore : IDisposable
         {
             var dir = Path.GetDirectoryName(_filePath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            var json = JsonSerializer.Serialize(snapshot, Json.Options);
             var tmp = _filePath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(snapshot, Json.Options));
-            File.Move(tmp, _filePath, overwrite: true);
+            File.WriteAllText(tmp, json);
+            for (var i = 0; i < 5; i++)
+            {
+                try
+                {
+                    File.Move(tmp, _filePath, overwrite: true);
+                    return;
+                }
+                catch (IOException) when (i < 4)
+                {
+                    Thread.Sleep(50);
+                }
+            }
+            File.Copy(tmp, _filePath, overwrite: true);
+            try { File.Delete(tmp); } catch { }
         }
         catch
         {

@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; }
+  body { background:#e8e2d2; color:#241b13; font-family:'Barlow',ui-sans-serif,system-ui,sans-serif; font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+  a { color:#8a4f1d; }
+  a:hover { color:#6d3d14; }
+  *::selection { background:rgba(138,79,29,.3); color:#241b13; }
+  *{ scrollbar-width:thin; scrollbar-color:rgba(36,27,19,.25) transparent; }
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background:rgba(36,27,19,.25); }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  @keyframes kindle { 0%{ color:#8a4f1d; text-shadow:0 0 20px rgba(138,79,29,.6);} 100%{ color:#241b13; text-shadow:none;} }
+  @keyframes pulsedot { 0%,100%{opacity:1} 50%{opacity:.4} }
+</style>
+</helmet>
+
+<svg aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden"><defs><symbol id="i-flame" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol><symbol id="i-languages" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></symbol><symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol><symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></symbol><symbol id="i-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/></symbol><symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol><symbol id="i-house" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol><symbol id="i-tally-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16"/><path d="M9 4v16"/><path d="M14 4v16"/><path d="M19 4v16"/><path d="M22 6 2 18"/></symbol><symbol id="i-message-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol><symbol id="i-tv" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></symbol><symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/></symbol><symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol><symbol id="i-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol><symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol><symbol id="i-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol><symbol id="i-rotate-ccw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol><symbol id="i-trash-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></symbol><symbol id="i-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol><symbol id="i-folder-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol><symbol id="i-app-window" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/></symbol><symbol id="i-keyboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></symbol><symbol id="i-radio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></symbol><symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></symbol><symbol id="i-circle-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol><symbol id="i-key-round" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol><symbol id="i-log-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol><symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol></defs></svg>
+
+<div style="display:flex;flex-direction:column;height:100vh;overflow:hidden;background:#e8e2d2;color:#241b13;font-family:'Barlow',ui-sans-serif,system-ui,sans-serif">
+
+  <header dir="ltr" style="position:relative;z-index:50;display:flex;height:40px;flex-shrink:0;user-select:none;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(36,27,19,.15);background:#e8e2d2;padding-inline-start:16px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <svg aria-hidden="true" width="13" height="13" style="display:block;flex:none;color:#8a4f1d"><use href="#i-flame"></use></svg>
+      <span dir="ltr" style="font-family:'Cinzel',Georgia,serif;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#241b13">Streamer Hub</span>
+    </div>
+    <div style="display:flex;height:100%;align-items:center">
+      <span style="margin-inline-end:16px;border:1px dashed rgba(93,74,126,.6);padding:2px 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#5d4a7e">Dev Mock</span>
+      <div style="display:flex;height:100%;align-items:center;gap:16px">
+        <button type="button" onClick="{{ toggleLang }}" title="Language" style="display:flex;height:28px;align-items:center;gap:6px;border:1px solid rgba(36,27,19,.25);background:#f5f0e4;padding:0 8px;font-family:'Barlow',sans-serif;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(36,27,19,.75);cursor:pointer">
+          <svg aria-hidden="true" width="13" height="13" style="display:block;flex:none;color:currentColor"><use href="#i-languages"></use></svg>
+          <span dir="ltr">{{ langToggleLabel }}</span>
+        </button>
+        <div style="display:flex;align-items:center;gap:16px">
+          <button type="button" style="display:inline-flex;align-items:center;gap:8px;font-family:'Barlow',sans-serif;font-size:12px;font-weight:700;letter-spacing:.15em;color:rgba(36,27,19,.75);background:none;border:0;cursor:pointer;padding:0">
+            <span aria-hidden="true" style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:{{ twitchDot.bg }};border:1px solid {{ twitchDot.bc }};box-shadow:{{ twitchDot.glow }}"></span>
+            {{ twitchLabel }}
+          </button>
+          <span aria-hidden="true" style="height:12px;width:1px;background:rgba(36,27,19,.2)"></span>
+          <span style="display:inline-flex;align-items:center;gap:8px;font-family:'Barlow',sans-serif;font-size:12px;font-weight:700;letter-spacing:.15em;color:rgba(36,27,19,.75)">
+            <span aria-hidden="true" style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:#8a4f1d;box-shadow:0 0 12px 1px rgba(138,79,29,.4)"></span>
+            {{ coreLabel }}
+          </span>
+        </div>
+        <button type="button" title="Check for updates" style="display:flex;height:28px;align-items:center;gap:6px;border:1px solid rgba(36,27,19,.25);background:#f5f0e4;padding:0 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(36,27,19,.75);cursor:pointer">
+          <svg aria-hidden="true" width="13" height="13" style="display:block;flex:none;color:currentColor"><use href="#i-download"></use></svg>
+        </button>
+        <div style="display:flex;height:100%;align-items:stretch;border-inline-start:1px solid rgba(36,27,19,.15)">
+          <button type="button" title="Minimize window" style="display:flex;height:100%;width:48px;align-items:center;justify-content:center;color:rgba(36,27,19,.8);background:none;border:0;cursor:pointer">
+            <svg aria-hidden="true" width="14" height="14" style="display:block;color:currentColor"><use href="#i-minus"></use></svg>
+          </button>
+          <button type="button" title="Maximize window" style="display:flex;height:100%;width:48px;align-items:center;justify-content:center;color:rgba(36,27,19,.8);background:none;border:0;cursor:pointer">
+            <svg aria-hidden="true" width="12" height="12" style="display:block;color:currentColor"><use href="#i-square"></use></svg>
+          </button>
+          <button type="button" title="Close window" style="display:flex;height:100%;width:48px;align-items:center;justify-content:center;color:rgba(36,27,19,.8);background:none;border:0;cursor:pointer">
+            <svg aria-hidden="true" width="15" height="15" style="display:block;color:currentColor"><use href="#i-x"></use></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div style="display:flex;min-height:0;flex:1">
+    <aside style="display:flex;width:224px;flex-shrink:0;flex-direction:column;border-inline-end:1px solid rgba(36,27,19,.15);background:#e8e2d2">
+      <div style="padding:32px 24px 16px">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.2em;color:rgba(36,27,19,.7)">{{ railHeading }}</div>
+      </div>
+      <nav style="display:flex;flex-direction:column" aria-label="Tools">
+        <sc-for list="{{ toolNav }}" as="item" hint-placeholder-count="5">
+          <button type="button" onClick="{{ item.onClick }}" style="display:flex;align-items:center;gap:12px;border:0;border-inline-start:1px solid transparent;padding:14px 24px;text-align:start;font-family:'Barlow',sans-serif;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;border-inline-start-color:{{ item.bc }};background:{{ item.bg }};color:{{ item.fg }}">
+            <svg aria-hidden="true" width="16" height="16" style="display:block;flex:none;color:{{ item.ic }}"><use href="{{ item.icon }}"></use></svg>
+            <span style="flex:1">{{ item.label }}</span>
+          </button>
+        </sc-for>
+      </nav>
+      <div aria-hidden="true" style="margin:16px 24px;border-top:1px solid rgba(36,27,19,.1)"></div>
+      <nav style="display:flex;flex-direction:column" aria-label="Application">
+        <button type="button" onClick="{{ goSettings }}" style="display:flex;align-items:center;gap:12px;border:0;border-inline-start:1px solid transparent;padding:14px 24px;text-align:start;font-family:'Barlow',sans-serif;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;border-inline-start-color:{{ settingsNav.bc }};background:{{ settingsNav.bg }};color:{{ settingsNav.fg }}">
+          <svg aria-hidden="true" width="16" height="16" style="display:block;flex:none;color:{{ settingsNav.ic }}"><use href="#i-settings"></use></svg>
+          <span style="flex:1">{{ settingsLabel }}</span>
+        </button>
+      </nav>
+    </aside>
+
+    <main style="min-height:0;min-width:0;flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;overscroll-behavior:contain">
+      <div style="margin:0 auto;max-width:1400px;padding:32px">
+
+        <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <header style="margin-bottom:32px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <svg aria-hidden="true" width="22" height="22" style="display:block;flex:none;color:#8a4f1d"><use href="#i-flame"></use></svg>
+              <h1 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:36px;font-weight:700;text-transform:uppercase;line-height:1;color:#241b13">The Hub</h1>
+            </div>
+            <div style="margin-top:20px;height:1px;background:rgba(36,27,19,.2)"><div style="height:1px;width:224px;background:#8a4f1d"></div></div>
+            <p style="margin:16px 0 0;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.65)">Your stream tools · at a glance</p>
+          </header>
+
+          <div style="display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:24px">
+            <section style="grid-column:span 4;background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+              <header style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid rgba(36,27,19,.15);padding:16px 24px">
+                <h2 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;line-height:1.3;letter-spacing:.04em;color:#241b13">Connection</h2>
+              </header>
+              <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:rgba(36,27,19,.8)">
+                    <span aria-hidden="true" style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:{{ twitchDot.bg }};border:1px solid {{ twitchDot.bc }};box-shadow:{{ twitchDot.glow }}"></span>
+                    {{ twitchLabel }}
+                  </span>
+                  <span dir="ltr" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(36,27,19,.7)">{{ channelOrConnect }}</span>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(36,27,19,.15);padding-top:16px">
+                  <span style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:rgba(36,27,19,.8)">
+                    <span aria-hidden="true" style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:#3d5527;box-shadow:0 0 12px 1px rgba(138,79,29,.4)"></span>
+                    {{ coreLabel }}
+                  </span>
+                  <span dir="ltr" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(36,27,19,.7)">OK</span>
+                </div>
+              </div>
+            </section>
+
+            <button type="button" onClick="{{ goCounters }}" style="grid-column:span 4;cursor:pointer;padding:24px;text-align:start;background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg aria-hidden="true" width="16" height="16" style="display:block;flex:none;color:#8a4f1d"><use href="#i-tally-5"></use></svg>
+                <h2 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#241b13">Counters</h2>
+              </div>
+              <p style="margin:12px 0 0;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.7)">{{ countersStat }}</p>
+              <div style="margin-top:16px;display:flex;flex-direction:column;gap:6px">
+                <sc-for list="{{ counters }}" as="c" hint-placeholder-count="2">
+                  <div style="display:flex;align-items:center;justify-content:space-between">
+                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:rgba(36,27,19,.8)">{{ c.name }}</span>
+                    <span style="flex:none;border:1px solid rgba(36,27,19,.2);background:#e8e2d2;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:#241b13">{{ c.padded }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="margin-top:20px;display:flex;align-items:center;gap:4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#8a4f1d">
+                Open counters
+                <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-chevron-right"></use></svg>
+              </div>
+            </button>
+
+            <section style="grid-column:span 4;background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+              <header style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid rgba(36,27,19,.15);padding:16px 24px">
+                <h2 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;line-height:1.3;letter-spacing:.04em;color:#241b13">Recent Activity</h2>
+              </header>
+              <div style="padding:24px">
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <sc-for list="{{ recentEntries }}" as="e" hint-placeholder-count="4">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(36,27,19,.7)">{{ e.time }}</span>
+                      <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:14px;color:rgba(36,27,19,.8)">{{ e.message }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="margin-top:20px;border-top:1px solid rgba(36,27,19,.15);padding-top:16px">
+                  <button type="button" onClick="{{ goCounters }}" style="display:inline-flex;height:36px;align-items:center;justify-content:center;gap:6px;padding:0 12px;border:1px solid transparent;background:transparent;color:#241b13;font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer">
+                    Open feed
+                    <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-chevron-right"></use></svg>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <div style="grid-column:span 12">
+              <button type="button" disabled style="width:100%;cursor:not-allowed;padding:24px;text-align:start;opacity:.7;background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <svg aria-hidden="true" width="16" height="16" style="display:block;flex:none;color:rgba(36,27,19,.5)"><use href="#i-message-square"></use></svg>
+                    <h2 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:rgba(36,27,19,.7)">Chat Alerts</h2>
+                  </div>
+                  <span style="border:1px solid rgba(36,27,19,.3);padding:2px 4px;font-size:12px;font-weight:700;letter-spacing:.05em;color:rgba(36,27,19,.65)">Soon</span>
+                </div>
+                <p style="margin:12px 0 0;font-size:14px;color:rgba(36,27,19,.7)">On-stream shoutouts when viewers say the word</p>
+              </button>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ isCounters }}" hint-placeholder-val="{{ false }}">
+        <div>
+          <header style="margin-bottom:32px;display:flex;align-items:flex-start;justify-content:space-between;gap:24px">
+            <div>
+              <div style="display:flex;align-items:center;gap:12px">
+                <svg aria-hidden="true" width="22" height="22" style="display:block;flex:none;color:#8a4f1d"><use href="#i-tally-5"></use></svg>
+                <h1 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:36px;font-weight:700;text-transform:uppercase;line-height:1;color:#241b13">Counters</h1>
+              </div>
+              <div style="margin-top:20px;height:1px;width:224px;background:rgba(36,27,19,.2)"><div style="height:1px;width:224px;background:#8a4f1d"></div></div>
+              <p style="margin:16px 0 0;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.65)">Chat-driven counters · one dataset, three commands each</p>
+            </div>
+            <button type="button" style="display:inline-flex;height:44px;align-items:center;justify-content:center;gap:8px;padding:0 16px;border:1px solid #8a4f1d;background:#8a4f1d;color:#f0e9d8;font-family:'Barlow',sans-serif;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;flex:none">
+              <svg aria-hidden="true" width="15" height="15" style="display:block;color:currentColor"><use href="#i-plus"></use></svg>
+              New Counter
+            </button>
+          </header>
+
+          <div style="display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:24px">
+            <div style="grid-column:span 8">
+              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px">
+                <sc-for list="{{ counters }}" as="c" hint-placeholder-count="2">
+                  <div role="button" tabindex="0" onClick="{{ c.onSelect }}" style="cursor:pointer;padding:1px;background:{{ c.ring }}">
+                    <div style="background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08);padding:20px">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                        <h3 style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Cinzel',Georgia,serif;font-size:24px;font-weight:600;text-transform:uppercase;line-height:1.25;letter-spacing:.04em;color:#241b13">{{ c.name }}</h3>
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <button type="button" onClick="{{ c.onCustomize }}" title="Customize counter" style="display:inline-flex;height:36px;align-items:center;justify-content:center;gap:6px;padding:0 12px;border:1px solid transparent;background:transparent;color:#241b13;cursor:pointer">
+                            <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-pencil"></use></svg>
+                          </button>
+                          <span aria-hidden="true" style="display:inline-block;flex:none;width:8px;height:8px;border-radius:9999px;background:{{ c.dotBg }};border:1px solid {{ c.dotBc }};box-shadow:{{ c.dotGlow }}"></span>
+                        </div>
+                      </div>
+                      <div dir="ltr" style="margin-top:12px;text-align:start;font-family:'Cinzel',Georgia,serif;font-size:48px;font-weight:700;line-height:1;color:#241b13">{{ c.padded }}</div>
+                      <div style="margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:12px;text-transform:uppercase;letter-spacing:.15em;color:rgba(36,27,19,.65)">{{ c.lastLine }}</div>
+                      <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr auto;gap:8px">
+                        <button type="button" title="−" style="display:inline-flex;height:36px;align-items:center;justify-content:center;border:1px solid rgba(36,27,19,.3);background:#f5f0e4;color:#241b13;cursor:pointer">
+                          <svg aria-hidden="true" width="14" height="14" style="display:block;color:currentColor"><use href="#i-minus"></use></svg>
+                        </button>
+                        <button type="button" title="+" style="display:inline-flex;height:36px;align-items:center;justify-content:center;border:1px solid #8a4f1d;background:#8a4f1d;color:#f0e9d8;cursor:pointer">
+                          <svg aria-hidden="true" width="14" height="14" style="display:block;color:currentColor"><use href="#i-plus"></use></svg>
+                        </button>
+                        <button type="button" title="R" style="display:inline-flex;height:36px;align-items:center;justify-content:center;padding:0 12px;border:1px solid rgba(143,47,35,.6);background:#f5f0e4;color:#8f2f23;cursor:pointer">
+                          <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-rotate-ccw"></use></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="grid-column:span 4">
+              <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px 24px;text-align:center;background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+                <svg aria-hidden="true" width="26" height="26" style="display:block;color:rgba(138,79,29,.6)"><use href="#i-tally-5"></use></svg>
+                <div style="margin-top:16px;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:rgba(36,27,19,.7)">Select a counter</div>
+                <div style="margin-top:8px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.15em;color:rgba(36,27,19,.7)">Its commands and output live here</div>
+              </div>
+            </div>
+
+            <section style="grid-column:span 12;background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+              <header style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid rgba(36,27,19,.15);padding:16px 24px">
+                <h2 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;line-height:1.3;letter-spacing:.04em;color:#241b13">Feed</h2>
+                <button type="button" style="display:inline-flex;height:36px;align-items:center;justify-content:center;gap:6px;padding:0 12px;border:1px solid transparent;background:transparent;color:#241b13;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer">
+                  <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-trash-2"></use></svg>
+                  Clear
+                </button>
+              </header>
+              <div style="padding:24px">
+                <ul style="margin:0;padding:0;list-style:none;max-height:320px;overflow-y:auto;border:1px solid rgba(36,27,19,.15);background:#e8e2d2">
+                  <sc-for list="{{ logEntries }}" as="e" hint-placeholder-count="7">
+                    <li style="display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid rgba(36,27,19,.1)">
+                      <span dir="ltr" style="width:64px;flex:none;font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(36,27,19,.7)">{{ e.time }}</span>
+                      <span style="width:96px;flex:none">
+                        <span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap;border:1px solid {{ e.badgeBc }};background:{{ e.badgeBg }};color:{{ e.badgeFg }};padding:2px 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">{{ e.badge }}</span>
+                      </span>
+                      <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:14px;color:#241b13;text-decoration-line:{{ e.strike }};text-decoration-color:rgba(93,74,126,.75);text-decoration-thickness:1px">{{ e.message }}</span>
+                      <span dir="ltr" style="flex:none;border:1px solid rgba(36,27,19,.2);background:#e8e2d2;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:#241b13;visibility:{{ e.countVis }}">{{ e.count }}</span>
+                    </li>
+                  </sc-for>
+                </ul>
+              </div>
+            </section>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ isFeed }}" hint-placeholder-val="{{ false }}">
+        <div>
+          <section style="background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+            <header style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid rgba(36,27,19,.15);padding:16px 24px">
+              <h2 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;line-height:1.3;letter-spacing:.04em;color:#241b13">Feed</h2>
+              <button type="button" style="display:inline-flex;height:36px;align-items:center;justify-content:center;gap:6px;padding:0 12px;border:1px solid transparent;background:transparent;color:#241b13;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer">
+                <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-trash-2"></use></svg>
+                Clear
+              </button>
+            </header>
+            <div style="padding:24px">
+              <ul style="margin:0;padding:0;list-style:none;max-height:320px;overflow-y:auto;border:1px solid rgba(36,27,19,.15);background:#e8e2d2">
+                <sc-for list="{{ logEntries }}" as="e" hint-placeholder-count="7">
+                  <li style="display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid rgba(36,27,19,.1)">
+                    <span dir="ltr" style="width:64px;flex:none;font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(36,27,19,.7)">{{ e.time }}</span>
+                    <span style="width:96px;flex:none">
+                      <span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap;border:1px solid {{ e.badgeBc }};background:{{ e.badgeBg }};color:{{ e.badgeFg }};padding:2px 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">{{ e.badge }}</span>
+                    </span>
+                    <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:14px;color:#241b13;text-decoration-line:{{ e.strike }};text-decoration-color:rgba(93,74,126,.75);text-decoration-thickness:1px">{{ e.message }}</span>
+                    <span dir="ltr" style="flex:none;border:1px solid rgba(36,27,19,.2);background:#e8e2d2;padding:2px 8px;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:#241b13;visibility:{{ e.countVis }}">{{ e.count }}</span>
+                  </li>
+                </sc-for>
+              </ul>
+            </div>
+          </section>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:24px;padding-bottom:48px">
+          <header>
+            <div style="display:flex;align-items:center;gap:12px">
+              <svg aria-hidden="true" width="22" height="22" style="display:block;flex:none;color:#8a4f1d"><use href="#i-settings"></use></svg>
+              <h1 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:36px;font-weight:700;text-transform:uppercase;line-height:1;color:#241b13">Settings</h1>
+            </div>
+            <div style="margin-top:16px;height:1px;background:rgba(36,27,19,.2)"><div style="height:1px;width:224px;background:#8a4f1d"></div></div>
+            <p style="margin:12px 0 0;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.65)">Twitch connection · app configuration</p>
+          </header>
+
+          <nav aria-label="Settings sections" style="display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid rgba(36,27,19,.15);padding-bottom:16px">
+            <sc-for list="{{ settingsSections }}" as="s" hint-placeholder-count="6">
+              <button type="button" onClick="{{ s.onClick }}" style="display:flex;align-items:center;gap:10px;padding:10px 16px;font-family:'Barlow',sans-serif;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;border:1px solid {{ s.bc }};background:{{ s.bg }};color:{{ s.fg }}">
+                <svg aria-hidden="true" width="16" height="16" style="display:block;flex:none;color:{{ s.ic }}"><use href="{{ s.icon }}"></use></svg>
+                <span>{{ s.label }}</span>
+              </button>
+            </sc-for>
+          </nav>
+
+          <sc-if value="{{ settingsGeneral }}" hint-placeholder-val="{{ true }}">
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px">
+            <section style="background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+              <header style="border-bottom:1px solid rgba(36,27,19,.15);padding:16px 24px">
+                <h2 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;line-height:1.3;letter-spacing:.04em;color:#241b13">{{ languageHeading }}</h2>
+              </header>
+              <div style="padding:24px">
+                <p style="margin:0 0 16px;font-size:12px;color:rgba(36,27,19,.65)">Choose the language of the app</p>
+                <div role="radiogroup" style="display:flex;flex-wrap:wrap;gap:6px">
+                  <button type="button" onClick="{{ setEn }}" style="cursor:pointer;padding:6px 12px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border:1px solid {{ segEn.bc }};background:{{ segEn.bg }};color:{{ segEn.fg }}">English (US)</button>
+                  <button type="button" onClick="{{ setAr }}" style="cursor:pointer;padding:6px 12px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border:1px solid {{ segAr.bc }};background:{{ segAr.bg }};color:{{ segAr.fg }}">العربية (Arabic)</button>
+                </div>
+              </div>
+            </section>
+
+            <section style="background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+              <header style="border-bottom:1px solid rgba(36,27,19,.15);padding:16px 24px">
+                <h2 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;line-height:1.3;letter-spacing:.04em;color:#241b13">{{ appearanceHeading }}</h2>
+              </header>
+              <div style="padding:24px">
+                <p style="margin:0 0 16px;font-size:12px;color:rgba(36,27,19,.65)">Choose the look that feels best while you stream</p>
+                <div role="radiogroup" style="display:flex;flex-wrap:wrap;gap:6px">
+                  <span style="padding:6px 12px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border:1px solid #8a4f1d;background:#8a4f1d;color:#f0e9d8">Light</span>
+                  <span style="padding:6px 12px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border:1px solid rgba(36,27,19,.25);background:#f5f0e4;color:rgba(36,27,19,.7)">Dark</span>
+                </div>
+              </div>
+            </section>
+          </div>
+          </sc-if>
+
+          <sc-if value="{{ settingsTwitch }}" hint-placeholder-val="{{ false }}">
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px">
+            <section style="background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+              <header style="border-bottom:1px solid rgba(36,27,19,.15);padding:16px 24px">
+                <h2 style="margin:0;display:flex;align-items:center;gap:8px;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#241b13">
+                  <svg aria-hidden="true" width="16" height="16" style="display:block;color:#8a4f1d"><use href="#i-radio"></use></svg>
+                  Streamer Account
+                </h2>
+              </header>
+              <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+                <div style="border:1px solid rgba(36,27,19,.2);background:#e8e2d2;padding:12px 16px">
+                  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.18em;color:rgba(36,27,19,.7)">Streamer Hub Twitch app</div>
+                  <div style="margin-top:4px;font-size:12px;color:rgba(36,27,19,.75)">The Twitch application is built in. Streamers only need to authorize their own channel.</div>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(36,27,19,.15);padding-top:12px">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="width:10px;height:10px;border-radius:9999px;background:{{ settingsDotBg }}"></span>
+                    <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(36,27,19,.8)">{{ settingsAccountLabel }}</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <button type="button" style="display:inline-flex;height:36px;align-items:center;gap:6px;padding:0 12px;border:1px solid rgba(143,47,35,.6);background:#f5f0e4;color:#8f2f23;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer">
+                      <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-log-out"></use></svg>
+                      Forget Login
+                    </button>
+                    <button type="button" style="display:inline-flex;height:36px;align-items:center;gap:6px;padding:0 12px;border:1px solid #8a4f1d;background:#8a4f1d;color:#f0e9d8;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer">
+                      <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-key-round"></use></svg>
+                      Reconnect
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section style="background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+              <header style="border-bottom:1px solid rgba(36,27,19,.15);padding:16px 24px">
+                <h2 style="margin:0;display:flex;align-items:center;gap:8px;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#241b13">
+                  <svg aria-hidden="true" width="16" height="16" style="display:block;color:#8a4f1d"><use href="#i-bot"></use></svg>
+                  Bot / Moderator Account
+                </h2>
+              </header>
+              <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+                <p style="margin:0;font-size:12px;color:rgba(36,27,19,.65)">Use a secondary Twitch account to send chat messages and automatic replies.</p>
+                <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(36,27,19,.1);padding-top:12px">
+                  <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#241b13">Use bot account</span>
+                  <span style="position:relative;display:inline-block;height:22px;width:40px;flex:none;border:1px solid rgba(36,27,19,.3);background:rgba(36,27,19,.1)">
+                    <span style="position:absolute;inset-inline-start:2px;top:50%;height:14px;width:14px;transform:translateY(-50%);border-radius:9999px;background:#241b13"></span>
+                  </span>
+                </div>
+              </div>
+            </section>
+          </div>
+          </sc-if>
+        </div>
+        </sc-if>
+
+      </div>
+    </main>
+  </div>
+
+  <sc-if value="{{ configOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(36,27,19,.2);backdrop-filter:blur(12px);padding:24px" onClick="{{ closeConfig }}">
+    <section style="max-height:calc(100vh - 48px);width:100%;max-width:896px;overflow-y:auto" onClick="{{ stopClick }}">
+      <div style="display:flex;flex-direction:column;gap:24px;background:#f5f0e4;border:1px solid rgba(36,27,19,.12);box-shadow:inset 0 1px 0 rgba(36,27,19,.08)">
+        <header style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid rgba(36,27,19,.15);padding:16px 24px">
+          <h2 style="margin:0;font-family:'Cinzel',Georgia,serif;font-size:18px;font-weight:600;text-transform:uppercase;line-height:1.3;letter-spacing:.04em;color:#241b13">{{ configName }}</h2>
+        </header>
+        <div style="padding:0 24px 24px;display:flex;flex-direction:column;gap:24px">
+          <label style="display:block">
+            <span style="margin-bottom:8px;display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.7)">Counter name</span>
+            <input value="{{ configName }}" readonly style="height:44px;width:100%;border:1px solid rgba(36,27,19,.25);background:#f5f0e4;padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:14px;color:#241b13">
+          </label>
+
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <sc-for list="{{ commandBlocks }}" as="b" hint-placeholder-count="3">
+              <div style="border:1px solid rgba(36,27,19,.15);background:#e8e2d2;padding:16px">
+                <div style="display:flex;align-items:baseline;justify-content:space-between">
+                  <div style="font-family:'Cinzel',Georgia,serif;font-size:16px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#241b13">{{ b.label }}</div>
+                  <div dir="ltr" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:#41587d">{{ b.effect }}</div>
+                </div>
+                <div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">
+                  <label style="display:block">
+                    <span style="margin-bottom:8px;display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.7)">Command</span>
+                    <span style="position:relative;display:block">
+                      <span aria-hidden="true" dir="ltr" style="position:absolute;inset-inline-start:14px;top:50%;transform:translateY(-50%);font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:#41587d">!</span>
+                      <input value="{{ b.command }}" readonly style="height:44px;width:100%;border:1px solid rgba(36,27,19,.25);background:#f5f0e4;padding:0 12px 0 32px;font-family:'JetBrains Mono',monospace;font-size:14px;text-transform:uppercase;color:#241b13">
+                    </span>
+                    <span style="margin-top:6px;display:block;font-size:12px;color:rgba(36,27,19,.7)">{{ b.hint }}</span>
+                  </label>
+                  <div>
+                    <span style="margin-bottom:8px;display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.7)">Minimum rank</span>
+                    <div role="radiogroup" style="display:flex;flex-wrap:wrap;gap:6px">
+                      <sc-for list="{{ b.ranks }}" as="r" hint-placeholder-count="5">
+                        <span style="padding:6px 12px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border:1px solid {{ r.bc }};background:{{ r.bg }};color:{{ r.fg }}">{{ r.label }}</span>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div>
+                    <span style="margin-bottom:8px;display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.7)">{{ b.cooldownLabel }}</span>
+                    <div style="position:relative;height:22px;display:flex;align-items:center">
+                      <div style="height:2px;width:100%;background:rgba(36,27,19,.15)"><div style="height:2px;background:#8a4f1d;width:{{ b.cooldownPct }}"></div></div>
+                      <span style="position:absolute;inset-inline-start:{{ b.cooldownPct }};width:16px;height:16px;margin-inline-start:-8px;border-radius:9999px;border:1px solid rgba(36,27,19,.3);background:#8a4f1d;box-shadow:0 0 8px rgba(138,79,29,.45)"></span>
+                    </div>
+                    <div style="margin-top:4px;display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(36,27,19,.7)"><span dir="ltr">0s</span><span dir="ltr">300s</span></div>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="border:1px solid rgba(36,27,19,.15);background:#e8e2d2;padding:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div style="font-family:'Cinzel',Georgia,serif;font-size:16px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#241b13">OBS Output</div>
+                <div style="margin-top:4px;font-size:12px;color:rgba(36,27,19,.7)">Point an OBS text source at the file</div>
+              </div>
+              <span style="position:relative;display:inline-block;height:22px;width:40px;flex:none;border:1px solid #8a4f1d;background:#8a4f1d;box-shadow:inset 0 1px 0 rgba(36,27,19,.1),0 0 12px 1px rgba(138,79,29,.4)">
+                <span style="position:absolute;inset-inline-start:2px;top:50%;height:14px;width:14px;transform:translateY(-50%) translateX(20px);border-radius:9999px;background:#f0e9d8"></span>
+              </span>
+            </div>
+            <div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">
+              <label style="display:block">
+                <span style="margin-bottom:8px;display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.7)">Target file</span>
+                <span style="display:flex;gap:8px">
+                  <input dir="ltr" value="C:\StreamerHub\deaths.txt" readonly style="height:44px;width:100%;border:1px solid rgba(36,27,19,.25);background:#f5f0e4;padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:14px;color:#241b13">
+                  <button type="button" title="Browse for file" style="flex:none;display:inline-flex;height:44px;align-items:center;justify-content:center;padding:0 14px;border:1px solid rgba(36,27,19,.3);background:#f5f0e4;color:#241b13;cursor:pointer">
+                    <svg aria-hidden="true" width="16" height="16" style="display:block;color:currentColor"><use href="#i-folder-open"></use></svg>
+                  </button>
+                </span>
+                <span style="margin-top:6px;display:block;font-size:12px;color:rgba(36,27,19,.7)">A .txt file read by an OBS text source</span>
+              </label>
+              <label style="display:block">
+                <span style="margin-bottom:8px;display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(36,27,19,.7)">Template</span>
+                <input dir="ltr" value="Deaths: {count}" readonly style="height:44px;width:100%;border:1px solid rgba(36,27,19,.25);background:#f5f0e4;padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:14px;color:#241b13">
+                <span style="margin-top:6px;display:block;font-size:12px;color:rgba(36,27,19,.7)">Placeholders · {count} · {username}</span>
+              </label>
+              <div style="border:1px solid rgba(36,27,19,.2);background:#f5f0e4;padding:12px 16px">
+                <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.2em;color:rgba(36,27,19,.7)">Preview</div>
+                <div dir="ltr" style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:14px;color:#241b13">{{ obsPreview }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(36,27,19,.15);padding-top:16px">
+            <span style="display:inline-flex;align-items:center;border:1px solid rgba(61,85,39,.5);background:rgba(61,85,39,.15);color:#3d5527;padding:2px 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">Output ok · 21:04</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button type="button" onClick="{{ closeConfig }}" style="display:inline-flex;height:36px;align-items:center;padding:0 12px;border:1px solid rgba(36,27,19,.3);background:#f5f0e4;color:#241b13;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer">Done</button>
+              <button type="button" style="display:inline-flex;height:36px;align-items:center;gap:6px;padding:0 12px;border:1px solid rgba(36,27,19,.3);background:#f5f0e4;color:#241b13;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer">
+                <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-file-text"></use></svg>
+                Test write
+              </button>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid rgba(36,27,19,.15);padding-top:16px">
+            <button type="button" style="display:inline-flex;height:36px;align-items:center;gap:6px;padding:0 12px;border:1px solid rgba(143,47,35,.6);background:#f5f0e4;color:#8f2f23;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;cursor:pointer">
+              <svg aria-hidden="true" width="13" height="13" style="display:block;color:currentColor"><use href="#i-trash-2"></use></svg>
+              Delete counter
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360,&quot;height&quot;:860},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;counter&quot;,&quot;feed&quot;,&quot;settings&quot;],&quot;default&quot;:&quot;home&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;language&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;en&quot;,&quot;ar&quot;],&quot;default&quot;:&quot;en&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;twitchConnected&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+const I = '#i-';
+const AR = {
+  'nav.home': 'الرئيسية', 'nav.counters': 'العدادات', 'nav.autoReplies': 'المشغلات',
+  'nav.chat': 'شات الأوفرلاي', 'nav.feed': 'السجل', 'nav.settings': 'الإعدادات',
+  'titlebar.twitch': 'تويتش', 'titlebar.core': 'النواة',
+  'settings.language': 'اللغة', 'settings.theme': 'المظهر',
+};
+const EN = {
+  'nav.home': 'Home', 'nav.counters': 'Counters', 'nav.autoReplies': 'Triggers',
+  'nav.chat': 'Chat Overlay', 'nav.feed': 'Feed', 'nav.settings': 'Settings',
+  'titlebar.twitch': 'Twitch', 'titlebar.core': 'Core',
+  'settings.language': 'Language', 'settings.theme': 'Appearance',
+};
+
+const TONES = {
+  secondary: ['rgba(65,88,125,.5)', 'rgba(65,88,125,.15)', '#41587d'],
+  success: ['rgba(61,85,39,.5)', 'rgba(61,85,39,.15)', '#3d5527'],
+  warning: ['rgba(93,74,126,.5)', 'rgba(93,74,126,.15)', '#5d4a7e'],
+  primary: ['rgba(138,79,29,.5)', 'rgba(138,79,29,.15)', '#8a4f1d'],
+  neutral: ['rgba(36,27,19,.25)', 'rgba(36,27,19,.1)', 'rgba(36,27,19,.75)'],
+  danger: ['rgba(143,47,35,.5)', 'rgba(143,47,35,.15)', '#8f2f23'],
+};
+
+const LOG = [
+  ['21:04:12', 'Trigger', 'success', 'ali_streams → !death', 12],
+  ['21:03:58', 'Chat', 'secondary', 'kareem: !deaths', null],
+  ['21:02:31', 'Cooldown', 'warning', 'sara_tv → !death · 12s remaining', null],
+  ['21:01:07', 'Denied', 'warning', 'guest99 → !deathreset', null],
+  ['20:58:40', 'Manual', 'primary', 'Manual increment from app', 11],
+  ['20:55:02', 'Obs', 'success', 'Wrote C:\\StreamerHub\\deaths.txt', null],
+  ['20:52:19', 'System', 'secondary', 'Twitch chat connected · #ali_streams', null],
+];
+
+const RANKS = ['Everyone', 'Subs', 'VIP', 'Mods', 'Broadcaster'];
+
+class Component extends DCLogic {
+  state = {
+    tool: this.props.screen || 'home',
+    lang: this.props.language || 'en',
+    section: 'general',
+    configOpen: false,
+    selectedId: 'deaths',
+  };
+
+  t(key) {
+    return (this.state.lang === 'ar' ? AR : EN)[key] || EN[key];
+  }
+
+  navStyle(active) {
+    return active
+      ? { bc: '#8a4f1d', bg: 'rgba(36,27,19,.08)', fg: '#241b13', ic: '#8a4f1d' }
+      : { bc: 'transparent', bg: 'transparent', fg: 'rgba(36,27,19,.7)', ic: 'rgba(36,27,19,.5)' };
+  }
+
+  seg(active) {
+    return active
+      ? { bc: '#8a4f1d', bg: '#8a4f1d', fg: '#f0e9d8' }
+      : { bc: 'rgba(36,27,19,.25)', bg: '#f5f0e4', fg: 'rgba(36,27,19,.7)' };
+  }
+
+  renderVals() {
+    const { tool, lang, section, configOpen, selectedId } = this.state;
+    const connected = this.props.twitchConnected !== false;
+    const go = (id) => () => this.setState({ tool: id });
+
+    const tools = [
+      ['home', 'nav.home', 'house'],
+      ['counter', 'nav.counters', 'tally-5'],
+      ['autoReplies', 'nav.autoReplies', 'message-square'],
+      ['chat', 'nav.chat', 'tv'],
+      ['feed', 'nav.feed', 'list'],
+    ];
+
+    const counterData = [
+      { id: 'deaths', name: 'Deaths', count: 12, last: 'ali_streams' },
+      { id: 'wins', name: 'Wins', count: 3, last: 'sara_tv' },
+    ];
+
+    const sections = [
+      ['general', 'General & Appearance', 'languages'],
+      ['system', 'System & Window Behavior', 'app-window'],
+      ['keybinds', 'Keybinds', 'keyboard'],
+      ['twitch', 'Twitch & Bot Connection', 'radio'],
+      ['ai', 'AI & Intelligence', 'sparkles'],
+      ['guide', 'Setup Guide', 'circle-help'],
+    ];
+
+    const cmd = (label, effect, command, hint, rank, cd) => ({
+      label, effect, command, hint,
+      ranks: RANKS.map((r) => Object.assign({ label: r }, this.seg(r === rank))),
+      cooldownLabel: 'Cooldown · ' + (cd === 0 ? 'Off' : cd + 's'),
+      cooldownPct: Math.round((cd / 300) * 100) + '%',
+    });
+
+    return {
+      langToggleLabel: lang === 'ar' ? 'EN' : 'عربي',
+      toggleLang: () => this.setState({ lang: lang === 'ar' ? 'en' : 'ar' }),
+      railHeading: this.t('nav.counters'),
+      settingsLabel: this.t('nav.settings'),
+      twitchLabel: this.t('titlebar.twitch'),
+      coreLabel: this.t('titlebar.core'),
+      languageHeading: this.t('settings.language'),
+      appearanceHeading: this.t('settings.theme'),
+
+      twitchDot: connected
+        ? { bg: '#8a4f1d', bc: 'transparent', glow: '0 0 12px 1px rgba(138,79,29,.4)' }
+        : { bg: 'transparent', bc: 'rgba(36,27,19,.4)', glow: 'none' },
+      channelOrConnect: connected ? '#ali_streams' : 'OFFLINE',
+      settingsDotBg: connected ? '#10b981' : 'rgba(36,27,19,.3)',
+      settingsAccountLabel: connected ? '@ali_streams' : 'Twitch offline',
+
+      toolNav: tools.map(([id, key, icon]) =>
+        Object.assign({ label: this.t(key), icon: I + icon, onClick: go(id) }, this.navStyle(tool === id))),
+      settingsNav: this.navStyle(tool === 'settings'),
+      goSettings: go('settings'),
+      goCounters: go('counter'),
+
+      isHome: tool === 'home',
+      isCounters: tool === 'counter',
+      isFeed: tool === 'feed',
+      isSettings: tool === 'settings',
+
+      countersStat: counterData.length + ' counters · ' + counterData.reduce((s, c) => s + c.count, 0) + ' total',
+      counters: counterData.map((c) => ({
+        name: c.name,
+        padded: String(c.count).padStart(3, '0'),
+        lastLine: 'Last · @' + c.last,
+        ring: c.id === selectedId ? '#8a4f1d' : 'transparent',
+        dotBg: c.id === selectedId ? '#8a4f1d' : 'transparent',
+        dotBc: c.id === selectedId ? 'transparent' : 'rgba(36,27,19,.3)',
+        dotGlow: c.id === selectedId ? '0 0 12px 1px rgba(138,79,29,.4)' : 'none',
+        onSelect: () => this.setState({ selectedId: c.id }),
+        onCustomize: (e) => { e.stopPropagation(); this.setState({ configOpen: true, selectedId: c.id }); },
+      })),
+
+      recentEntries: LOG.slice(0, 4).map(([time, , , message]) => ({ time, message })),
+      logEntries: LOG.map(([time, badge, tone, message, count]) => ({
+        time, badge, message,
+        badgeBc: TONES[tone][0], badgeBg: TONES[tone][1], badgeFg: TONES[tone][2],
+        strike: badge === 'Denied' ? 'line-through' : 'none',
+        count: count === null ? '000' : String(count).padStart(3, '0'),
+        countVis: count === null ? 'hidden' : 'visible',
+      })),
+
+      settingsSections: sections.map(([id, label, icon]) => {
+        const s = this.seg(section === id);
+        return {
+          label, icon: I + icon, onClick: () => this.setState({ section: id }),
+          bc: section === id ? '#8a4f1d' : 'rgba(36,27,19,.2)',
+          bg: s.bg, fg: s.fg,
+          ic: section === id ? '#f0e9d8' : '#8a4f1d',
+        };
+      }),
+      settingsGeneral: section === 'general',
+      settingsTwitch: section === 'twitch',
+      segEn: this.seg(lang === 'en'),
+      segAr: this.seg(lang === 'ar'),
+      setEn: () => this.setState({ lang: 'en' }),
+      setAr: () => this.setState({ lang: 'ar' }),
+
+      configOpen,
+      configName: (counterData.find((c) => c.id === selectedId) || counterData[0]).name,
+      closeConfig: () => this.setState({ configOpen: false }),
+      stopClick: (e) => e.stopPropagation(),
+      obsPreview: 'Deaths: 12',
+      commandBlocks: [
+        cmd('Increase', '+1', 'death', 'Viewers type !death in chat', 'Everyone', 5),
+        cmd('Decrease', '−1', 'deathdown', 'Viewers type !deathdown in chat', 'Mods', 5),
+        cmd('Reset', '0', 'deathreset', 'Viewers type !deathreset in chat', 'Broadcaster', 0),
+      ],
+    };
+  }
+}
+
+</script>
+</body>
+</html>

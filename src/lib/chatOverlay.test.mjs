@@ -9,6 +9,10 @@ import {
   isRtlText,
   normalizeChatOverlayMessage,
   normalizeChatOverlaySettings,
+  clampChatInspectorWidth,
+  DEFAULT_CHAT_INSPECTOR_WIDTH,
+  MIN_CHAT_INSPECTOR_WIDTH,
+  MAX_CHAT_INSPECTOR_WIDTH,
 } from './chatOverlay.ts';
 
 test('defaults are version 2 and internally consistent', () => {
@@ -255,3 +259,30 @@ test('wraps RTL text in directional isolates', () => {
   assert.equal(formatted.endsWith('\u2069'), true);
   assert.equal(formatBidiText('plain', false), 'plain');
 });
+
+// --- Chat Inspector Width --------------------------------------------------
+
+test('clampChatInspectorWidth defaults to 420px for invalid inputs', () => {
+  assert.equal(DEFAULT_CHAT_INSPECTOR_WIDTH, 420);
+  assert.equal(clampChatInspectorWidth(NaN), 420);
+  assert.equal(clampChatInspectorWidth(undefined), 420);
+  assert.equal(clampChatInspectorWidth(null), 420);
+  assert.equal(clampChatInspectorWidth('hello'), 420);
+});
+
+test('clampChatInspectorWidth clamps values to minimum and maximum bounds', () => {
+  assert.equal(clampChatInspectorWidth(200), MIN_CHAT_INSPECTOR_WIDTH);
+  assert.equal(clampChatInspectorWidth(320), 320);
+  assert.equal(clampChatInspectorWidth(450), 450);
+  assert.equal(clampChatInspectorWidth(680), 680);
+  assert.equal(clampChatInspectorWidth(900), MAX_CHAT_INSPECTOR_WIDTH);
+});
+
+test('clampChatInspectorWidth respects container bounds reserving canvas width', () => {
+  // If container is 600px, 600 - 320 (reserved canvas) = 280, but min 320 wins
+  assert.equal(clampChatInspectorWidth(500, 600), 320);
+  // If container is 900px, 900 - 320 = 580 dynamic max
+  assert.equal(clampChatInspectorWidth(650, 900), 580);
+  assert.equal(clampChatInspectorWidth(400, 900), 400);
+});
+

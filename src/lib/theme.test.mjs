@@ -19,11 +19,14 @@ test('keeps the approved light and dark command-sheet tokens intact', async () =
     '--accent-text: #ae1800',
     '--accent-fill: #d62608',
     '--on-accent: #faf9f8',
-    '--surface: #121212',
-    '--surface-2: #0a0a0a',
-    '--ink: #ece8e5',
-    '--accent: #ff5436',
-    '--accent-deep: #ff8f79',
-    '--on-accent: #0a0a0a',
+    '--surface: #23282e',
+    '--surface-2: #1a2228',
+    '--surface-3: #2e3438',
+    '--ink: #f0f3f7',
+    '--accent: #6366f1',
+    '--accent-deep: #4f46e5',
+    '--on-accent: #ffffff',
   ]) assert.equal(css.includes(token), true, token);
 });
+
+

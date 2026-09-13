@@ -38,6 +38,14 @@ public static class ChatOverlayProtocol
     public static string Emotes(IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> providers) =>
         Serialize("emotes", new { providers });
 
+    /// <summary>Instructs connected overlay browser sources to reload/refresh the page.</summary>
+    public static string Reload() =>
+        Serialize("reload", new { });
+
+    /// <summary>Sends sample/preview messages to display on the overlay while editing.</summary>
+    public static string Preview(bool enabled, IReadOnlyList<ChatMessage>? sampleMessages = null) =>
+        Serialize("preview", new { enabled, messages = sampleMessages ?? Array.Empty<ChatMessage>() });
+
     private static string ScopeName(ChatClearScope scope) => scope switch
     {
         ChatClearScope.Message => "message",

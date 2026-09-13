@@ -36,33 +36,50 @@ const aiReply = {
   aiInstructions: 'Reply briefly',
 };
 
-test('projects each counter action and each reply into command rows', () => {
+test('projects each counter and each reply into command rows', () => {
+  const seq = {
+    id: 'seq-1',
+    enabled: true,
+    name: 'Hydrate Stack',
+    triggerType: 'channel_points',
+    rewardTitle: 'Drink Water',
+    cooldownSeconds: 20,
+    steps: [{ id: 's1', type: 'chat', chatMessage: 'Drink!' }],
+  };
+
   const rows = projectCommands({
     counters: [counter],
     replies: [preparedReply, aiReply],
+    sequences: [seq],
     counterLastTriggeredAt: { 'counter-1': { increase: 1_700_000_000_000 } },
     replyLastTriggeredAt: { 'reply-2': 1_700_000_010_000 },
+    sequenceLastTriggeredAt: { 'seq-1': 1_700_000_020_000 },
     obsErrors: {},
   });
 
-  assert.equal(rows.length, 5);
-  assert.deepEqual(rows.slice(0, 3).map((row) => row.id), [
-    'counter:counter-1:increase',
-    'counter:counter-1:decrease',
-    'counter:counter-1:reset',
-  ]);
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0].id, 'counter:counter-1');
+  assert.equal(rows[0].command, 'death');
+  assert.equal(rows[0].description, 'Deaths');
+  assert.equal(rows[0].count, 12);
+  assert.deepEqual(rows[0].subCommands, ['death', 'deathdown', 'deathreset']);
   assert.deepEqual(rows[0].writes, ['file', 'title']);
   assert.equal(rows[0].literalFileOutput, 'Deaths: 12');
-  assert.equal(rows[3].enabled, false);
-  assert.equal(rows[3].group, 'replies');
-  assert.equal(rows[4].group, 'ai');
-  assert.equal(rows[4].command, 'كيف الحال');
+  assert.equal(rows[1].enabled, false);
+  assert.equal(rows[1].group, 'replies');
+  assert.equal(rows[2].group, 'ai');
+  assert.equal(rows[2].command, 'كيف الحال');
+  assert.equal(rows[3].id, 'sequence:seq-1');
+  assert.equal(rows[3].group, 'sequences');
+  assert.equal(rows[3].command, '🪙 Drink Water');
+  assert.equal(rows[3].sequenceStepCount, 1);
 });
 
-test('filters by group and by command or description text', () => {
+test('filters by group and by command or description or sub-command text', () => {
   const rows = projectCommands({ counters: [counter], replies: [preparedReply, aiReply], obsErrors: {} });
   assert.equal(filterCommands(rows, 'disabled', '').length, 1);
-  assert.equal(filterCommands(rows, 'counters', 'reset').length, 1);
+  assert.equal(filterCommands(rows, 'counters', 'deathreset').length, 1);
+  assert.equal(filterCommands(rows, 'counters', 'Deaths').length, 1);
   assert.equal(filterCommands(rows, 'ai', 'كيف').length, 1);
   assert.equal(filterCommands(rows, 'all', 'missing').length, 0);
 });

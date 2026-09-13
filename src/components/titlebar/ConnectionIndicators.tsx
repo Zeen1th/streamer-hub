@@ -28,11 +28,21 @@ export function ConnectionIndicators() {
       disabled={!statusReceived || connected}
       onClick={() => rpc.invoke(Channels.TwitchAuthorize).catch(() => undefined)}
       className={cn(
-        'flex h-full items-center gap-1.5 px-2 font-mono text-[10px] font-medium disabled:opacity-100',
-        connected ? 'text-muted' : 'text-accent-text',
+        'flex h-[24px] my-auto items-center gap-1.5 px-2.5 font-mono text-[11px] font-semibold rounded-md transition-all',
+        connected
+          ? 'text-slate-200 bg-surface-3/60 border border-rule'
+          : 'text-amber-400 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20',
       )}
     >
-      <span aria-hidden className={cn('size-[7px] border', connected ? 'border-ink bg-ink' : 'border-accent bg-transparent')} />
+      <span
+        aria-hidden
+        className={cn(
+          'size-2 rounded-full shrink-0',
+          connected
+            ? 'bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]'
+            : 'bg-amber-400 animate-pulse',
+        )}
+      />
       <span dir="ltr">{label}</span>
     </button>
   );
