@@ -31,7 +31,7 @@ test('replaceSequenceTokens replaces {target} and {target_user} from userInput',
   assert.equal(result, 'Target is badguy and also badguy, ordered by Zein');
 });
 
-test('replaceSequenceTokens defaults {target} to kirin_x_ when userInput is empty', () => {
+test('replaceSequenceTokens replaces {target} with empty string when userInput is empty', () => {
   const ctx = {
     username: 'Zein',
     userInput: '',
@@ -41,7 +41,7 @@ test('replaceSequenceTokens defaults {target} to kirin_x_ when userInput is empt
   const text = 'Target is {target} and also {target_user}, ordered by {username}';
   const result = replaceSequenceTokens(text, ctx);
 
-  assert.equal(result, 'Target is kirin_x_ and also kirin_x_, ordered by Zein');
+  assert.equal(result, 'Target is  and also , ordered by Zein');
 });
 
 test('executeSequence runs smart_timeout moderation step and invokes sink', async () => {
@@ -131,13 +131,13 @@ test('executeSequence skips moderation when targetUser is explicitly empty strin
   assert.equal(actionsCalled.length, 0, 'Should not call action if target is empty');
 });
 
-test('executeSequence defaults timeout target to kirin_x_ when input is empty', async () => {
+test('executeSequence skips timeout moderation step when input is empty and targetUser is {input}', async () => {
   const actionsCalled = [];
 
   const sequence = {
-    id: 'seq-default-target',
+    id: 'seq-empty-input',
     enabled: true,
-    name: 'Timeout Default Kirin',
+    name: 'Timeout With Empty Input',
     triggerType: 'channel_points',
     cooldownSeconds: 0,
     steps: [
@@ -166,8 +166,47 @@ test('executeSequence defaults timeout target to kirin_x_ when input is empty', 
 
   assert.equal(result.ok, true);
   assert.equal(result.executedSteps, 1);
+  assert.equal(actionsCalled.length, 0, 'Should not call action when target is empty');
+});
+
+test('executeSequence times out custom provided targetUser in test context', async () => {
+  const actionsCalled = [];
+
+  const sequence = {
+    id: 'seq-custom-target',
+    enabled: true,
+    name: 'Timeout Custom Target',
+    triggerType: 'channel_points',
+    cooldownSeconds: 0,
+    steps: [
+      {
+        id: 'step-1',
+        type: 'moderation',
+        moderationAction: 'smart_timeout',
+        targetUser: '{input}',
+        durationSeconds: 120,
+      },
+    ],
+  };
+
+  const ctx = {
+    username: 'Streamer',
+    userInput: '@some_custom_user',
+    source: 'test',
+  };
+
+  const result = await executeSequence(sequence, ctx, {
+    executeModerationAction: async (action, target, durationSeconds, reason) => {
+      actionsCalled.push({ action, target, durationSeconds, reason });
+      return { ok: true };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.executedSteps, 1);
   assert.equal(actionsCalled.length, 1);
-  assert.equal(actionsCalled[0].target, 'kirin_x_');
+  assert.equal(actionsCalled[0].target, 'some_custom_user');
+  assert.equal(actionsCalled[0].durationSeconds, 120);
 });
 
 test('executeSequence executes clear_chat without target user', async () => {

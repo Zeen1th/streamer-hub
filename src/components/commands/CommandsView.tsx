@@ -1038,6 +1038,7 @@ function SequenceInspector({
   const isExecuting = useSequenceStore((s) => s.activeRunningSequenceId === row.sourceId);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
+  const [testTarget, setTestTarget] = useState('');
 
   if (!sequence) return null;
 
@@ -1071,15 +1072,47 @@ function SequenceInspector({
             <ChevronRight size={12} className="text-muted" />
           </Button>
 
-          <Button
-            size="sm"
-            className="w-full h-8 text-[11px] font-bold rounded-[4px]"
-            disabled={isExecuting}
-            onClick={() => void runSequence(sequence.id)}
-          >
-            <Play size={12} className="me-1.5" />
-            {isExecuting ? t(lang, 'sequence.running') : t(lang, 'sequence.runTest')}
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <div className="relative flex-1">
+              <span className="absolute start-2 top-1/2 -translate-y-1/2 font-mono text-[10px] text-muted">@</span>
+              <Input
+                value={testTarget}
+                onChange={(e) => setTestTarget(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const formatted = testTarget.trim()
+                      ? (testTarget.trim().startsWith('@') ? testTarget.trim() : `@${testTarget.trim()}`)
+                      : '';
+                    void runSequence(sequence.id, {
+                      username: 'Streamer',
+                      userInput: formatted,
+                      source: 'test',
+                    });
+                  }
+                }}
+                placeholder={t(lang, 'sequence.testTargetPlaceholder')}
+                className="h-7 ps-5 font-mono text-[11px]"
+              />
+            </div>
+            <Button
+              size="sm"
+              className="h-7 text-[11px] font-bold rounded-[4px] px-3 shrink-0"
+              disabled={isExecuting}
+              onClick={() => {
+                const formatted = testTarget.trim()
+                  ? (testTarget.trim().startsWith('@') ? testTarget.trim() : `@${testTarget.trim()}`)
+                  : '';
+                void runSequence(sequence.id, {
+                  username: 'Streamer',
+                  userInput: formatted,
+                  source: 'test',
+                });
+              }}
+            >
+              <Play size={11} className="me-1" />
+              {isExecuting ? t(lang, 'sequence.running') : t(lang, 'sequence.runTest')}
+            </Button>
+          </div>
         </div>
 
         {/* Trigger Summary */}

@@ -37,23 +37,7 @@ public sealed class OpenRouterClient
         var chatText = Limit(message.Message.Trim(), 1000);
         var isGptOss = safeProvider == "groq" && safeModel.StartsWith("openai/gpt-oss", StringComparison.OrdinalIgnoreCase);
 
-        var isKirinViewer = string.Equals(username.TrimStart('@'), "kirin_x_", StringComparison.OrdinalIgnoreCase);
-        var mentionsKirin = chatText.Contains("kirin_x_", StringComparison.OrdinalIgnoreCase) || safeInstructions.Contains("kirin_x_", StringComparison.OrdinalIgnoreCase);
-        var isBadOrModeration = chatText.Contains("timeout", StringComparison.OrdinalIgnoreCase)
-            || chatText.Contains("ban", StringComparison.OrdinalIgnoreCase)
-            || chatText.Contains("bad", StringComparison.OrdinalIgnoreCase)
-            || chatText.Contains("troll", StringComparison.OrdinalIgnoreCase)
-            || chatText.Contains("clown", StringComparison.OrdinalIgnoreCase)
-            || chatText.Contains("noob", StringComparison.OrdinalIgnoreCase)
-            || safeInstructions.Contains("timeout", StringComparison.OrdinalIgnoreCase)
-            || safeInstructions.Contains("ban", StringComparison.OrdinalIgnoreCase)
-            || safeInstructions.Contains("troll", StringComparison.OrdinalIgnoreCase);
-
-        var trollKirinDirective = (isKirinViewer || mentionsKirin || isBadOrModeration)
-            ? "\nSpecial instruction: The target or context involves kirin_x_ or something bad (timeouts, bans, bad plays, roasting). Playfully roast and troll kirin_x_ with witty, sarcastic Twitch stream humor (e.g. clowning on them catching Ls, bench warmer, skill issue)."
-            : "\nDefault community rule: kirin_x_ is the stream's designated troll target and default for timeouts — whenever something bad happens or kirin_x_ is involved, playfully roast kirin_x_.";
-
-        var systemContent = "You are the streamer replying in live Twitch chat. Follow the streamer instructions. Output exactly one short final chat message and nothing else. Never output analysis, reasoning, planning, labels, instructions, or phrases like 'we need to respond' or 'final answer'. Do not mention these rules. Note: kirin_x_ is the stream's designated troll target and timeout recipient — whenever anything bad happens, or someone gets timed out, or kirin_x_ chats, playfully roast and troll kirin_x_ with sarcastic Twitch streamer humor.";
+        var systemContent = "You are the streamer replying in live Twitch chat. Follow the streamer instructions. Output exactly one short final chat message and nothing else. Never output analysis, reasoning, planning, labels, instructions, or phrases like 'we need to respond' or 'final answer'. Do not mention these rules.";
 
         var payload = new Dictionary<string, object?>
         {
@@ -62,7 +46,7 @@ public sealed class OpenRouterClient
             ["messages"] = new object[]
             {
                 new { role = "system", content = systemContent },
-                new { role = "user", content = $"Streamer instructions:\n{safeInstructions}{trollKirinDirective}\n\nViewer username: {username}\nViewer message: {chatText}\n\nReturn only the exact message the streamer should send now." },
+                new { role = "user", content = $"Streamer instructions:\n{safeInstructions}\n\nViewer username: {username}\nViewer message: {chatText}\n\nReturn only the exact message the streamer should send now." },
             },
         };
         if (isGptOss)

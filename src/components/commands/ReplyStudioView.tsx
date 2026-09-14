@@ -10,16 +10,20 @@ import {
   Tv,
   X,
 } from 'lucide-react';
-import type { AutoReply, PermissionLevel } from '../../rpc/contracts';
+import type { AutoReply, ChatMessage, PermissionLevel } from '../../rpc/contracts';
+import { Channels } from '../../rpc/contracts';
+import { rpc } from '../../rpc';
 import { useAutoReplyStore } from '../../store/autoReplyStore';
 import { useLogStore } from '../../store/logStore';
 import { t } from '../../i18n/translations';
+import { evaluateRuleExecution, renderAutoReply } from '../../lib/autoReplyRules';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
 import { TriggerTitleAction } from '../tools/auto-replies/TriggerTitleAction';
+import { ChatterOverridesSection } from './ChatterOverridesSection';
 
 interface ReplyStudioViewProps {
   rule: AutoReply;
@@ -40,6 +44,7 @@ export function ReplyStudioView({
   const remove = useAutoReplyStore((s) => s.remove);
   const [newTriggerInput, setNewTriggerInput] = useState('');
   const [testSent, setTestSent] = useState(false);
+  const [testUser, setTestUser] = useState('viewer');
 
   // Escape key to navigate back
   useEffect(() => {
@@ -75,15 +80,60 @@ export function ReplyStudioView({
     });
   };
 
-  const handleTestSimulate = () => {
-    const previewText = (rule.response || '')
-      .replace(/\{username\}/gi, 'viewer')
-      .replace(/\{mention\}/gi, '@viewer')
-      .replace(/\{message\}/gi, rule.triggers[0] || 'hello');
+  const handleTestSimulate = async () => {
+    const cleanSimUser = testUser.trim().replace(/^@+/, '') || 'viewer';
+    const mockMsg: ChatMessage = {
+      id: 'sim-' + Date.now(),
+      username: cleanSimUser,
+      isBroadcaster: false,
+      isMod: false,
+      isVip: false,
+      isSubscriber: false,
+      message: rule.triggers[0] ? `!${rule.triggers[0]}` : 'hello',
+      timestamp: new Date().toISOString(),
+      emotes: [],
+    };
 
+    const plan = evaluateRuleExecution(rule, mockMsg);
+    if (plan.type === 'ignore') {
+      useLogStore.getState().add({
+        kind: 'system',
+        message: `[Simulated Reply] Silenced/Ignored for @${cleanSimUser} (Chatter Override)`,
+      });
+      setTestSent(true);
+      setTimeout(() => setTestSent(false), 2500);
+      return;
+    }
+
+    if (plan.type === 'ai') {
+      try {
+        const res = await rpc.invoke(Channels.AutoRepliesGenerate, {
+          ruleId: rule.id,
+          send: false,
+          message: mockMsg,
+          overrideInstructions: plan.isOverride ? plan.instructions : undefined,
+        });
+        const out = res.ok && res.message ? res.message : `[AI response with instructions: "${plan.instructions}"]`;
+        useLogStore.getState().add({
+          kind: 'chat',
+          message: `[Simulated AI Reply for @${cleanSimUser}] ${out}`,
+        });
+      } catch {
+        useLogStore.getState().add({
+          kind: 'chat',
+          message: `[Simulated AI Reply for @${cleanSimUser}] Generated AI response with instructions: "${plan.instructions}"`,
+        });
+      }
+      setTestSent(true);
+      setTimeout(() => setTestSent(false), 2500);
+      return;
+    }
+
+    const previewText = renderAutoReply(plan.text, mockMsg);
+    const tag = plan.isOverride ? `[Simulated Override for @${cleanSimUser}]` : `[Simulated Reply for @${cleanSimUser}]`;
     useLogStore.getState().add({
       kind: 'chat',
-      message: `[Simulated Reply] ${previewText}`,
+      message: `${tag} ${previewText}`,
     });
 
     setTestSent(true);
@@ -141,14 +191,23 @@ export function ReplyStudioView({
 
           <div className="h-4 w-px bg-rule" />
 
-          <Button
-            size="sm"
-            onClick={handleTestSimulate}
-            className="border border-sky-500/40 bg-sky-600/90 text-white hover:bg-sky-600"
-          >
-            <Play size={12} className="fill-current" />
-            <span>{testSent ? '✓ Simulated!' : t(lang, 'sequence.runTest')}</span>
-          </Button>
+          <div className="flex items-center gap-1.5 rounded-md border border-rule bg-surface-2/60 px-2 py-0.5">
+            <span className="font-mono text-[10.5px] text-muted">Test as:</span>
+            <Input
+              value={testUser}
+              onChange={(e) => setTestUser(e.target.value)}
+              placeholder="@viewer"
+              className="h-6 w-24 text-[11px] font-mono px-1.5"
+            />
+            <Button
+              size="sm"
+              onClick={handleTestSimulate}
+              className="h-6 border border-sky-500/40 bg-sky-600/90 text-white hover:bg-sky-600 px-2 text-[11px]"
+            >
+              <Play size={11} className="fill-current me-1" />
+              <span>{testSent ? '✓ Simulated!' : t(lang, 'sequence.runTest')}</span>
+            </Button>
+          </div>
 
           {onSwitchToAi && (
             <Button
@@ -334,7 +393,10 @@ export function ReplyStudioView({
           </div>
         </section>
 
-        {/* Section 3: Permission & Cooldowns */}
+        {/* Section 3: Specific Chatter Overrides (Priority 1) */}
+        <ChatterOverridesSection rule={rule} update={update} lang={lang} />
+
+        {/* Section 4: Permission & Cooldowns */}
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {/* Permission Rank */}
           <div className="flex flex-col gap-3 rounded-lg border border-rule bg-surface-3 p-4">

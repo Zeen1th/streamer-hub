@@ -24,7 +24,9 @@ import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
 import {
   checkUserRestriction,
+  evaluateRuleExecution,
   normalizeUsername,
+  renderAutoReply,
 } from '../../lib/autoReplyRules';
 import { useAutoReplyStore } from '../../store/autoReplyStore';
 import { t } from '../../i18n/translations';
@@ -34,6 +36,7 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
 import { Field } from '../ui/Field';
 import { Switch } from '../ui/Switch';
+import { ChatterOverridesSection } from './ChatterOverridesSection';
 
 interface AiReplyStudioViewProps {
   rule: AutoReply;
@@ -58,7 +61,7 @@ export function AiReplyStudioView({ rule, onBack, lang }: AiReplyStudioViewProps
   const [tagInput, setTagInput] = useState('');
 
   // Live Playground simulation state
-  const [simUser, setSimUser] = useState(targetUsers[0] ? `@${targetUsers[0]}` : 'kirin_x_');
+  const [simUser, setSimUser] = useState(targetUsers[0] ? `@${targetUsers[0]}` : 'viewer');
   const [simMessage, setSimMessage] = useState(
     rule.triggers[0] ? `!${rule.triggers[0]}` : 'hello',
   );
@@ -150,13 +153,33 @@ export function AiReplyStudioView({ rule, onBack, lang }: AiReplyStudioViewProps
       return;
     }
 
-    // 2. Generate live response using rule's persona prompt
+    const plan = evaluateRuleExecution(rule, mockMsg);
+    if (plan.type === 'ignore') {
+      setTestState({
+        loading: false,
+        status: 'blocked',
+        reason: `Silenced: Chatter override condition is set to ignore @${cleanSimUser}.`,
+      });
+      return;
+    }
+
+    if (plan.type === 'static') {
+      setTestState({
+        loading: false,
+        status: 'allowed',
+        output: renderAutoReply(plan.text, mockMsg),
+      });
+      return;
+    }
+
+    // 2. Generate live response using rule's persona prompt (or override instructions)
     try {
       await rpc.invoke(Channels.AutoRepliesSave, { rule }).catch(() => undefined);
       const result = await rpc.invoke(Channels.AutoRepliesGenerate, {
         ruleId: rule.id,
         send: false,
         message: mockMsg,
+        overrideInstructions: plan.isOverride ? plan.instructions : undefined,
       });
 
       if (result.ok && result.message) {
@@ -431,6 +454,9 @@ export function AiReplyStudioView({ rule, onBack, lang }: AiReplyStudioViewProps
           )}
         </div>
 
+        {/* Specific Chatter Overrides (Priority 1) */}
+        <ChatterOverridesSection rule={rule} update={update} lang={lang} />
+
         {/* Section 3: AI Persona & Instructions (No response presets) */}
         <div className="rounded-lg border border-rule bg-surface-3 p-5 space-y-3 shadow-sm">
           <div>
@@ -477,7 +503,7 @@ export function AiReplyStudioView({ rule, onBack, lang }: AiReplyStudioViewProps
                   className="h-8 ps-6 font-mono text-[11.5px]"
                   value={simUser}
                   onChange={(e) => setSimUser(e.target.value)}
-                  placeholder="kirin_x_"
+                  placeholder="username"
                 />
               </div>
             </div>

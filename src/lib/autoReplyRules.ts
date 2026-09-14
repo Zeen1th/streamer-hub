@@ -221,17 +221,87 @@ export function evaluateAiConditions(
   return { action: 'proceed', instructions: defaultInstructions };
 }
 
+export type RuleExecutionPlan =
+  | { type: 'ignore'; reason?: string; matchedCondition?: AiConditionRule }
+  | { type: 'static'; text: string; isOverride: boolean; matchedCondition?: AiConditionRule }
+  | { type: 'ai'; instructions: string; isOverride: boolean; matchedCondition?: AiConditionRule };
+
+export function evaluateRuleExecution(
+  rule: {
+    responseMode?: 'static' | 'ai';
+    response?: string;
+    aiInstructions?: string;
+    aiConditions?: readonly AiConditionRule[];
+  },
+  message: ChatMessage,
+): RuleExecutionPlan {
+  // 1. Evaluate any chatter condition overrides first (Priority 1)
+  if (rule.aiConditions && rule.aiConditions.length > 0) {
+    const condResult = evaluateAiConditions(rule.aiConditions, message, rule.aiInstructions ?? '');
+    if (condResult.action === 'ignore') {
+      return { type: 'ignore', reason: 'Ignored by chatter condition', matchedCondition: condResult.matchedCondition };
+    }
+    if (condResult.action === 'static_reply' && condResult.staticReply !== undefined) {
+      return { type: 'static', text: condResult.staticReply, isOverride: true, matchedCondition: condResult.matchedCondition };
+    }
+    if (condResult.matchedCondition && condResult.matchedCondition.thenType === 'instructions') {
+      return { type: 'ai', instructions: condResult.instructions, isOverride: true, matchedCondition: condResult.matchedCondition };
+    }
+  }
+
+  // 2. Default route (Priority 2: for standard chatters)
+  if (rule.responseMode === 'ai') {
+    return { type: 'ai', instructions: rule.aiInstructions ?? '', isOverride: false };
+  }
+  return { type: 'static', text: rule.response ?? '', isOverride: false };
+}
+
 export function selectBestMatchingAutoReply<T extends {
+  id?: string;
   enabled: boolean;
   responseMode?: 'static' | 'ai';
   aiUserRestriction?: AiUserRestriction;
-  aiTargetUsers?: string[];
-}>(candidates: readonly T[]): T | null {
+  aiTargetUsers?: readonly string[];
+  aiConditions?: readonly AiConditionRule[];
+}>(candidates: readonly T[], username?: string, message?: ChatMessage): T | null {
   if (!candidates.length) return null;
-  // Specific user targeted AI rules (allowlist) take precedence over general broadcast rules
-  const specificRule = candidates.find(
-    (r) => r.responseMode === 'ai' && r.aiUserRestriction === 'allowlist',
-  );
-  return specificRule ?? candidates[0];
+  if (candidates.length === 1) return candidates[0];
+
+  const cleanUser = username ? normalizeUsername(username) : '';
+
+  // Priority 1: Check for candidate that has an explicit match for THIS specific user
+  if (cleanUser) {
+    // 1a. Rule with allowlist containing this user
+    const allowlistMatch = candidates.find(
+      (r) => r.aiUserRestriction === 'allowlist' &&
+             (r.aiTargetUsers ?? []).map(normalizeUsername).includes(cleanUser),
+    );
+    if (allowlistMatch) return allowlistMatch;
+
+    // 1b. Rule with aiConditions matching this user (or role if message is provided)
+    if (message) {
+      const conditionMatch = candidates.find((r) => {
+        if (!r.aiConditions || r.aiConditions.length === 0) return false;
+        const res = evaluateAiConditions(r.aiConditions, message, '');
+        return res.matchedCondition !== undefined;
+      });
+      if (conditionMatch) return conditionMatch;
+    }
+  }
+
+  // Priority 2: Candidates that are not restricted to someone else
+  const nonRestricted = candidates.filter((r) => {
+    if (r.aiUserRestriction === 'allowlist') {
+      return cleanUser && (r.aiTargetUsers ?? []).map(normalizeUsername).includes(cleanUser);
+    }
+    return true;
+  });
+
+  const pool = nonRestricted.length > 0 ? nonRestricted : candidates;
+
+  // Prefer static replies as fast default fallback over generic AI
+  const staticRule = pool.find((r) => r.responseMode !== 'ai');
+  return staticRule ?? pool[0];
 }
+
 

@@ -280,7 +280,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
       username: customContext?.username || 'Streamer',
       userLogin: customContext?.userLogin || 'streamer',
       source: customContext?.source || 'test',
-      userInput: customContext?.userInput ?? '@kirin_x_',
+      userInput: customContext?.userInput ?? '',
     };
 
     try {

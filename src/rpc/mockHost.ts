@@ -285,13 +285,11 @@ export class MockHost {
       }
       case 'auto-replies/generate': {
         const payload = request.payload as { message?: { username?: string; message?: string } } | undefined;
-        const chatter = payload?.message?.username?.toLowerCase() || '';
-        const msgText = payload?.message?.message?.toLowerCase() || '';
-        if (chatter.includes('kirin_x_') || msgText.includes('kirin_x_') || msgText.includes('timeout') || msgText.includes('ban') || msgText.includes('bad')) {
-          this.respond(request, { ok: true, message: 'classic @kirin_x_ catching Ls as usual 🤡 enjoy the timeout bench!', usedFallback: false });
-        } else {
-          this.respond(request, { ok: true, message: 'Mock AI reply — configure OpenRouter in the desktop app.', usedFallback: false });
-        }
+        this.respond(request, {
+          ok: true,
+          message: `Mock AI reply for @${payload?.message?.username || 'viewer'}!`,
+          usedFallback: false,
+        });
         break;
       }
       case 'twitch/get-title':
@@ -435,11 +433,11 @@ export class MockHost {
         break;
       case Channels.UpdateCheck:
         this.respond(request, {
-          currentVersion: '0.2.8',
-          latestVersion: '0.2.8',
+          currentVersion: '0.2.9',
+          latestVersion: '0.2.9',
           updateAvailable: false,
           releaseUrl: 'https://github.com/Zeen1th/streamer-hub/releases/latest',
-          downloadUrl: 'https://github.com/Zeen1th/streamer-hub/releases/download/v0.2.8/StreamerHub-Setup-v0.2.8.exe',
+          downloadUrl: 'https://github.com/Zeen1th/streamer-hub/releases/download/v0.2.9/StreamerHub-Setup-v0.2.9.exe',
           releaseNotes: 'The current release is installed.',
         });
         break;
@@ -485,6 +483,18 @@ export class MockHost {
       }
       case Channels.UpdateInstall:
         this.respond(request, { ok: true });
+        break;
+      case Channels.TwitchModerationSmartTimeout:
+      case Channels.TwitchModerationTimeout:
+      case Channels.TwitchModerationBan:
+      case Channels.TwitchModerationUnban:
+      case Channels.TwitchModerationMod:
+      case Channels.TwitchModerationUnmod:
+      case Channels.TwitchModerationVip:
+      case Channels.TwitchModerationUnvip:
+      case Channels.TwitchModerationClear:
+      case Channels.TwitchModerationShoutout:
+        this.respond(request, { ok: true, wasMod: false });
         break;
       default:
         this.respond(request, undefined, `UNKNOWN CHANNEL: ${request.channel}`);

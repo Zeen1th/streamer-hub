@@ -63,7 +63,12 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
 
   const counters = useCounterStore((s) => s.counters);
   const [showAddMenu, setShowAddMenu] = useState(false);
-  const [testUser] = useState('StreamViewer');
+  const [testUser, setTestUser] = useState('StreamViewer');
+  const [testTarget, setTestTarget] = useState('');
+  const [testStatus, setTestStatus] = useState<{
+    status: 'success' | 'error' | 'running';
+    message: string;
+  } | null>(null);
 
   const isExecuting = activeRunningSequenceId === sequence.id;
 
@@ -79,13 +84,35 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onBack]);
 
-  const handleRunTest = async () => {
+  const handleRunTest = async (overrideTarget?: string) => {
     if (isExecuting) return;
-    await runSequence(sequence.id, {
-      username: testUser || 'Streamer',
-      userInput: '@kirin_x_',
+    const rawTarget = (overrideTarget !== undefined ? overrideTarget : testTarget).trim();
+    const formattedInput = rawTarget ? (rawTarget.startsWith('@') ? rawTarget : `@${rawTarget}`) : '';
+
+    setTestStatus({
+      status: 'running',
+      message: t(lang, 'sequence.running'),
+    });
+
+    const res = await runSequence(sequence.id, {
+      username: testUser.trim() || 'StreamViewer',
+      userInput: formattedInput,
       source: 'test',
     });
+
+    if (res) {
+      setTestStatus({
+        status: 'success',
+        message: rawTarget
+          ? (lang === 'ar' ? `✓ تم تنفيذ التسلسل بنجاح على ${formattedInput}` : `✓ Sequence executed successfully on ${formattedInput}!`)
+          : (lang === 'ar' ? '✓ تم تنفيذ جميع الخطوات بنجاح' : `✓ Sequence executed successfully!`),
+      });
+    } else {
+      setTestStatus({
+        status: 'error',
+        message: lang === 'ar' ? 'فشل تنفيذ التسلسل' : 'Sequence execution failed',
+      });
+    }
   };
 
   const handleSelectRewardPreset = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -172,9 +199,26 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
 
           <div className="h-4 w-px bg-rule" />
 
+          {/* Quick Target Input */}
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.testTargetLabel')}:</span>
+            <div className="relative">
+              <span className="absolute start-2 top-1/2 -translate-y-1/2 font-mono text-[11px] text-muted">@</span>
+              <Input
+                value={testTarget}
+                onChange={(e) => setTestTarget(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleRunTest();
+                }}
+                placeholder={t(lang, 'sequence.testTargetPlaceholder')}
+                className="h-7 w-40 ps-5 font-mono text-[11px]"
+              />
+            </div>
+          </div>
+
           <Button
             size="sm"
-            onClick={handleRunTest}
+            onClick={() => void handleRunTest()}
             disabled={isExecuting || !sequence.enabled}
             className="border border-emerald-500/40 bg-emerald-600/90 text-white hover:bg-emerald-600"
           >
@@ -194,6 +238,87 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       </div>
 
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6">
+        {/* Test & Simulation Sandbox */}
+        <section className="rounded-lg border border-rule bg-surface-3 p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-3">
+            <div className="flex items-center gap-2">
+              <Play size={15} className="text-emerald-500" />
+              <div>
+                <h2 className="font-semibold text-[13px] tracking-tight">{t(lang, 'sequence.testBarTitle')}</h2>
+                <p className="text-[11px] text-muted">{t(lang, 'sequence.testBarSubtitle')}</p>
+              </div>
+            </div>
+
+            <Button
+              size="sm"
+              onClick={() => void handleRunTest()}
+              disabled={isExecuting || !sequence.enabled}
+              className="border border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-500 font-semibold"
+            >
+              {isExecuting ? (
+                <>
+                  <RefreshCw size={12} className="animate-spin me-1.5" />
+                  <span>{t(lang, 'sequence.running')}</span>
+                </>
+              ) : (
+                <>
+                  <Play size={12} className="fill-current me-1.5" />
+                  <span>{t(lang, 'sequence.runTest')}</span>
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-12">
+            <div className="sm:col-span-4 flex flex-col gap-1">
+              <label className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.simulatedChatter')}</label>
+              <Input
+                value={testUser}
+                onChange={(e) => setTestUser(e.target.value)}
+                placeholder="StreamViewer"
+                className="h-8 font-sans text-[12px]"
+              />
+            </div>
+
+            <div className="sm:col-span-8 flex flex-col gap-1">
+              <label className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.simulatedTarget')}</label>
+              <div className="relative">
+                <span className="absolute start-2.5 top-1/2 -translate-y-1/2 font-mono text-[12px] text-muted">@</span>
+                <Input
+                  value={testTarget}
+                  onChange={(e) => setTestTarget(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleRunTest();
+                  }}
+                  placeholder={t(lang, 'sequence.testTargetPlaceholder')}
+                  className="h-8 ps-6 font-mono text-[12px]"
+                />
+              </div>
+            </div>
+          </div>
+
+          {testStatus && (
+            <div
+              className={`mt-3 flex items-center justify-between rounded-md border p-2.5 text-[12px] font-mono ${
+                testStatus.status === 'success'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                  : testStatus.status === 'error'
+                  ? 'border-red-500/30 bg-red-500/10 text-red-400'
+                  : 'border-accent/30 bg-accent/10 text-accent-text'
+              }`}
+            >
+              <span>{testStatus.message}</span>
+              <button
+                type="button"
+                onClick={() => setTestStatus(null)}
+                className="text-[11px] text-muted hover:text-ink px-1"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </section>
+
         {/* Section 1: Trigger Configuration */}
         <section className="rounded-lg border border-rule bg-surface-3 p-4 shadow-sm">
           <div className="mb-4 flex items-center justify-between border-b border-rule pb-3">
@@ -673,12 +798,12 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                         targetUser: e.target.value,
                                       })
                                     }
-                                    placeholder="{input} or @kirin_x_"
+                                    placeholder="{input} or @username"
                                     className="h-8 font-mono text-[12px]"
                                   />
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-[10px] text-muted">Insert:</span>
-                                    {['{input}', '{target}', 'kirin_x_', '{username}'].map((token) => (
+                                    {['{input}', '{target}', '{username}'].map((token) => (
                                       <button
                                         key={token}
                                         type="button"

@@ -703,7 +703,9 @@ public sealed class HostController : IDisposable
             if (request?.Message is null || string.IsNullOrWhiteSpace(request.RuleId))
                 return new GenerateAutoReplyResponse(false, Error: "BAD PAYLOAD");
             var rule = _settings.AutoReplies.FirstOrDefault(item => item.Id == request.RuleId);
-            if (rule is null || rule.ResponseMode != "ai") return new GenerateAutoReplyResponse(false, Error: "AI RULE NOT FOUND");
+            if (rule is null) return new GenerateAutoReplyResponse(false, Error: "RULE NOT FOUND");
+            if (rule.ResponseMode != "ai" && string.IsNullOrWhiteSpace(request.OverrideInstructions))
+                return new GenerateAutoReplyResponse(false, Error: "AI RULE NOT FOUND");
             var shouldSend = request.Send != false;
             var provider = rule.AiProvider == "groq" ? "groq" : "openrouter";
             var key = provider == "groq" ? _groqKey.Load() : _openRouterKey.Load();
@@ -716,7 +718,9 @@ public sealed class HostController : IDisposable
             var effectiveInstructions = !string.IsNullOrWhiteSpace(request.OverrideInstructions)
                 ? request.OverrideInstructions
                 : rule.AiInstructions;
-            var generated = await _openRouter.GenerateAsync(provider, key, rule.AiModel, effectiveInstructions, request.Message, rule.AiMaxTokens, timeout.Token).ConfigureAwait(false);
+            var model = string.IsNullOrWhiteSpace(rule.AiModel) ? "llama-3.1-8b-instant" : rule.AiModel;
+            var maxTokens = rule.AiMaxTokens > 0 ? rule.AiMaxTokens : 120;
+            var generated = await _openRouter.GenerateAsync(provider, key, model, effectiveInstructions, request.Message, maxTokens, timeout.Token).ConfigureAwait(false);
             var (_, senderRole, senderLogin) = ResolveActiveChatSender();
             if (!generated.Ok || string.IsNullOrWhiteSpace(generated.Message))
             {

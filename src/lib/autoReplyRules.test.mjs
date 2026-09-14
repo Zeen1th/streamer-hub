@@ -5,6 +5,7 @@ import {
   cooldownRemainingSeconds,
   directionFromStart,
   evaluateAiConditions,
+  evaluateRuleExecution,
   hasAutoReplyTitlePattern,
   insertReplyToken,
   insertTemplateToken,
@@ -223,12 +224,97 @@ test('selectBestMatchingAutoReply prioritizes specific user-targeted rules over 
 
   // Both match triggers, but basil is in candidate list:
   const candidatesForBasil = [generalRule, basilRule];
-  const matched = selectBestMatchingAutoReply(candidatesForBasil);
+  const matched = selectBestMatchingAutoReply(candidatesForBasil, 'basil');
   assert.equal(matched?.id, 'rule-basil');
 
   // If basilRule is not a candidate (e.g. for viewer alice):
   const candidatesForAlice = [generalRule];
-  const matchedAlice = selectBestMatchingAutoReply(candidatesForAlice);
+  const matchedAlice = selectBestMatchingAutoReply(candidatesForAlice, 'alice');
   assert.equal(matchedAlice?.id, 'rule-general');
 });
+
+test('selectBestMatchingAutoReply resolves duplicate trigger candidates by chatter specificity', () => {
+  const staticRule = {
+    id: 'static-hello',
+    enabled: true,
+    responseMode: 'static',
+    response: 'Welcome {username}!',
+  };
+  const aiVipRule = {
+    id: 'ai-vip-hello',
+    enabled: true,
+    responseMode: 'ai',
+    aiUserRestriction: 'allowlist',
+    aiTargetUsers: ['vip_streamer'],
+    aiInstructions: 'Greet the VIP streamer warmly',
+  };
+
+  const allCandidates = [staticRule, aiVipRule];
+
+  // VIP user gets the AI VIP rule
+  const vipResult = selectBestMatchingAutoReply(allCandidates, 'vip_streamer');
+  assert.equal(vipResult?.id, 'ai-vip-hello');
+
+  // Standard user falls back to the fast static rule
+  const normalResult = selectBestMatchingAutoReply(allCandidates, 'random_viewer');
+  assert.equal(normalResult?.id, 'static-hello');
+});
+
+test('evaluateRuleExecution evaluates chatter override priority (static, AI, or ignore)', () => {
+  const unifiedRule = {
+    id: 'unified-1',
+    responseMode: 'static',
+    response: 'Welcome to the channel, {username}!',
+    aiConditions: [
+      {
+        id: 'c1',
+        ifType: 'username',
+        ifValue: 'special_friend',
+        thenType: 'instructions',
+        thenValue: 'Welcome my best friend and ask about the weekend!',
+      },
+      {
+        id: 'c2',
+        ifType: 'role',
+        ifValue: 'mod',
+        thenType: 'static_reply',
+        thenValue: 'Salute to moderator {mention}!',
+      },
+      {
+        id: 'c3',
+        ifType: 'username',
+        ifValue: 'banned_spammer',
+        thenType: 'ignore',
+        thenValue: '',
+      },
+    ],
+  };
+
+  // 1. Friend matches override -> AI instructions
+  const friendMsg = { id: '1', username: 'special_friend', message: 'hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
+  const friendPlan = evaluateRuleExecution(unifiedRule, friendMsg);
+  assert.equal(friendPlan.type, 'ai');
+  assert.equal(friendPlan.isOverride, true);
+  assert.equal(friendPlan.instructions, 'Welcome my best friend and ask about the weekend!');
+
+  // 2. Mod matches override -> static custom reply
+  const modMsg = { id: '2', username: 'alex', message: 'hello', isBroadcaster: false, isMod: true, isVip: false, isSubscriber: false };
+  const modPlan = evaluateRuleExecution(unifiedRule, modMsg);
+  assert.equal(modPlan.type, 'static');
+  assert.equal(modPlan.isOverride, true);
+  assert.equal(modPlan.text, 'Salute to moderator {mention}!');
+
+  // 3. Spammer matches override -> ignore/silent
+  const spamMsg = { id: '3', username: 'banned_spammer', message: 'hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
+  const spamPlan = evaluateRuleExecution(unifiedRule, spamMsg);
+  assert.equal(spamPlan.type, 'ignore');
+
+  // 4. Standard viewer falls back to default static response (Priority 2)
+  const viewerMsg = { id: '4', username: 'normal_viewer', message: 'hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
+  const viewerPlan = evaluateRuleExecution(unifiedRule, viewerMsg);
+  assert.equal(viewerPlan.type, 'static');
+  assert.equal(viewerPlan.isOverride, false);
+  assert.equal(viewerPlan.text, 'Welcome to the channel, {username}!');
+});
+
 

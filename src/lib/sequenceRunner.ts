@@ -41,7 +41,7 @@ export function replaceSequenceTokens(template: string, ctx: SequenceExecutionCo
   const username = ctx.username || 'viewer';
   const mention = `@${username}`;
   const input = ctx.userInput || '';
-  const target = extractTargetUsername(input) || 'kirin_x_';
+  const target = extractTargetUsername(input);
 
   return template
     .replace(/\{username\}/gi, username)
@@ -168,12 +168,7 @@ export async function executeSequence(
           const action = step.moderationAction || 'smart_timeout';
           const rawTarget = step.targetUser !== undefined ? step.targetUser.trim() : '{input}';
           const resolvedTarget = replaceSequenceTokens(rawTarget, ctx).trim();
-          let cleanTarget = extractTargetUsername(resolvedTarget);
-
-          // Default timeout/moderation target to kirin_x_ if not supplied
-          if (!cleanTarget && step.targetUser !== '' && (action === 'smart_timeout' || action === 'timeout' || action === 'ban')) {
-            cleanTarget = 'kirin_x_';
-          }
+          const cleanTarget = extractTargetUsername(resolvedTarget);
 
           if (action !== 'clear_chat' && !cleanTarget) {
             log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: Moderation action "${action}" skipped — empty target username.`);

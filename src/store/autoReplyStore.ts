@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { AutoReply, AutoReplySettings, ChatMessage, TitleCounter } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
-import { checkUserRestriction, cooldownRemainingSeconds, matchesAnyAutoReply, nextTitleCounters, renderAutoReply, renderStreamTitle, selectBestMatchingAutoReply, stripAutoReplyFromTitle, titleActionDirection } from '../lib/autoReplyRules';
+import { checkUserRestriction, cooldownRemainingSeconds, evaluateRuleExecution, matchesAnyAutoReply, nextTitleCounters, renderAutoReply, renderStreamTitle, selectBestMatchingAutoReply, stripAutoReplyFromTitle, titleActionDirection } from '../lib/autoReplyRules';
 import { hasPermission } from '../lib/counterRules';
 import { titleUpdateQueue } from '../lib/titleUpdateQueue';
 import { useLogStore } from './logStore';
@@ -215,25 +215,11 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       return triggerMatches || titleMatches;
     });
 
-    const rule = selectBestMatchingAutoReply(candidates);
+    const rule = selectBestMatchingAutoReply(candidates, message.username, message);
     if (!rule) return;
     const remaining = cooldownRemainingSeconds(now, get().lastTriggeredAt[rule.id] ?? null, rule.cooldownSeconds);
     if (remaining !== null) return;
     const userKey = message.username.trim().toLowerCase();
-    if (rule.responseMode === 'ai') {
-      const globalRemaining = cooldownRemainingSeconds(now, get().lastAiTriggeredAt, get().globalSettings.globalAiCooldownSeconds);
-      if (globalRemaining !== null) return;
-      const userCooldown = get().globalSettings.globalAiUserCooldownSeconds;
-      const userKeyId = `ai:${userKey}`;
-      const userRemaining = cooldownRemainingSeconds(now, get().lastUserTriggeredAt[userKeyId] ?? null, userCooldown);
-      if (userRemaining !== null) return;
-      set((state) => ({ lastAiTriggeredAt: now, lastAiUserTriggeredAt: { ...state.lastAiUserTriggeredAt, [userKey]: now }, lastUserTriggeredAt: { ...state.lastUserTriggeredAt, [userKeyId]: now } }));
-    } else {
-      const userRemaining = cooldownRemainingSeconds(now, get().lastUserTriggeredAt[`${rule.id}:${userKey}`] ?? null, rule.userCooldownSeconds ?? 0);
-      if (userRemaining !== null) return;
-      set((state) => ({ lastUserTriggeredAt: { ...state.lastUserTriggeredAt, [`${rule.id}:${userKey}`]: now } }));
-    }
-    set((state) => ({ lastTriggeredAt: { ...state.lastTriggeredAt, [rule.id]: now } }));
     if (rule.themeActionEnabled && matchesAnyAutoReply(message.message, rule.triggers, rule.matchMode)) {
       useSettingsStore.getState().setTheme(rule.themeActionMode === 'light' ? 'light' : 'dark');
     }
@@ -271,25 +257,63 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     }
 
     if (rule.responseEnabled === false) return;
-    if (rule.responseMode === 'ai') {
+
+    const plan = evaluateRuleExecution(rule, message);
+    if (plan.type === 'ignore') return;
+
+    if (plan.type === 'ai') {
+      const globalRemaining = cooldownRemainingSeconds(now, get().lastAiTriggeredAt, get().globalSettings.globalAiCooldownSeconds);
+      if (globalRemaining !== null) return;
+      const userCooldown = get().globalSettings.globalAiUserCooldownSeconds;
+      const userKeyId = `ai:${userKey}`;
+      const userRemaining = cooldownRemainingSeconds(now, get().lastUserTriggeredAt[userKeyId] ?? null, userCooldown);
+      if (userRemaining !== null) return;
+
+      set((state) => ({
+        lastAiTriggeredAt: now,
+        lastAiUserTriggeredAt: { ...state.lastAiUserTriggeredAt, [userKey]: now },
+        lastUserTriggeredAt: { ...state.lastUserTriggeredAt, [userKeyId]: now },
+        lastTriggeredAt: { ...state.lastTriggeredAt, [rule.id]: now },
+      }));
+
       rpc.invoke(Channels.AutoRepliesGenerate, {
         ruleId: rule.id,
         message,
         send: true,
+        overrideInstructions: plan.isOverride ? plan.instructions : undefined,
       }).then((result) => {
         if (result.ok && result.message) {
           const via = result.senderLogin ? ` (via @${result.senderLogin})` : '';
-          useLogStore.getState().add({ kind: 'trigger', message: `AI AUTO REPLY · ${rule.triggers[0] ?? ''}${via}`, username: message.username });
+          const tag = plan.isOverride ? 'AI OVERRIDE' : 'AI AUTO REPLY';
+          useLogStore.getState().add({
+            kind: 'trigger',
+            message: `${tag} · ${rule.triggers[0] ?? ''}${via}`,
+            username: message.username,
+          });
         }
       }).catch(() => undefined);
       return;
     }
-    const response = renderAutoReply(rule.response.trim(), message);
+
+    const userRemaining = cooldownRemainingSeconds(now, get().lastUserTriggeredAt[`${rule.id}:${userKey}`] ?? null, rule.userCooldownSeconds ?? 0);
+    if (userRemaining !== null) return;
+
+    set((state) => ({
+      lastUserTriggeredAt: { ...state.lastUserTriggeredAt, [`${rule.id}:${userKey}`]: now },
+      lastTriggeredAt: { ...state.lastTriggeredAt, [rule.id]: now },
+    }));
+
+    const response = renderAutoReply(plan.text.trim(), message);
     if (!response) return;
     rpc.invoke(Channels.TwitchSendChatMessage, { message: response }).then((result) => {
       if (result.ok) {
         const via = result.senderLogin ? ` (via @${result.senderLogin})` : '';
-        useLogStore.getState().add({ kind: 'trigger', message: `AUTO REPLY · ${rule.triggers[0] ?? ''}${via}`, username: message.username });
+        const tag = plan.isOverride ? 'USER OVERRIDE' : 'AUTO REPLY';
+        useLogStore.getState().add({
+          kind: 'trigger',
+          message: `${tag} · ${rule.triggers[0] ?? ''}${via}`,
+          username: message.username,
+        });
       }
     }).catch(() => undefined);
   },
