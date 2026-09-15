@@ -17,17 +17,18 @@ Windows desktop app (C# .NET 8 + WebView2) with typed RPC architecture and brows
 A lightweight, local-first streaming companion that provides dedicated tools without requiring external cloud accounts or complex SaaS setups:
 1. **Interactive Counters**: Multi-command (+1, −1, reset) stream counters syncing in real time to OBS text files and Twitch stream titles.
 2. **Auto-Replies & Triggers**: Keyword matching, AI-powered responses (via Groq/OpenRouter), cooldowns, permissions, and dynamic title actions.
-3. **OBS Chat Overlay**: A zero-latency local HTTP overlay server (`127.0.0.1:49178`) with a full canvas editor — the streamer lays out and styles the chat block on a 1920×1080 stage, with per-element control over every visual property, third-party emote rendering, display filters, and full Arabic/English BiDi text rendering.
-4. **Live Stream Title Sync**: Non-destructive stream title updates that preserve manual streamer titles while maintaining clean counter numbers.
+3. **OBS Chat Overlay & Multi-Overlay Profiles**: A zero-latency local HTTP overlay server (`127.0.0.1:49178`) supporting multiple independent overlay layouts with a full canvas editor — the streamer lays out and styles chat blocks on a 1920×1080 stage, with per-element control over every visual property, third-party emote rendering, display filters, and full Arabic/English BiDi text rendering.
+4. **OBS Streamer Chat Dock & Fast Moderation**: A dedicated streamer dock interface (`127.0.0.1:49178/obs-chat.html`) and in-app Chat tab providing bottom-up message flow, real-time streamer message reflection, and 1-click moderation (Timeout 60s, Ban, Delete, Shoutout, Mention).
+5. **Live Stream Title Sync**: Non-destructive stream title updates that preserve manual streamer titles while maintaining clean counter numbers.
 
 ## Operating Context
 
 - **Shell**: C# .NET 8 Windows Forms app hosting Microsoft WebView2 Runtime in PerMonitorV2 DPI mode with a frameless custom titlebar.
 - **OBS Integration**:
   - Plain UTF-8 text files read by OBS Text (GDI+) sources.
-  - Local HTTP server for OBS Browser Sources.
-- **Twitch Integration**: Direct Twitch IRC chat connection and Helix API authentication (Broadcaster + optional secondary Bot account).
-- **Auto-Updater**: Background GitHub release checker and single-click self-extracting installer updater.
+  - Local HTTP server for OBS Browser Sources (`/chat-overlay.html?id=...`) and OBS Custom Browser Docks (`/obs-chat.html`).
+- **Twitch Integration**: Direct Twitch IRC chat connection and Helix API authentication (Broadcaster + optional secondary Bot account) supporting full moderation scopes (`moderator:manage:banned_users`, `moderator:manage:chat_messages`, `moderator:manage:shoutouts`).
+- **Auto-Updater**: Background GitHub release checker, single-click self-extracting installer updater, and one-time permission prompter (`ReauthPromptModal`).
 - **Frontend**: React 19 + TypeScript + Tailwind CSS with full standalone browser mock mode (`npm run dev`).
 
 ## Capabilities and Features
@@ -42,8 +43,9 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
   - Prepared response templates with drag-and-drop placeholder tokens.
   - Optional AI-assisted replies using Groq (Llama 3.1) or OpenRouter with fallback safety.
   - Title increase/decrease commands bound directly to counter sequences.
-- **OBS Chat Overlay**:
+- **OBS Chat Overlay & Multi-Overlay Manager**:
   - Real-time broadcast from Twitch IRC to a 1920×1080 OBS Browser Source.
+  - Multi-overlay switcher (`ChatOverlayBar`) to create, rename, duplicate settings, and delete separate overlay profiles with distinct URLs (`?id=<overlayId>`).
   - Canvas editor with a Preview/Edit toggle: drag, resize, snap guides, arrow-key nudge, undo/redo, and an optional reference backdrop for designing against a real scene.
   - Click any part of a message — avatar, username, badge, bubble, text — to select it and jump to its settings.
   - Every visual property is a design token: colours, opacity, borders, radius, padding, shadow, blur, accent bar, wrap mode, line height, letter case, and independent typography for usernames and message text.
@@ -55,10 +57,19 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
   - Natural bidirectional (BiDi) Arabic/English text ordering.
   - Avatars resolve asynchronously and patch onto messages already on screen, so a viewer's first message is never left with a placeholder.
   - Moderator deletions, timeouts, and chat clears remove messages from the overlay immediately.
+- **OBS Streamer Chat Dock & Fast Moderation**:
+  - Tailored specifically for OBS Custom Browser Docks (`http://127.0.0.1:49178/obs-chat.html`) or the internal **Chat** tab.
+  - Bottom-anchored message flow (`min-h-full flex flex-col justify-end`) where new messages enter from below with smooth sliding animation (`animate-chat-in`).
+  - Streamer sent message reflection: messages sent through the app or bot are immediately echoed with `isSelf: true`.
+  - Floating action toolbar on every message: Timeout (60s), Ban, Delete message, Shoutout, and Mention.
+  - High-contrast dark theme with automatic username luminance protection ($\ge 0.35$).
+  - Full bidirectional typography: `Cairo` for Arabic and `Barlow` for Latin/English.
+  - Instant cross-client synchronization of deletions, user timeouts, and full room clears.
 - **Settings & UI**:
   - Sectioned navigation: General, Twitch Connection, Bot Account, Appearance, and Step-by-Step Setup Guide.
   - High-contrast, unwashed dark themes: Solar Amber, Abyss Sapphire, Midnight Violet, Tokyo Rose, and Crimson Dark.
   - Generously scaled 116% interface with enlarged typography for optimal legibility during live streaming.
   - Full English and Arabic localization with Cairo typography and stable LTR shell controls.
+  - First-run and version upgrade prompt modals (`ReauthPromptModal`) ensuring zero-friction permissions maintenance.
 
 

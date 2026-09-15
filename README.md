@@ -9,6 +9,13 @@ Streamer Hub is a lightweight, local-first desktop companion for Twitch streamer
 - **Stream Counters**: Multi-command chat counters (+1, −1, reset) syncing instantly to plain text files for OBS text sources.
 - **Smart Title Sync**: Integrates counters with your live Twitch stream title using `{title}` and `{count}` with automatic anti-compounding protection.
 - **Auto-Replies & Triggers**: Keyword and regex response rules with optional AI-generated answers (Groq Llama 3.1 / OpenRouter) and custom cooldowns.
+- **OBS Streamer Chat Dock & In-App Chat Tab**: Zero-latency, streamer-focused chat reader (`http://127.0.0.1:49178/obs-chat.html`) built for OBS Custom Browser Docks or multi-monitor streaming:
+  - **Natural bottom-to-up flow** — messages start anchored at the bottom above the input bar and smoothly push upward as chat moves.
+  - **Streamer sent message echo** — messages sent by the streamer or configured bot account appear immediately in real-time.
+  - **One-click moderation** — hover any message for instant Timeout (60s), Ban, Message Deletion, Shoutout, and Mention actions.
+  - **High-contrast readability** — dark theme with automatic username luminance scaling ($\ge 0.35$) ensures every name is readable on black backgrounds.
+  - **BiDi typography** — native Cairo (Arabic) and Barlow (English) font rendering with full emote support.
+- **Multi-Overlay Profiles**: Create and customize multiple independent overlay designs (e.g., Just Chatting vs Gameplay) with dedicated OBS Browser Source URLs (`http://127.0.0.1:49178/chat-overlay.html?id=<overlayId>`).
 - **OBS Chat Overlay**: Zero-latency local loopback web server (`http://127.0.0.1:49178/chat-overlay.html`) featuring:
   - **Canvas editor** — lay the chat block out on a true 1920×1080 stream canvas: drag to move, resize with handles, snap guides, arrow-key nudge, and undo/redo. Load a screenshot of your scene as a reference backdrop while you design.
   - **Click-to-style** — click a message's avatar, username, badge, bubble, or text and the properties panel jumps straight to that part's settings.
@@ -35,6 +42,7 @@ Streamer Hub is a lightweight, local-first desktop companion for Twitch streamer
 4. Set up your tools:
    - **Counters**: Create a counter, set OBS text output path, and add a Text (GDI+) source in OBS reading that file.
    - **Chat Overlay**: Toggle **Enable Overlay Server**, copy the loopback URL, and paste it into an OBS **Browser Source** sized **1920×1080**. Leave the source at 100% scale in your scene and position the chat block inside the app instead — scaling the source within OBS resamples the overlay and softens it.
+   - **OBS Chat Dock**: In OBS Studio, open **Docks -> Custom Browser Docks...**, name it "Streamer Chat", and paste `http://127.0.0.1:49178/obs-chat.html`. Dock it anywhere in OBS to read chat and moderate with single-click timeouts and bans.
 
 ---
 

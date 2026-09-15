@@ -374,6 +374,45 @@ controls. What flips is content — every user-authored string (`dir="auto"`), t
 reply composer, the response cell, and the overlay preview. Arabic UI labels are set
 in Cairo; Latin data inside an Arabic UI stays in Archivo/Plex Mono.
 
+## OBS Streamer Chat Dock & Fast Moderation Design
+
+The OBS Streamer Chat Dock (`/obs-chat.html`) and the in-app **Chat** tab (`ObsChatView.tsx`) follow a specialized high-density streamer layout built for narrow dock panels (280px–450px) or side monitor windows.
+
+### Layout & Directional Flow
+- **Bottom-Anchored Container**: Uses a flex column anchored to the bottom (`min-h-full flex flex-col justify-end`). An upper spring spacer (`flex-1 min-h-0`) ensures that when few messages exist, they start directly above the input bar at the bottom rather than floating at the top.
+- **Upward Progression**: As new messages arrive, they appear at the bottom and push older messages upward ("bottom-to-up"), matching standard live streaming conventions.
+- **Scroll Pinning**: Auto-scroll pins to the latest message when the user is within 64px of the bottom. Scrolling up pauses auto-scroll and displays a floating, high-contrast "New messages ↓" button (`#1e293b` with `#38bdf8` accent).
+
+### Readability & Dynamic Contrast
+- **Base Canvas**: Deep `#11161a` ground with `#151c21` header and input zones.
+- **Luminance Protection for Usernames**: Twitch users customize their name colors, many of which are dark or illegible against dark mode backgrounds. All incoming username colors are measured for relative luminance:
+  $$Y = 0.2126R + 0.7152G + 0.0722B$$
+  Any color with $Y < 0.35$ is dynamically scaled upward along its hue angle until it reaches at least $0.35$, guaranteeing a minimum contrast ratio $\ge 4.5:1$ against the dark ground.
+- **BiDi Typography**: Mixed Arabic and English render naturally without character corruption or flipped punctuation:
+  - Arabic scripts render in `Cairo` (`sans-serif`, weighted 600 for names, 400 for messages).
+  - Latin/English scripts render in `Barlow` (`sans-serif`, weighted 600 for names, 400 for messages).
+  - Emotes from Twitch, BTTV, FFZ, and 7TV render inline at `28px` (`1.75rem`) line-height alignment.
+
+### Streamer Quick Moderation Palette
+Hovering any message reveals a compact, high-contrast action bar with distinct functional hues:
+- **Mention** (`#38bdf8` / Sky Blue): Pre-fills `@username` into the chat input.
+- **Shoutout** (`#a855f7` / Twitch Purple): Sends `/shoutout @username` to Twitch Helix.
+- **Timeout 60s** (`#f59e0b` / Amber Warning): Issues a 60-second temporary mute to Twitch Helix and marks messages as deleted.
+- **Ban** (`#f43f5e` / Rose Red): Issues a permanent ban request to Twitch Helix.
+- **Delete** (`#ef4444` / Crimson): Issues a single message deletion (`DELETE /helix/moderation/chat`).
+
+### Multi-Overlay Selector Bar (`ChatOverlayBar.tsx`)
+Located directly above the chat overlay canvas editor:
+- Compact toolbar hosting active profile picker, profile name editor, "Copy URL", "Copy Settings", "Paste Settings", and "Delete".
+- Provides instantaneous visual feedback for clipboard actions via temporary checkmark states.
+- Automatically suppressed when viewing the OBS Chat Dock to preserve vertical space.
+
+### Re-authentication Prompt Modal (`ReauthPromptModal.tsx`)
+Designed as a high-visibility, single-instance modal:
+- **Ground**: Deep `#1a2228` card with `#151c21` header and footer.
+- **Brand Accent**: Twitch Purple (`#9146FF`) with a prominent shield icon.
+- **Dismissal & Memory**: Tracks appearance in `localStorage` under `streamer-hub-reauth-prompt-v0.3.0`. Once authorized or dismissed, it is permanently silenced.
+
 ## Do's and Don'ts
 
 ### Do
@@ -382,12 +421,14 @@ in Cairo; Latin data inside an Arabic UI stays in Archivo/Plex Mono.
 - Keep chrome one ground-step behind content, in both themes.
 - Use mono for anything the machine produced.
 - Let the table truncate; never scroll it sideways.
+- Dynamically scale dark username colors to $\ge 0.35$ luminance on dark backgrounds.
+- Echo the streamer's own sent messages in real time with `isSelf: true`.
 
 ### Don't
-- Don't add a modal. The inspector exists so there is never a reason.
-- Don't round a corner or add a drop shadow to anything that isn't the context menu.
+- Don't add a modal for standard workflows; use the inspector or inline bars instead (modals are reserved strictly for critical OAuth authorization / version upgrade prompts).
+- Don't round a corner or add a drop shadow to anything that isn't the context menu or floating prompt.
 - Don't hide either side pane to win table width; drop a column instead.
-- Don't animate an element in from `opacity: 0` — see Motion.
+- Don't animate an element in from `opacity: 0` — see Motion (except incoming chat messages which slide up 6px with ease-out).
 - Don't use red for an error and a command on the same screen without a form signal.
 - Don't set type in `--accent` — it fails 4.5:1 on the light ground. Use
   `--accent-text`, or `--accent-fill` if the type sits on top of it.
