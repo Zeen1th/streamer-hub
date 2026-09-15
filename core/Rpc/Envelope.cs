@@ -82,10 +82,14 @@ public static class Channels
     public const string TwitchModerationVip = "twitch/moderation/vip";
     public const string TwitchModerationUnvip = "twitch/moderation/unvip";
     public const string TwitchModerationClear = "twitch/moderation/clear";
+    public const string TwitchModerationDeleteMessage = "twitch/moderation/delete-message";
     public const string TwitchModerationShoutout = "twitch/moderation/shoutout";
     public const string ChatOverlayTestMessage = "chat-overlay/test-message";
     public const string ChatOverlayReload = "chat-overlay/reload";
     public const string ChatOverlaySetPreview = "chat-overlay/set-preview";
+    public const string ChatOverlaysList = "chat-overlays/list";
+    public const string ChatOverlaysSave = "chat-overlays/save";
+    public const string ChatOverlaysDelete = "chat-overlays/delete";
     public const string ObsChatGetState = "obs-chat/get-state";
     public const string ObsChatSaveSettings = "obs-chat/save-settings";
     public const string ObsChatGetUrl = "obs-chat/get-url";

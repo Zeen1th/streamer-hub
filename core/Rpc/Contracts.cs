@@ -141,6 +141,7 @@ public sealed record ModerationTargetPayload(string? Target);
 public sealed record ModerationTimeoutPayload(string? Target, int? DurationSeconds = null, string? Reason = null);
 public sealed record ModerationSmartTimeoutPayload(string? Target, int? DurationSeconds = null, string? Reason = null);
 public sealed record ModerationBanPayload(string? Target, string? Reason = null);
+public sealed record ModerationDeleteMessagePayload(string? MessageId);
 
 
 public sealed record CommandSequence
@@ -194,7 +195,18 @@ public sealed record ChatOverlaySettings
     public Dictionary<string, JsonElement> Values { get; init; } = new();
 }
 
-public sealed record ChatOverlaySetPreviewPayload(bool Enabled, List<ChatMessage>? Messages = null);
+public sealed record ChatOverlayInstance
+{
+    public string Id { get; init; } = "default";
+    public string Name { get; init; } = "Main Overlay";
+    public bool IsMain { get; init; } = false;
+    public ChatOverlaySettings Settings { get; init; } = new();
+}
+
+public sealed record ChatOverlaysSavePayload(ChatOverlayInstance? Overlay);
+public sealed record ChatOverlaysDeletePayload(string? Id);
+public sealed record ChatOverlaySetPreviewPayload(bool Enabled, List<ChatMessage>? Messages = null, string? OverlayId = null);
+public sealed record ChatOverlayReloadPayload(string? OverlayId = null);
 
 /// <summary>
 /// One emote occurrence from the IRC <c>emotes</c> tag.
@@ -222,6 +234,7 @@ public sealed record ChatMessage
     /// <summary>The user's chosen Twitch chat colour, when they have set one.</summary>
     public string? Color { get; init; }
     public string? CustomRewardId { get; init; }
+    public bool IsSelf { get; init; }
 }
 
 public enum ChatClearScope

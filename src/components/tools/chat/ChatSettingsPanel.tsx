@@ -3,6 +3,7 @@ import {
   AlertCircle,
   AtSign,
   Award,
+  ClipboardPaste,
   Copy,
   Check,
   ExternalLink,
@@ -78,10 +79,26 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
   const lang = language === 'ar' ? 'ar' : 'en';
   const sectionRefs = useRef<Partial<Record<SectionId, HTMLElement | null>>>({});
   const [copied, setCopied] = useState(false);
+  const [panelCopiedFeedback, setPanelCopiedFeedback] = useState(false);
+  const [panelPastedFeedback, setPanelPastedFeedback] = useState(false);
   const [reloadingObs, setReloadingObs] = useState(false);
   const [reloadedSuccess, setReloadedSuccess] = useState(false);
   const [installedFonts, setInstalledFonts] = useState<string[]>([]);
   const [fontListState, setFontListState] = useState<'loading' | 'ready' | 'error'>('loading');
+
+  const handleCopySettings = () => {
+    store.copySettings();
+    setPanelCopiedFeedback(true);
+    window.setTimeout(() => setPanelCopiedFeedback(false), 2000);
+  };
+
+  const handlePasteSettings = async () => {
+    const ok = await store.pasteSettings();
+    if (ok) {
+      setPanelPastedFeedback(true);
+      window.setTimeout(() => setPanelPastedFeedback(false), 2000);
+    }
+  };
 
   const handleReloadObs = async () => {
     setReloadingObs(true);
@@ -237,6 +254,44 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
             </span>
           )}
           <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCopySettings}
+            title={t(lang, 'chat.overlays.copySettings')}
+            className="h-7 px-2 text-xs"
+          >
+            {panelCopiedFeedback ? (
+              <>
+                <Check size={13} className="text-emerald-400 me-1 shrink-0" />
+                <span className="hidden xl:inline text-emerald-400">{t(lang, 'chat.overlays.copied')}</span>
+              </>
+            ) : (
+              <>
+                <Copy size={13} className="me-1 shrink-0" />
+                <span className="hidden xl:inline">{t(lang, 'chat.overlays.copySettings')}</span>
+              </>
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handlePasteSettings}
+            title={t(lang, 'chat.overlays.pasteSettings')}
+            className="h-7 px-2 text-xs"
+          >
+            {panelPastedFeedback ? (
+              <>
+                <Check size={13} className="text-emerald-400 me-1 shrink-0" />
+                <span className="hidden xl:inline text-emerald-400">{t(lang, 'chat.overlays.pasted')}</span>
+              </>
+            ) : (
+              <>
+                <ClipboardPaste size={13} className="me-1 shrink-0" />
+                <span className="hidden xl:inline">{t(lang, 'chat.overlays.pasteSettings')}</span>
+              </>
+            )}
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             onClick={() => void store.saveNow()}
@@ -272,17 +327,57 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
           'presets',
           t(lang, 'chat.presets'),
           <Sparkles size={14} className="text-accent-text" />,
-          <div className="flex flex-wrap gap-2">
-            {CHAT_OVERLAY_PRESETS.map((preset) => (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {CHAT_OVERLAY_PRESETS.map((preset) => (
+                <Button
+                  key={preset.id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => patch(preset.tokens)}
+                >
+                  {preset.name}
+                </Button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 border-t border-hair pt-2">
               <Button
-                key={preset.id}
                 variant="outline"
                 size="sm"
-                onClick={() => patch(preset.tokens)}
+                onClick={handleCopySettings}
+                className="h-7 px-2.5 text-xs font-mono"
               >
-                {preset.name}
+                {panelCopiedFeedback ? (
+                  <>
+                    <Check size={12} className="text-emerald-400 me-1" />
+                    <span className="text-emerald-400">{t(lang, 'chat.overlays.copied')}</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={12} className="me-1" />
+                    <span>{t(lang, 'chat.overlays.copySettings')}</span>
+                  </>
+                )}
               </Button>
-            ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePasteSettings}
+                className="h-7 px-2.5 text-xs font-mono"
+              >
+                {panelPastedFeedback ? (
+                  <>
+                    <Check size={12} className="text-emerald-400 me-1" />
+                    <span className="text-emerald-400">{t(lang, 'chat.overlays.pasted')}</span>
+                  </>
+                ) : (
+                  <>
+                    <ClipboardPaste size={12} className="me-1" />
+                    <span>{t(lang, 'chat.overlays.pasteSettings')}</span>
+                  </>
+                )}
+              </Button>
+            </div>
           </div>,
         )}
 

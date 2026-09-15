@@ -456,7 +456,7 @@ export function ReplyStudioView({
           </div>
         </section>
 
-        {/* Section 4: Output Actions & Sinks */}
+        {/* Section 5: Output Actions & Sinks */}
         <section className="flex flex-col gap-4 rounded-lg border border-rule bg-surface-3 p-4">
           <div className="border-b border-rule pb-2">
             <h3 className="font-semibold text-[13px]">{t(lang, 'workspace.writesTo')}</h3>

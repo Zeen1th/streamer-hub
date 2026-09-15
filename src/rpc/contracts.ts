@@ -347,6 +347,21 @@ export interface ChatOverlaySettings {
   animation: ChatOverlayAnimationSettings;
 }
 
+export interface ChatOverlayInstance {
+  id: string;
+  name: string;
+  isMain?: boolean;
+  settings: ChatOverlaySettings;
+}
+
+export interface ChatOverlaysSavePayload {
+  overlay: ChatOverlayInstance;
+}
+
+export interface ChatOverlaysDeletePayload {
+  id: string;
+}
+
 export interface UpdateState {
   currentVersion: string;
   latestVersion: string;
@@ -384,6 +399,7 @@ export interface ChatMessage {
   color?: string;
   /** From the IRC `custom-reward-id` tag when redeemed via Channel Points */
   customRewardId?: string;
+  isSelf?: boolean;
 }
 
 export type ChatSenderRole = 'bot' | 'broadcaster';
@@ -479,10 +495,14 @@ export const Channels = {
   TwitchModerationVip: 'twitch/moderation/vip',
   TwitchModerationUnvip: 'twitch/moderation/unvip',
   TwitchModerationClear: 'twitch/moderation/clear',
+  TwitchModerationDeleteMessage: 'twitch/moderation/delete-message',
   TwitchModerationShoutout: 'twitch/moderation/shoutout',
   ChatOverlayTestMessage: 'chat-overlay/test-message',
   ChatOverlayReload: 'chat-overlay/reload',
   ChatOverlaySetPreview: 'chat-overlay/set-preview',
+  ChatOverlaysList: 'chat-overlays/list',
+  ChatOverlaysSave: 'chat-overlays/save',
+  ChatOverlaysDelete: 'chat-overlays/delete',
   ObsChatGetState: 'obs-chat/get-state',
   ObsChatSaveSettings: 'obs-chat/save-settings',
   ObsChatGetUrl: 'obs-chat/get-url',
@@ -542,7 +562,7 @@ export interface HostApi {
   };
   [Channels.ChatOverlayGetState]: { request: undefined; response: ChatOverlaySettings };
   [Channels.ChatOverlaySaveSettings]: { request: ChatOverlaySettings; response: { ok: boolean } };
-  [Channels.ChatOverlayGetUrl]: { request: undefined; response: { url: string; dockUrl?: string } };
+  [Channels.ChatOverlayGetUrl]: { request: { overlayId?: string } | undefined; response: { url: string; dockUrl?: string } };
   [Channels.SystemListFonts]: { request: undefined; response: { fonts: string[] } };
   [Channels.OpenRouterGetState]: { request: undefined; response: OpenRouterSettingsState };
   [Channels.OpenRouterSave]: { request: { provider: 'openrouter' | 'groq'; apiKey: string | null }; response: { ok: boolean; configured: boolean } };
@@ -613,6 +633,10 @@ export interface HostApi {
     request: undefined;
     response: { ok: boolean; error?: string };
   };
+  [Channels.TwitchModerationDeleteMessage]: {
+    request: { messageId: string };
+    response: { ok: boolean; error?: string };
+  };
   [Channels.TwitchModerationShoutout]: {
     request: { target: string };
     response: { ok: boolean; error?: string };
@@ -621,8 +645,11 @@ export interface HostApi {
     request: Partial<ChatMessage> & { message: string; username: string };
     response: { ok: boolean; error?: string };
   };
-  [Channels.ChatOverlayReload]: { request: undefined; response: { ok: boolean } };
-  [Channels.ChatOverlaySetPreview]: { request: { enabled: boolean; messages?: Partial<ChatMessage>[] }; response: { ok: boolean } };
+  [Channels.ChatOverlayReload]: { request: { overlayId?: string } | undefined; response: { ok: boolean } };
+  [Channels.ChatOverlaySetPreview]: { request: { enabled: boolean; overlayId?: string; messages?: Partial<ChatMessage>[] }; response: { ok: boolean } };
+  [Channels.ChatOverlaysList]: { request: undefined; response: { overlays: ChatOverlayInstance[] } };
+  [Channels.ChatOverlaysSave]: { request: ChatOverlaysSavePayload; response: { ok: boolean; error?: string } };
+  [Channels.ChatOverlaysDelete]: { request: ChatOverlaysDeletePayload; response: { ok: boolean; error?: string } };
   [Channels.ObsChatGetState]: { request: undefined; response: ChatOverlaySettings };
   [Channels.ObsChatSaveSettings]: { request: ChatOverlaySettings; response: { ok: boolean } };
   [Channels.ObsChatGetUrl]: { request: undefined; response: { url: string } };

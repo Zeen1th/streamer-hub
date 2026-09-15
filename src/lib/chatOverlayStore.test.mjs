@@ -273,3 +273,152 @@ test('sequential save queue serializes rapid concurrent updates and preserves fi
   assert.equal(store.getState().saveState, 'saved');
 });
 
+test('loads multiple chat overlays and switches active overlay', async () => {
+  const overlay2Settings = settings({ text: { size: 28 } });
+  const mockOverlays = [
+    { id: 'default', name: 'Main Overlay', isMain: true, settings: settings() },
+    { id: 'custom-1', name: 'Gaming Overlay', isMain: false, settings: overlay2Settings },
+  ];
+
+  const { store } = harness({
+    loadOverlays: async () => mockOverlays,
+    getOverlayUrl: async (id) =>
+      id && id !== 'default'
+        ? `http://127.0.0.1:49178/chat-overlay.html?id=${id}`
+        : 'http://127.0.0.1:49178/chat-overlay.html',
+  });
+
+  await store.getState().load();
+
+  assert.equal(store.getState().overlays.length, 2);
+  assert.equal(store.getState().activeOverlayId, 'default');
+  assert.equal(store.getState().overlayUrl, 'http://127.0.0.1:49178/chat-overlay.html');
+
+  // Switch to custom-1
+  await store.getState().setActiveOverlay('custom-1');
+  assert.equal(store.getState().activeOverlayId, 'custom-1');
+  assert.equal(store.getState().settings.text.size, 28);
+  assert.equal(store.getState().overlayUrl, 'http://127.0.0.1:49178/chat-overlay.html?id=custom-1');
+});
+
+test('creates a new overlay and sets it active', async () => {
+  const savedOverlays = [];
+  const { store } = harness({
+    saveOverlay: async (overlay) => {
+      savedOverlays.push(overlay);
+      return true;
+    },
+    getOverlayUrl: async (id) => `http://127.0.0.1:49178/chat-overlay.html?id=${id}`,
+  });
+
+  const newId = await store.getState().createOverlay('Alerts Overlay');
+
+  assert.ok(newId.startsWith('overlay-'));
+  assert.equal(store.getState().activeOverlayId, newId);
+  assert.equal(store.getState().overlays.length, 2);
+  const created = store.getState().overlays.find((o) => o.id === newId);
+  assert.ok(created);
+  assert.equal(created.name, 'Alerts Overlay');
+  assert.equal(created.isMain, false);
+  assert.equal(savedOverlays.length, 1);
+  assert.equal(savedOverlays[0].id, newId);
+});
+
+test('duplicates existing overlay and preserves settings', async () => {
+  const savedOverlays = [];
+  const { store } = harness({
+    saveOverlay: async (overlay) => {
+      savedOverlays.push(overlay);
+      return true;
+    },
+    getOverlayUrl: async (id) => `http://127.0.0.1:49178/chat-overlay.html?id=${id}`,
+  });
+
+  await store.getState().updateSettings({ text: { size: 32 } });
+  const copyId = await store.getState().duplicateOverlay('default');
+
+  assert.ok(copyId);
+  assert.equal(store.getState().overlays.length, 2);
+  const copy = store.getState().overlays.find((o) => o.id === copyId);
+  assert.ok(copy);
+  assert.equal(copy.name, 'Main Overlay (Copy)');
+  assert.equal(copy.settings.text.size, 32);
+});
+
+test('renames an overlay', async () => {
+  const savedOverlays = [];
+  const { store } = harness({
+    saveOverlay: async (overlay) => {
+      savedOverlays.push(overlay);
+      return true;
+    },
+  });
+
+  const id = await store.getState().createOverlay('Old Name');
+  const ok = await store.getState().renameOverlay(id, 'New Renamed Overlay');
+
+  assert.equal(ok, true);
+  const updated = store.getState().overlays.find((o) => o.id === id);
+  assert.equal(updated.name, 'New Renamed Overlay');
+  assert.equal(savedOverlays[savedOverlays.length - 1].name, 'New Renamed Overlay');
+});
+
+test('deletes a custom overlay but prevents deleting the main overlay', async () => {
+  const deletedIds = [];
+  const { store } = harness({
+    saveOverlay: async () => true,
+    deleteOverlay: async (id) => {
+      deletedIds.push(id);
+      return true;
+    },
+    getOverlayUrl: async () => 'http://127.0.0.1:49178/chat-overlay.html',
+  });
+
+  // Attempt to delete main overlay 'default'
+  const blocked = await store.getState().deleteOverlay('default');
+  assert.equal(blocked, false, 'cannot delete main overlay');
+  assert.equal(deletedIds.length, 0);
+
+  // Create custom overlay and delete it
+  const customId = await store.getState().createOverlay('To Delete');
+  assert.equal(store.getState().activeOverlayId, customId);
+
+  const deleted = await store.getState().deleteOverlay(customId);
+  assert.equal(deleted, true);
+  assert.equal(deletedIds.length, 1);
+  assert.equal(deletedIds[0], customId);
+  assert.equal(store.getState().activeOverlayId, 'default', 'falls back to default active overlay');
+  assert.equal(store.getState().overlays.some((o) => o.id === customId), false);
+});
+
+test('copies and pastes settings between overlays', async () => {
+  const { store } = harness({
+    saveOverlay: async () => true,
+    getOverlayUrl: async (id) => `http://127.0.0.1:49178/chat-overlay.html?id=${id}`,
+  });
+
+  // Configure custom styling on main overlay
+  await store.getState().updateSettings({
+    text: { size: 26, font: { family: 'cinzel' } },
+    bubble: { background: { color: '#123456' } },
+  });
+
+  // Copy settings
+  store.getState().copySettings();
+  assert.ok(store.getState().copiedSettings);
+  assert.equal(store.getState().copiedSettings.text.size, 26);
+  assert.equal(store.getState().copiedSettings.text.font.family, 'cinzel');
+
+  // Create a new overlay with default settings
+  const customId = await store.getState().createOverlay('Secondary');
+  assert.equal(store.getState().activeOverlayId, customId);
+
+  // Paste settings onto the new overlay
+  const pasted = await store.getState().pasteSettings();
+  assert.equal(pasted, true);
+  assert.equal(store.getState().settings.text.size, 26);
+  assert.equal(store.getState().settings.text.font.family, 'cinzel');
+  assert.equal(store.getState().settings.bubble.background.color, '#123456');
+});
+
+

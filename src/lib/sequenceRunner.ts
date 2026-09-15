@@ -30,6 +30,15 @@ export interface SequenceExecutionResult {
   error?: string;
 }
 
+export function extractCommandArguments(messageText: string, trigger: string): string {
+  const trimmedMsg = messageText.trim();
+  const trimmedTrigger = trigger.trim();
+  if (trimmedTrigger && trimmedMsg.toLowerCase().startsWith(trimmedTrigger.toLowerCase())) {
+    return trimmedMsg.slice(trimmedTrigger.length).trim();
+  }
+  return trimmedMsg;
+}
+
 export function extractTargetUsername(input?: string): string {
   if (!input) return '';
   const trimmed = input.trim();
@@ -171,8 +180,10 @@ export async function executeSequence(
           const cleanTarget = extractTargetUsername(resolvedTarget);
 
           if (action !== 'clear_chat' && !cleanTarget) {
-            log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: Moderation action "${action}" skipped — empty target username.`);
-            break;
+            const errMsg = `Moderation action "${action}" skipped — empty target username. (Usage: ${sequence.chatTrigger || sequence.name} @username)`;
+            log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: ${errMsg}`);
+            sinks.onStepComplete?.(i, step);
+            return { ok: false, executedSteps: executedCount, error: errMsg };
           }
 
           const duration = step.durationSeconds && step.durationSeconds > 0 ? step.durationSeconds : 60;
@@ -183,7 +194,16 @@ export async function executeSequence(
           if (sinks.executeModerationAction) {
             const res = await sinks.executeModerationAction(action, cleanTarget, duration, reason);
             if (!res.ok) {
-              log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1} moderation failed: ${res.error || 'UNKNOWN'}`);
+              const rawErr = res.error || 'UNKNOWN';
+              let userFriendlyMsg = rawErr;
+              if (rawErr === 'CANNOT_TIMEOUT_BROADCASTER' || rawErr === 'CANNOT_BAN_BROADCASTER') {
+                userFriendlyMsg = 'Cannot timeout or ban the channel broadcaster (Twitch does not allow self-moderation of the channel owner).';
+              } else if (rawErr.includes('403') || rawErr.includes('Forbidden') || rawErr.includes('401') || rawErr.includes('Unauthorized')) {
+                userFriendlyMsg = `Twitch permission denied (${rawErr}). Ensure you have moderator privileges and re-authenticate Twitch if scopes were updated.`;
+              }
+              log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1} moderation failed: ${userFriendlyMsg}`);
+              sinks.onStepComplete?.(i, step);
+              return { ok: false, executedSteps: executedCount, error: userFriendlyMsg };
             } else if (res.wasMod) {
               log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Note: ${cleanTarget} is a mod — temporarily unmodded, timed out for ${duration}s, and will be re-modded automatically.`);
             }

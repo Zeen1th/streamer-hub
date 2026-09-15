@@ -1,5 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
-import type { ChatMessage, ChatOverlaySettings } from '../rpc/contracts.ts';
+import type { ChatMessage, ChatOverlayInstance, ChatOverlaySettings } from '../rpc/contracts.ts';
 import { Channels } from '../rpc/contracts.ts';
 import {
   DEFAULT_CHAT_OVERLAY_SETTINGS,
@@ -40,6 +40,9 @@ export interface OverlayMessage extends NormalizedChatOverlayMessage {
 
 export interface ChatOverlayState {
   settings: ChatOverlaySettings;
+  overlays: ChatOverlayInstance[];
+  activeOverlayId: string;
+  copiedSettings: ChatOverlaySettings | null;
   messages: OverlayMessage[];
   overlayUrl: string;
   serverState: ServerState;
@@ -63,6 +66,13 @@ export interface ChatOverlayState {
     sampleMessages?: readonly (NormalizedChatOverlayMessage | ChatMessage)[],
   ): Promise<void>;
   reloadObs(): Promise<boolean>;
+  setActiveOverlay(id: string): Promise<void>;
+  createOverlay(name: string, templateSettings?: ChatOverlaySettings): Promise<string>;
+  duplicateOverlay(id: string, newName?: string): Promise<string>;
+  renameOverlay(id: string, newName: string): Promise<boolean>;
+  deleteOverlay(id: string): Promise<boolean>;
+  copySettings(settings?: ChatOverlaySettings): void;
+  pasteSettings(): Promise<boolean>;
 }
 
 export type DeepPartial<T> = {
@@ -72,9 +82,16 @@ export type DeepPartial<T> = {
 export interface ChatOverlayStoreDeps {
   loadSettings: () => Promise<ChatOverlaySettings>;
   saveSettings: (settings: ChatOverlaySettings) => Promise<boolean>;
-  getOverlayUrl: () => Promise<string>;
-  setPreview?: (enabled: boolean, sampleMessages?: readonly (NormalizedChatOverlayMessage | ChatMessage)[]) => Promise<void>;
-  reloadObs?: () => Promise<boolean>;
+  getOverlayUrl: (overlayId?: string) => Promise<string>;
+  loadOverlays?: () => Promise<ChatOverlayInstance[]>;
+  saveOverlay?: (overlay: ChatOverlayInstance) => Promise<boolean>;
+  deleteOverlay?: (id: string) => Promise<boolean>;
+  setPreview?: (
+    enabled: boolean,
+    sampleMessages?: readonly (NormalizedChatOverlayMessage | ChatMessage)[],
+    overlayId?: string,
+  ) => Promise<void>;
+  reloadObs?: (overlayId?: string) => Promise<boolean>;
   schedule: (callback: () => void, ms: number) => number;
   cancel: (id: number) => void;
 }
@@ -89,21 +106,49 @@ export const defaultOverlayDeps: ChatOverlayStoreDeps = {
     const res = await rpc.invoke(Channels.ChatOverlaySaveSettings, settings);
     return res.ok;
   },
-  getOverlayUrl: async () => {
+  getOverlayUrl: async (overlayId?: string) => {
     const { rpc } = await import('../rpc');
-    const res = await rpc.invoke(Channels.ChatOverlayGetUrl);
+    const res = await rpc.invoke(Channels.ChatOverlayGetUrl, { overlayId });
     return res.url;
   },
-  setPreview: async (enabled, sampleMessages) => {
+  loadOverlays: async () => {
+    try {
+      const { rpc } = await import('../rpc');
+      const res = await rpc.invoke(Channels.ChatOverlaysList);
+      return res.overlays;
+    } catch {
+      return [];
+    }
+  },
+  saveOverlay: async (overlay: ChatOverlayInstance) => {
+    try {
+      const { rpc } = await import('../rpc');
+      const res = await rpc.invoke(Channels.ChatOverlaysSave, { overlay });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+  deleteOverlay: async (id: string) => {
+    try {
+      const { rpc } = await import('../rpc');
+      const res = await rpc.invoke(Channels.ChatOverlaysDelete, { id });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+  setPreview: async (enabled, sampleMessages, overlayId) => {
     const { rpc } = await import('../rpc');
     await rpc.invoke(Channels.ChatOverlaySetPreview, {
       enabled,
+      overlayId,
       messages: enabled && sampleMessages ? (sampleMessages as ChatMessage[]) : undefined,
     });
   },
-  reloadObs: async () => {
+  reloadObs: async (overlayId) => {
     const { rpc } = await import('../rpc');
-    const res = await rpc.invoke(Channels.ChatOverlayReload);
+    const res = await rpc.invoke(Channels.ChatOverlayReload, { overlayId });
     return Boolean(res.ok);
   },
   schedule: (cb, ms) => {
@@ -205,12 +250,22 @@ export function createChatOverlayStore(
 
     return {
       settings: DEFAULT_CHAT_OVERLAY_SETTINGS,
+      overlays: [
+        {
+          id: 'default',
+          name: 'Main Overlay',
+          isMain: true,
+          settings: DEFAULT_CHAT_OVERLAY_SETTINGS,
+        },
+      ],
+      activeOverlayId: 'default',
+      copiedSettings: null,
       messages: [],
       overlayUrl: '',
-    serverState: 'idle',
-    loadState: 'idle',
-    saveState: 'idle',
-    obsPreviewEnabled: false,
+      serverState: 'idle',
+      loadState: 'idle',
+      saveState: 'idle',
+      obsPreviewEnabled: false,
 
     hydrate: (settings, overlayUrl) => {
       const normalized = normalizeChatOverlaySettings(settings);
@@ -320,7 +375,7 @@ export function createChatOverlayStore(
       const state = get();
       const doomed = state.messages.filter((m) => {
         if (scope === 'all') return true;
-        if (scope === 'user') return m.userId === id;
+        if (scope === 'user') return m.userId === id || (Boolean(m.username) && Boolean(id) && m.username.toLowerCase() === id!.toLowerCase());
         return m.id === id;
       });
       for (const message of doomed) {
@@ -333,23 +388,58 @@ export function createChatOverlayStore(
     updateSettings: async (patch) => {
       const current = get().settings;
       const normalized = normalizeChatOverlaySettings(deepMerge(current, patch));
-      set({ settings: normalized });
+      const activeId = get().activeOverlayId || 'default';
+      const nextOverlays = get().overlays.map((o) =>
+        o.id === activeId ? { ...o, settings: normalized } : o,
+      );
+      set({ settings: normalized, overlays: nextOverlays });
+      const currentOverlay = nextOverlays.find((o) => o.id === activeId);
+      if (activeId !== 'default' && currentOverlay && deps.saveOverlay) {
+        deps.saveOverlay(currentOverlay).catch(() => {});
+      }
       await flushSave(normalized);
     },
 
     saveNow: async () => {
+      const activeId = get().activeOverlayId || 'default';
+      const currentOverlay = get().overlays.find((o) => o.id === activeId);
+      if (activeId !== 'default' && currentOverlay && deps.saveOverlay) {
+        deps.saveOverlay(currentOverlay).catch(() => {});
+      }
       return await flushSave(get().settings);
     },
 
     load: async () => {
       set({ loadState: 'loading' });
       try {
-        const [settings, overlayUrl] = await Promise.all([
-          deps.loadSettings(),
-          deps.getOverlayUrl(),
-        ]);
-        const normalized = normalizeChatOverlaySettings(settings);
+        let overlaysList: ChatOverlayInstance[] = [];
+        if (deps.loadOverlays) {
+          try {
+            overlaysList = await deps.loadOverlays();
+          } catch {
+            // ignore
+          }
+        }
+        if (!overlaysList || overlaysList.length === 0) {
+          const defaultSettings = await deps.loadSettings();
+          overlaysList = [
+            {
+              id: 'default',
+              name: 'Main Overlay',
+              isMain: true,
+              settings: defaultSettings,
+            },
+          ];
+        }
+
+        const activeId = get().activeOverlayId || 'default';
+        const active = overlaysList.find((o) => o.id === activeId) || overlaysList[0];
+        const overlayUrl = await deps.getOverlayUrl(active.id);
+        const normalized = normalizeChatOverlaySettings(active.settings);
+
         set({
+          overlays: overlaysList,
+          activeOverlayId: active.id,
           settings: normalized,
           overlayUrl,
           loadState: 'ready',
@@ -367,12 +457,14 @@ export function createChatOverlayStore(
     setObsPreviewEnabled: async (enabled, sampleMessages) => {
       set({ obsPreviewEnabled: enabled });
       try {
+        const activeId = get().activeOverlayId || 'default';
         if (deps.setPreview) {
-          await deps.setPreview(enabled, sampleMessages);
+          await deps.setPreview(enabled, sampleMessages, activeId);
         } else {
           const { rpc } = await import('../rpc');
           await rpc.invoke(Channels.ChatOverlaySetPreview, {
             enabled,
+            overlayId: activeId,
             messages: enabled && sampleMessages ? (sampleMessages as ChatMessage[]) : undefined,
           });
         }
@@ -383,15 +475,120 @@ export function createChatOverlayStore(
 
     reloadObs: async () => {
       try {
+        const activeId = get().activeOverlayId || 'default';
         if (deps.reloadObs) {
-          return await deps.reloadObs();
+          return await deps.reloadObs(activeId);
         }
         const { rpc } = await import('../rpc');
-        const res = await rpc.invoke(Channels.ChatOverlayReload);
+        const res = await rpc.invoke(Channels.ChatOverlayReload, { overlayId: activeId });
         return Boolean(res.ok);
       } catch {
         return false;
       }
+    },
+
+    setActiveOverlay: async (id: string) => {
+      const target = get().overlays.find((o) => o.id === id);
+      if (!target) return;
+      const url = await deps.getOverlayUrl(id);
+      set({
+        activeOverlayId: id,
+        settings: normalizeChatOverlaySettings(target.settings),
+        overlayUrl: url,
+      });
+    },
+
+    createOverlay: async (name: string, templateSettings?: ChatOverlaySettings) => {
+      const id = `overlay-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      const baseSettings = templateSettings ?? get().settings;
+      const initialSettings = normalizeChatOverlaySettings(baseSettings);
+      const newOverlay: ChatOverlayInstance = {
+        id,
+        name: name.trim() || 'New Overlay',
+        isMain: false,
+        settings: initialSettings,
+      };
+      const nextOverlays = [...get().overlays, newOverlay];
+      set({ overlays: nextOverlays });
+      try {
+        await deps.saveOverlay?.(newOverlay);
+      } catch {
+        // ignore
+      }
+      await get().setActiveOverlay(id);
+      return id;
+    },
+
+    duplicateOverlay: async (id: string, newName?: string) => {
+      const target = get().overlays.find((o) => o.id === id) || get().overlays[0];
+      const name = newName || `${target.name} (Copy)`;
+      return await get().createOverlay(name, target.settings);
+    },
+
+    renameOverlay: async (id: string, newName: string) => {
+      const target = get().overlays.find((o) => o.id === id);
+      if (!target || !newName.trim()) return false;
+      const updated: ChatOverlayInstance = { ...target, name: newName.trim() };
+      const nextOverlays = get().overlays.map((o) => (o.id === id ? updated : o));
+      set({ overlays: nextOverlays });
+      try {
+        await deps.saveOverlay?.(updated);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    deleteOverlay: async (id: string) => {
+      if (id === 'default') return false;
+      const target = get().overlays.find((o) => o.id === id);
+      if (!target || target.isMain) return false;
+      const nextOverlays = get().overlays.filter((o) => o.id !== id);
+      set({ overlays: nextOverlays });
+      if (get().activeOverlayId === id) {
+        await get().setActiveOverlay('default');
+      }
+      try {
+        await deps.deleteOverlay?.(id);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    copySettings: (settingsToCopy?: ChatOverlaySettings) => {
+      const toCopy = settingsToCopy || get().settings;
+      const cloned = structuredClone(toCopy);
+      set({ copiedSettings: cloned });
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard) {
+          void navigator.clipboard.writeText(JSON.stringify(cloned, null, 2));
+        }
+      } catch {
+        // ignore
+      }
+    },
+
+    pasteSettings: async () => {
+      let toPaste = get().copiedSettings;
+      if (!toPaste) {
+        try {
+          if (typeof navigator !== 'undefined' && navigator.clipboard) {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+              const parsed = JSON.parse(text);
+              if (parsed && typeof parsed === 'object') {
+                toPaste = parsed;
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (!toPaste) return false;
+      await get().updateSettings(toPaste);
+      return true;
     },
   };
 });

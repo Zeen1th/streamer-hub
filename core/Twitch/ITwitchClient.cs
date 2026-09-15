@@ -30,6 +30,7 @@ public interface ITwitchClient : IAsyncDisposable
     Task<(bool Ok, string? Error)> VipUserAsync(string targetUsernameOrId, CancellationToken cancellationToken = default);
     Task<(bool Ok, string? Error)> UnvipUserAsync(string targetUsernameOrId, CancellationToken cancellationToken = default);
     Task<(bool Ok, string? Error)> ClearChatAsync(CancellationToken cancellationToken = default);
+    Task<(bool Ok, string? Error)> DeleteChatMessageAsync(string messageId, CancellationToken cancellationToken = default);
     Task<(bool Ok, string? Error)> SendShoutoutAsync(string targetUsernameOrId, CancellationToken cancellationToken = default);
     Task<(bool Ok, bool WasMod, string? TargetUser, string? Error)> SmartModTimeoutAsync(string targetUsernameOrId, int durationSeconds, string? reason = null, CancellationToken cancellationToken = default);
 }

@@ -21,9 +21,9 @@ import { useConnectionStore } from '../../../store/connectionStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { t } from '../../../i18n/translations';
 import { Button } from '../../ui/Button';
-import { Input } from '../../ui/Input';
 import { Switch } from '../../ui/Switch';
-import { isRtlText } from '../../../lib/chatOverlay';
+import { isRtlText, formatBidiText, ensureReadableColor } from '../../../lib/chatOverlay';
+import { tokenizeMessage } from '../../../lib/chatEmotes';
 
 export function ObsChatView() {
   const store = useObsChatStore();
@@ -147,12 +147,21 @@ export function ObsChatView() {
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col bg-[#13171b] text-ink" aria-label={t(lang, 'nav.obsChat')}>
+    <section className="flex min-h-0 flex-1 flex-col bg-[#13171b] text-[#f8fafc]" aria-label={t(lang, 'nav.obsChat')}>
+      <style>{`
+        @keyframes chatMsgIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-chat-in {
+          animation: chatMsgIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+      `}</style>
       {/* Top Header */}
-      <header className="flex h-[48px] shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#1a2228] px-3">
+      <header className="flex h-[48px] shrink-0 items-center justify-between border-b border-white/[0.12] bg-[#1a2228] px-3">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="flex size-7 items-center justify-center rounded-[6px] bg-accent/15 text-accent-text">
+            <div className="flex size-7 items-center justify-center rounded-[6px] bg-accent/20 text-accent-text border border-accent/40">
               <MessageSquare size={16} />
             </div>
             <div>
@@ -165,7 +174,7 @@ export function ObsChatView() {
                     twitchConnected ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]' : 'bg-amber-400'
                   }`}
                 />
-                <span className="text-[#9aa3af]">
+                <span className="text-[#cbd5e1]">
                   {twitchConnected ? `@${channelLogin || 'connected'}` : t(lang, 'workspace.notConnected')}
                 </span>
               </div>
@@ -181,7 +190,7 @@ export function ObsChatView() {
             size="sm"
             onClick={handleCopyUrl}
             title={t(lang, 'obsChat.copyUrl')}
-            className="h-7 gap-1.5 px-2.5 text-[11.5px]"
+            className="h-7 gap-1.5 px-2.5 text-[11.5px] border-white/20 text-slate-200 hover:bg-white/10 hover:text-white"
           >
             {copiedUrl ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
             <span>{copiedUrl ? t(lang, 'obsChat.copied') : t(lang, 'obsChat.copyUrl')}</span>
@@ -193,7 +202,7 @@ export function ObsChatView() {
             size="sm"
             onClick={() => setShowGuide((v) => !v)}
             title={t(lang, 'obsChat.setupGuide')}
-            className={`h-7 px-2 text-[11.5px] ${showGuide ? 'bg-white/[0.08] text-white' : ''}`}
+            className={`h-7 px-2 text-[11.5px] text-slate-300 hover:text-white ${showGuide ? 'bg-white/[0.12] text-white' : ''}`}
           >
             <HelpCircle size={14} className="me-1" />
             <span className="hidden sm:inline">{t(lang, 'obsChat.setupGuide')}</span>
@@ -205,9 +214,9 @@ export function ObsChatView() {
             size="sm"
             onClick={handleSendTestMessage}
             title={t(lang, 'obsChat.testMessage')}
-            className="h-7 px-2 text-[11.5px]"
+            className="h-7 px-2 text-[11.5px] text-slate-300 hover:text-white"
           >
-            <Sparkles size={13} className="text-accent-text" />
+            <Sparkles size={13} className="text-amber-400" />
             <span className="hidden md:inline ms-1">{t(lang, 'obsChat.testMessage')}</span>
           </Button>
 
@@ -217,7 +226,7 @@ export function ObsChatView() {
             size="sm"
             onClick={() => store.clearAll()}
             title={t(lang, 'obsChat.clearChat')}
-            className="h-7 px-2 text-[11.5px] text-muted hover:text-danger"
+            className="h-7 px-2 text-[11.5px] text-slate-400 hover:text-rose-400"
           >
             <Trash2 size={13} />
           </Button>
@@ -228,7 +237,7 @@ export function ObsChatView() {
             size="sm"
             onClick={() => setShowSettings((v) => !v)}
             title={t(lang, 'obsChat.settings')}
-            className={`h-7 px-2 text-[11.5px] ${showSettings ? 'bg-white/[0.08] text-white' : ''}`}
+            className={`h-7 px-2 text-[11.5px] text-slate-300 hover:text-white ${showSettings ? 'bg-white/[0.12] text-white' : ''}`}
           >
             <Settings2 size={14} />
           </Button>
@@ -237,33 +246,33 @@ export function ObsChatView() {
 
       {/* OBS Setup Guide Banner/Modal */}
       {showGuide && (
-        <div className="relative border-b border-accent/30 bg-accent/10 px-4 py-3 text-xs text-[#d7dde4]">
+        <div className="relative border-b border-accent/30 bg-[#1e2732] px-4 py-3 text-xs text-slate-200">
           <button
             type="button"
             onClick={() => setShowGuide(false)}
-            className="absolute end-3 top-3 text-muted hover:text-white"
+            className="absolute end-3 top-3 text-slate-400 hover:text-white"
             aria-label="Close guide"
           >
             <X size={14} />
           </button>
-          <h4 className="mb-1.5 flex items-center gap-1.5 font-bold text-accent-text">
+          <h4 className="mb-1.5 flex items-center gap-1.5 font-bold text-sky-400">
             <Radio size={14} />
             {t(lang, 'obsChat.setupGuide')}
           </h4>
-          <div className="space-y-1 text-[11.5px] text-[#c3cad3]">
+          <div className="space-y-1 text-[11.5px] text-slate-300">
             <p>{t(lang, 'obsChat.guideStep1')}</p>
             <p>{t(lang, 'obsChat.guideStep2')}</p>
             <p>{t(lang, 'obsChat.guideStep3')}</p>
           </div>
           <div className="mt-2.5 flex items-center gap-2 font-mono text-[11px]">
-            <span className="text-muted">{t(lang, 'obsChat.dockUrl')}:</span>
-            <code className="rounded border border-white/[0.12] bg-black/40 px-2 py-0.5 text-accent-text">
+            <span className="text-slate-400">{t(lang, 'obsChat.dockUrl')}:</span>
+            <code className="rounded border border-white/[0.15] bg-black/50 px-2 py-0.5 text-sky-300 select-all">
               {store.dockUrl}
             </code>
             <button
               type="button"
               onClick={handleCopyUrl}
-              className="text-xs text-ink hover:text-accent-text underline underline-offset-2"
+              className="text-xs text-slate-300 hover:text-sky-300 underline underline-offset-2"
             >
               {copiedUrl ? t(lang, 'obsChat.copied') : t(lang, 'obsChat.copyUrl')}
             </button>
@@ -278,35 +287,45 @@ export function ObsChatView() {
           <div
             ref={scrollRef}
             onScroll={handleScroll}
-            className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5 custom-scrollbar"
+            className="flex-1 overflow-y-auto px-3 py-2 custom-scrollbar"
           >
             {messages.length === 0 ? (
-              <div className="grid h-full place-items-center text-center text-muted">
+              <div className="grid h-full place-items-center text-center text-slate-400">
                 <div className="max-w-xs space-y-2 p-6">
-                  <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-white/[0.04] text-muted">
+                  <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-white/[0.08] text-slate-300">
                     <MessageSquare size={20} />
                   </div>
-                  <p className="text-xs">{t(lang, 'obsChat.noMessagesYet')}</p>
-                  <Button variant="outline" size="sm" onClick={handleSendTestMessage} className="mt-2 text-xs">
-                    <Sparkles size={12} className="me-1" />
+                  <p className="text-xs text-slate-300">{t(lang, 'obsChat.noMessagesYet')}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSendTestMessage}
+                    className="mt-2 text-xs border-white/20 text-slate-200 hover:bg-white/10"
+                  >
+                    <Sparkles size={12} className="me-1 text-amber-400" />
                     {t(lang, 'obsChat.testMessage')}
                   </Button>
                 </div>
               </div>
             ) : (
-              messages.map((msg) => (
-                <ChatMessageRow
-                  key={msg.id}
-                  message={msg}
-                  settings={dockSettings}
-                  lang={lang}
-                  onMention={handleMention}
-                  onTimeout={(u) => store.timeoutUser(u, 60)}
-                  onBan={(u) => store.banUser(u)}
-                  onDelete={(id) => store.deleteMessage(id)}
-                  onShoutout={(u) => store.shoutoutUser(u)}
-                />
-              ))
+              <div className="min-h-full flex flex-col justify-end">
+                <div className="flex-1 min-h-0" />
+                <div className="space-y-1.5">
+                  {messages.map((msg) => (
+                    <ChatMessageRow
+                      key={msg.id}
+                      message={msg}
+                      settings={dockSettings}
+                      lang={lang}
+                      onMention={handleMention}
+                      onTimeout={(u) => store.timeoutUser(u, 60)}
+                      onBan={(u) => store.banUser(u)}
+                      onDelete={(id) => store.deleteMessage(id)}
+                      onShoutout={(u) => store.shoutoutUser(u)}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
@@ -325,18 +344,19 @@ export function ObsChatView() {
           {/* Quick Chat Send Bar */}
           <form
             onSubmit={handleSend}
-            className="flex shrink-0 items-center gap-2 border-t border-white/[0.08] bg-[#1a2228] p-2.5"
+            className="flex shrink-0 items-center gap-2 border-t border-white/[0.12] bg-[#182026] p-2.5"
           >
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/20 font-bold text-accent-text text-xs">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/25 font-bold text-accent-text text-xs border border-accent/40">
               {activeSender.charAt(0).toUpperCase()}
             </div>
-            <Input
+            <input
               ref={inputRef}
               dir="auto"
+              type="text"
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder={t(lang, 'obsChat.sendPlaceholder', { sender: activeSender })}
-              className="h-8 flex-1 bg-surface-2 font-sans text-xs text-ink"
+              className="h-8 flex-1 rounded-md border border-white/15 bg-[#0f1418] px-3 font-sans text-xs text-white placeholder:text-slate-400 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
               disabled={sending}
             />
             <Button
@@ -355,18 +375,18 @@ export function ObsChatView() {
         {/* Dock Settings Side Panel */}
         {showSettings && (
           <aside
-            className="w-[280px] shrink-0 border-s border-white/[0.08] bg-[#161c22] p-3 overflow-y-auto space-y-4"
+            className="w-[280px] shrink-0 border-s border-white/[0.12] bg-[#161c22] p-3 overflow-y-auto space-y-4"
             aria-label={t(lang, 'obsChat.settings')}
           >
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
-              <h3 className="font-display text-xs font-bold uppercase tracking-[0.05em] text-ink flex items-center gap-1.5">
+            <div className="flex items-center justify-between border-b border-white/[0.12] pb-2">
+              <h3 className="font-display text-xs font-bold uppercase tracking-[0.05em] text-white flex items-center gap-1.5">
                 <Settings2 size={13} className="text-accent-text" />
                 {t(lang, 'obsChat.settings')}
               </h3>
               <button
                 type="button"
                 onClick={() => setShowSettings(false)}
-                className="text-muted hover:text-white"
+                className="text-slate-400 hover:text-white"
                 aria-label="Close settings"
               >
                 <X size={14} />
@@ -375,7 +395,7 @@ export function ObsChatView() {
 
             {/* Font Size */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[#c3cad3]">{t(lang, 'obsChat.fontSize')}</label>
+              <label className="text-xs font-medium text-slate-200">{t(lang, 'obsChat.fontSize')}</label>
               <div className="grid grid-cols-4 gap-1">
                 {([12, 13, 14, 16] as const).map((size) => (
                   <button
@@ -385,7 +405,7 @@ export function ObsChatView() {
                     className={`h-7 rounded text-xs font-mono transition-colors ${
                       dockSettings.fontSize === size
                         ? 'bg-accent text-accent-contrast font-bold'
-                        : 'bg-white/[0.05] text-muted hover:bg-white/[0.08] hover:text-white'
+                        : 'bg-white/[0.08] text-slate-300 hover:bg-white/[0.14] hover:text-white'
                     }`}
                   >
                     {size}px
@@ -396,7 +416,7 @@ export function ObsChatView() {
 
             {/* Density */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[#c3cad3]">{t(lang, 'obsChat.density')}</label>
+              <label className="text-xs font-medium text-slate-200">{t(lang, 'obsChat.density')}</label>
               <div className="grid grid-cols-2 gap-1">
                 {(['compact', 'comfortable'] as const).map((density) => (
                   <button
@@ -406,7 +426,7 @@ export function ObsChatView() {
                     className={`h-7 rounded text-xs transition-colors capitalize ${
                       dockSettings.density === density
                         ? 'bg-accent text-accent-contrast font-bold'
-                        : 'bg-white/[0.05] text-muted hover:bg-white/[0.08] hover:text-white'
+                        : 'bg-white/[0.08] text-slate-300 hover:bg-white/[0.14] hover:text-white'
                     }`}
                   >
                     {t(lang, `obsChat.${density}`)}
@@ -416,9 +436,9 @@ export function ObsChatView() {
             </div>
 
             {/* Toggles */}
-            <div className="space-y-2.5 border-t border-white/[0.08] pt-3">
+            <div className="space-y-2.5 border-t border-white/[0.12] pt-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[#c3cad3]">{t(lang, 'obsChat.timestamps')}</span>
+                <span className="text-xs text-slate-200">{t(lang, 'obsChat.timestamps')}</span>
                 <Switch
                   label={t(lang, 'obsChat.timestamps')}
                   checked={dockSettings.showTimestamps}
@@ -427,7 +447,7 @@ export function ObsChatView() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[#c3cad3]">{t(lang, 'obsChat.badges')}</span>
+                <span className="text-xs text-slate-200">{t(lang, 'obsChat.badges')}</span>
                 <Switch
                   label={t(lang, 'obsChat.badges')}
                   checked={dockSettings.showBadges}
@@ -436,7 +456,7 @@ export function ObsChatView() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[#c3cad3]">{t(lang, 'obsChat.avatars')}</span>
+                <span className="text-xs text-slate-200">{t(lang, 'obsChat.avatars')}</span>
                 <Switch
                   label={t(lang, 'obsChat.avatars')}
                   checked={dockSettings.showAvatars}
@@ -445,7 +465,7 @@ export function ObsChatView() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[#c3cad3]">{t(lang, 'obsChat.highlightMentions')}</span>
+                <span className="text-xs text-slate-200">{t(lang, 'obsChat.highlightMentions')}</span>
                 <Switch
                   label={t(lang, 'obsChat.highlightMentions')}
                   checked={dockSettings.highlightMentions}
@@ -454,7 +474,7 @@ export function ObsChatView() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[#c3cad3]">{t(lang, 'obsChat.soundOnMention')}</span>
+                <span className="text-xs text-slate-200">{t(lang, 'obsChat.soundOnMention')}</span>
                 <Switch
                   label={t(lang, 'obsChat.soundOnMention')}
                   checked={dockSettings.soundOnMention}
@@ -464,12 +484,12 @@ export function ObsChatView() {
             </div>
 
             {/* Standalone Link */}
-            <div className="border-t border-white/[0.08] pt-3">
+            <div className="border-t border-white/[0.12] pt-3">
               <a
                 href={store.dockUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-1.5 text-xs text-accent-text hover:underline"
+                className="flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 hover:underline"
               >
                 <ExternalLink size={12} />
                 <span>Open Standalone Dock</span>
@@ -516,27 +536,27 @@ function ChatMessageRow({
     }
   }, [message.timestamp]);
 
-  const userColor = message.color || '#38bdf8';
+  const userColor = ensureReadableColor(message.color);
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className={`group relative rounded-[5px] px-2 transition-colors ${
+      className={`group relative rounded-[5px] px-2 transition-colors animate-chat-in ${
         settings.density === 'compact' ? 'py-1' : 'py-1.5'
       } ${
         message.deleted
           ? 'opacity-40 bg-red-950/10 line-through'
           : hovered
-          ? 'bg-white/[0.04]'
-          : 'hover:bg-white/[0.03]'
+          ? 'bg-white/[0.06]'
+          : 'hover:bg-white/[0.04]'
       } ${message.isBroadcaster ? 'border-s-2 border-accent/80' : ''}`}
       style={{ fontSize: `${settings.fontSize}px` }}
     >
       <div className="flex items-baseline gap-1.5 flex-wrap">
         {/* Timestamp */}
         {settings.showTimestamps && timeStr && (
-          <span className="font-mono text-[10px] text-[#6b7684] select-none shrink-0">
+          <span className="font-mono text-[11px] font-medium text-[#94a3b8] select-none shrink-0">
             {timeStr}
           </span>
         )}
@@ -557,22 +577,22 @@ function ChatMessageRow({
         {settings.showBadges && (
           <span className="inline-flex items-center gap-1 select-none shrink-0">
             {message.isBroadcaster && (
-              <span className="rounded bg-[#e91916] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight" title="Broadcaster">
+              <span className="rounded bg-[#dc2626] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm" title="Broadcaster">
                 Host
               </span>
             )}
             {message.isMod && (
-              <span className="rounded bg-[#00ad03] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight" title="Moderator">
+              <span className="rounded bg-[#16a34a] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm" title="Moderator">
                 Mod
               </span>
             )}
             {message.isVip && (
-              <span className="rounded bg-[#e005b9] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight" title="VIP">
+              <span className="rounded bg-[#d946ef] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm" title="VIP">
                 VIP
               </span>
             )}
             {message.isSubscriber && !message.isBroadcaster && (
-              <span className="rounded bg-[#8205b4] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight" title="Subscriber">
+              <span className="rounded bg-[#9333ea] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm" title="Subscriber">
                 Sub
               </span>
             )}
@@ -589,77 +609,123 @@ function ChatMessageRow({
         >
           {message.username}
         </button>
-        <span className="text-[#868f9d] select-none">:</span>
+        <span className="text-white/60 select-none font-bold">:</span>
 
         {/* Message Text */}
         <span
           dir={isRtl ? 'rtl' : 'ltr'}
-          className={`break-words text-[#e6edf3] select-text ${
+          className={`break-words text-[#f8fafc] font-normal leading-relaxed select-text ${
             isRtl ? 'font-arabic' : 'font-sans'
           }`}
         >
           {message.deleted ? (
-            <em className="text-muted text-[11px]">{t(lang, 'obsChat.deleted')}</em>
+            <em className="text-rose-400 font-mono text-[11.5px] italic select-none">{t(lang, 'obsChat.deleted')}</em>
           ) : (
-            message.message
+            <DockMessageText text={message.message} emotes={message.emotes} isRtl={isRtl} />
           )}
         </span>
       </div>
 
       {/* Floating Action Buttons on Hover */}
       {hovered && !message.deleted && (
-        <div className="absolute end-2 -top-3 z-10 flex items-center gap-0.5 rounded border border-white/[0.12] bg-[#1e252c] p-0.5 shadow-md">
+        <div className="absolute end-2 -top-3 z-20 flex items-center gap-1 rounded-md border border-white/20 bg-[#1e2732] px-1 py-0.5 shadow-xl select-none">
           {/* Mention */}
           <button
             type="button"
             onClick={() => onMention(message.username)}
-            className="rounded p-1 text-muted hover:bg-white/[0.08] hover:text-white transition-colors"
+            className="rounded p-1 text-sky-400 hover:text-white hover:bg-sky-500/30 transition-colors cursor-pointer"
             title={t(lang, 'obsChat.mention')}
           >
-            <AtSign size={12} />
+            <AtSign size={13} strokeWidth={2.2} />
           </button>
 
           {/* Shoutout */}
           <button
             type="button"
             onClick={() => onShoutout(message.username)}
-            className="rounded p-1 text-muted hover:bg-white/[0.08] hover:text-white transition-colors"
+            className="rounded p-1 text-purple-400 hover:text-white hover:bg-purple-500/30 transition-colors cursor-pointer"
             title={t(lang, 'obsChat.shoutout')}
           >
-            <Megaphone size={12} />
+            <Megaphone size={13} strokeWidth={2.2} />
           </button>
 
           {/* Timeout 60s */}
           <button
             type="button"
             onClick={() => onTimeout(message.username)}
-            className="rounded p-1 text-muted hover:bg-amber-500/20 hover:text-amber-400 transition-colors"
+            className="rounded p-1 text-amber-400 hover:text-white hover:bg-amber-500/30 transition-colors cursor-pointer"
             title={t(lang, 'obsChat.timeout')}
           >
-            <Clock size={12} />
+            <Clock size={13} strokeWidth={2.2} />
           </button>
 
           {/* Ban User */}
           <button
             type="button"
             onClick={() => onBan(message.username)}
-            className="rounded p-1 text-muted hover:bg-rose-500/20 hover:text-rose-400 transition-colors"
+            className="rounded p-1 text-rose-400 hover:text-white hover:bg-rose-500/30 transition-colors cursor-pointer"
             title={t(lang, 'obsChat.ban')}
           >
-            <Ban size={12} />
+            <Ban size={13} strokeWidth={2.2} />
           </button>
 
           {/* Delete Message */}
           <button
             type="button"
             onClick={() => onDelete(message.id)}
-            className="rounded p-1 text-muted hover:bg-rose-500/20 hover:text-rose-400 transition-colors"
+            className="rounded p-1 text-red-400 hover:text-white hover:bg-red-500/30 transition-colors cursor-pointer"
             title={t(lang, 'obsChat.delete')}
           >
-            <Trash2 size={12} />
+            <Trash2 size={13} strokeWidth={2.2} />
           </button>
         </div>
       )}
     </div>
+  );
+}
+
+function DockMessageText({
+  text,
+  emotes,
+  isRtl,
+}: {
+  text: string;
+  emotes?: readonly { id: string; start: number; end: number }[];
+  isRtl: boolean;
+}) {
+  const { tokens } = useMemo(
+    () => tokenizeMessage(text, emotes, undefined, { twitch: true }),
+    [text, emotes],
+  );
+
+  const hasEmotes = tokens.some((t) => t.type === 'emote');
+  if (!hasEmotes) {
+    return <span>{formatBidiText(text, isRtl)}</span>;
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" dir={isRtl ? 'rtl' : 'ltr'}>
+      {tokens.map((token, index) =>
+        token.type === 'emote' ? (
+          <img
+            key={`emote-${index}`}
+            src={token.url}
+            alt={token.name}
+            title={token.name}
+            className="inline-block h-[1.35em] w-auto max-w-[2.5em] object-contain align-middle select-none"
+            loading="eager"
+            onError={(e) => {
+              const replacement = document.createElement('span');
+              replacement.textContent = token.name;
+              e.currentTarget.replaceWith(replacement);
+            }}
+          />
+        ) : (
+          <span key={`text-${index}`} dir={isRtl ? 'rtl' : 'ltr'}>
+            {formatBidiText(token.value, isRtl)}
+          </span>
+        ),
+      )}
+    </span>
   );
 }

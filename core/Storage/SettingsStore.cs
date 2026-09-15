@@ -23,6 +23,7 @@ public sealed class SettingsStore : IDisposable
         public AutoReplySettings AutoReplySettings { get; init; } = new();
         public TwitchSettings Twitch { get; init; } = new();
         public ChatOverlaySettings ChatOverlay { get; init; } = new();
+        public List<ChatOverlayInstance> ChatOverlays { get; init; } = new();
         public ChatOverlaySettings ObsChat { get; init; } = new();
         public WindowSettings Window { get; init; } = new();
         public string Language { get; init; } = string.Empty;
@@ -91,9 +92,79 @@ public sealed class SettingsStore : IDisposable
         get { lock (_lock) return _document.ChatOverlay; }
     }
 
+    public IReadOnlyList<ChatOverlayInstance> ChatOverlays
+    {
+        get { lock (_lock) return _document.ChatOverlays; }
+    }
+
+    public ChatOverlayInstance? GetChatOverlay(string id)
+    {
+        lock (_lock)
+        {
+            return _document.ChatOverlays.FirstOrDefault(o => string.Equals(o.Id, id, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    public void SaveChatOverlay(ChatOverlayInstance overlay)
+    {
+        ArgumentNullException.ThrowIfNull(overlay);
+        lock (_lock)
+        {
+            var overlays = _document.ChatOverlays.ToList();
+            var index = overlays.FindIndex(o => string.Equals(o.Id, overlay.Id, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                overlays[index] = overlay;
+            }
+            else
+            {
+                overlays.Add(overlay);
+            }
+
+            var newDoc = _document with { ChatOverlays = overlays };
+            if (overlay.Id == "default" || overlay.IsMain)
+            {
+                newDoc = newDoc with { ChatOverlay = overlay.Settings };
+            }
+            _document = newDoc;
+        }
+        ScheduleSave();
+    }
+
+    public bool DeleteChatOverlay(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id) || string.Equals(id, "default", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        lock (_lock)
+        {
+            var existing = _document.ChatOverlays.FirstOrDefault(o => string.Equals(o.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (existing is null || existing.IsMain) return false;
+
+            var overlays = _document.ChatOverlays.Where(o => !string.Equals(o.Id, id, StringComparison.OrdinalIgnoreCase)).ToList();
+            _document = _document with { ChatOverlays = overlays };
+        }
+        ScheduleSave();
+        return true;
+    }
+
     public void SetChatOverlay(ChatOverlaySettings settings)
     {
-        lock (_lock) _document = _document with { ChatOverlay = settings ?? new() };
+        lock (_lock)
+        {
+            var s = settings ?? new();
+            var overlays = _document.ChatOverlays.ToList();
+            var index = overlays.FindIndex(o => o.Id == "default" || o.IsMain);
+            if (index >= 0)
+            {
+                overlays[index] = overlays[index] with { Settings = s };
+            }
+            else
+            {
+                overlays.Insert(0, new ChatOverlayInstance { Id = "default", Name = "Main Overlay", IsMain = true, Settings = s });
+            }
+            _document = _document with { ChatOverlay = s, ChatOverlays = overlays };
+        }
         ScheduleSave();
     }
 
@@ -315,9 +386,37 @@ public sealed class SettingsStore : IDisposable
     private static SettingsDocument NormalizeSettingsDocument(SettingsDocument? document)
     {
         var value = document ?? new SettingsDocument();
+        var overlays = value.ChatOverlays != null && value.ChatOverlays.Count > 0
+            ? value.ChatOverlays.ToList()
+            : new List<ChatOverlayInstance>();
+
+        var mainIdx = overlays.FindIndex(o => o.Id == "default" || o.IsMain);
+        if (mainIdx >= 0)
+        {
+            var main = overlays[mainIdx];
+            overlays[mainIdx] = main with
+            {
+                Id = "default",
+                Name = string.IsNullOrWhiteSpace(main.Name) ? "Main Overlay" : main.Name,
+                IsMain = true,
+                Settings = main.Settings ?? value.ChatOverlay ?? new()
+            };
+        }
+        else
+        {
+            overlays.Insert(0, new ChatOverlayInstance
+            {
+                Id = "default",
+                Name = "Main Overlay",
+                IsMain = true,
+                Settings = value.ChatOverlay ?? new()
+            });
+        }
+
         return value with
         {
-            ChatOverlay = value.ChatOverlay ?? new(),
+            ChatOverlay = overlays.First(o => o.Id == "default").Settings,
+            ChatOverlays = overlays,
             ObsChat = value.ObsChat ?? new(),
             Language = NormalizeLanguage(value.Language),
         };

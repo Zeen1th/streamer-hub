@@ -1,48 +1,38 @@
 import { useEffect, useState } from 'react';
 import {
-  AlertCircle,
   ArrowLeft,
-  Bot,
-  CheckCircle2,
   ChevronLeft,
-  Cpu,
-  Info,
+  MessageSquare,
+  Play,
   Plus,
-  Send,
   Sparkles,
-  Terminal,
-  UserCheck,
+  Trash2,
+  Tv,
   X,
 } from 'lucide-react';
-import type {
-  AiUserRestriction,
-  AutoReply,
-  ChatMessage,
-  PermissionLevel,
-} from '../../rpc/contracts';
+import type { AutoReply, ChatMessage, PermissionLevel } from '../../rpc/contracts';
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
-import {
-  checkUserRestriction,
-  evaluateRuleExecution,
-  normalizeUsername,
-  renderAutoReply,
-} from '../../lib/autoReplyRules';
 import { useAutoReplyStore } from '../../store/autoReplyStore';
+import { useLogStore } from '../../store/logStore';
 import { t } from '../../i18n/translations';
+import { evaluateRuleExecution, renderAutoReply } from '../../lib/autoReplyRules';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { SegmentedControl } from '../ui/SegmentedControl';
+import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
-import { Field } from '../ui/Field';
 import { Switch } from '../ui/Switch';
+import { TriggerTitleAction } from '../tools/auto-replies/TriggerTitleAction';
 import { ChatterOverridesSection } from './ChatterOverridesSection';
 
 interface AiReplyStudioViewProps {
   rule: AutoReply;
   onBack: () => void;
+  onSwitchToNormal?: () => void;
   lang: 'en' | 'ar';
 }
+
+const RANKS: PermissionLevel[] = ['everyone', 'subscriber', 'vip', 'mod', 'broadcaster'];
 
 const MODEL_PRESETS = [
   { label: 'Llama 3.1 8B (Groq · Recommended)', value: 'llama-3.1-8b-instant', provider: 'groq' as const },
@@ -51,27 +41,21 @@ const MODEL_PRESETS = [
   { label: 'Llama 3.2 3B (OpenRouter · Free)', value: 'meta-llama/llama-3.2-3b-instruct:free', provider: 'openrouter' as const },
 ];
 
-export function AiReplyStudioView({ rule, onBack, lang }: AiReplyStudioViewProps) {
+export function AiReplyStudioView({
+  rule,
+  onBack,
+  onSwitchToNormal,
+  lang,
+}: AiReplyStudioViewProps) {
   const update = useAutoReplyStore((s) => s.update);
-  const targetUsers: string[] = rule.aiTargetUsers ?? [];
-  const restriction: AiUserRestriction = rule.aiUserRestriction ?? 'none';
+  const remove = useAutoReplyStore((s) => s.remove);
   const provider = rule.aiProvider ?? 'groq';
 
-  // Tag input state for user targeting
-  const [tagInput, setTagInput] = useState('');
-
-  // Live Playground simulation state
-  const [simUser, setSimUser] = useState(targetUsers[0] ? `@${targetUsers[0]}` : 'viewer');
-  const [simMessage, setSimMessage] = useState(
-    rule.triggers[0] ? `!${rule.triggers[0]}` : 'hello',
-  );
-  const [testState, setTestState] = useState<{
-    loading: boolean;
-    output?: string;
-    error?: string;
-    status?: 'allowed' | 'skipped' | 'blocked';
-    reason?: string;
-  }>({ loading: false });
+  const [newTriggerInput, setNewTriggerInput] = useState('');
+  const [testSent, setTestSent] = useState(false);
+  const [testUser, setTestUser] = useState('viewer');
+  const [lastTestOutput, setLastTestOutput] = useState<string | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
 
   // Escape key to navigate back
   useEffect(() => {
@@ -84,44 +68,32 @@ export function AiReplyStudioView({ rule, onBack, lang }: AiReplyStudioViewProps
 
   const BackIcon = lang === 'ar' ? ChevronLeft : ArrowLeft;
 
-  // Add chatter username chip
-  const handleAddUserTag = () => {
-    const clean = normalizeUsername(tagInput);
+  const handleAddTrigger = () => {
+    const clean = newTriggerInput.trim();
     if (!clean) return;
-    if (!targetUsers.includes(clean)) {
-      update(rule.id, { aiTargetUsers: [...targetUsers, clean] });
+    if (!rule.triggers.includes(clean)) {
+      update(rule.id, { triggers: [...rule.triggers, clean] });
     }
-    setTagInput('');
+    setNewTriggerInput('');
   };
 
-  // Remove chatter username chip
-  const handleRemoveUserTag = (userToRemove: string) => {
-    update(rule.id, {
-      aiTargetUsers: targetUsers.filter((u) => u !== userToRemove),
-    });
-  };
-
-  // Trigger words management
-  const setTrigger = (index: number, val: string) => {
-    update(rule.id, {
-      triggers: rule.triggers.map((tr, i) => (i === index ? val : tr)),
-    });
-  };
-
-  const addTrigger = () => {
-    update(rule.id, { triggers: [...rule.triggers, ''] });
-  };
-
-  const removeTrigger = (index: number) => {
+  const handleRemoveTrigger = (index: number) => {
     if (rule.triggers.length <= 1) return;
-    update(rule.id, { triggers: rule.triggers.filter((_, i) => i !== index) });
+    update(rule.id, {
+      triggers: rule.triggers.filter((_, i) => i !== index),
+    });
   };
 
-  // Live Playground simulation
-  const handleRunTest = async () => {
-    setTestState({ loading: true });
+  const handleInsertToken = (token: string) => {
+    const current = rule.aiInstructions || '';
+    update(rule.id, {
+      aiInstructions: current ? `${current} ${token}` : token,
+    });
+  };
 
-    const cleanSimUser = normalizeUsername(simUser) || 'viewer';
+  const handleTestSimulate = async () => {
+    setIsTesting(true);
+    const cleanSimUser = testUser.trim().replace(/^@+/, '') || 'viewer';
     const mockMsg: ChatMessage = {
       id: 'sim-' + Date.now(),
       username: cleanSimUser,
@@ -129,540 +101,554 @@ export function AiReplyStudioView({ rule, onBack, lang }: AiReplyStudioViewProps
       isMod: false,
       isVip: false,
       isSubscriber: false,
-      message: simMessage.trim() || 'hello',
+      message: rule.triggers[0] ? `!${rule.triggers[0]}` : 'hello',
       timestamp: new Date().toISOString(),
       emotes: [],
     };
 
-    // 1. Check chatter restriction eligibility
-    const isAllowed = checkUserRestriction(restriction, targetUsers, cleanSimUser);
-    if (!isAllowed) {
-      if (restriction === 'allowlist') {
-        setTestState({
-          loading: false,
-          status: 'skipped',
-          reason: `Skipped: This AI reply only triggers for ${targetUsers.map((u) => `@${u}`).join(', ') || 'listed users'}. @${cleanSimUser} was ignored.`,
-        });
-      } else {
-        setTestState({
-          loading: false,
-          status: 'blocked',
-          reason: `Blocked: @${cleanSimUser} is on the blocklist for this AI reply.`,
-        });
-      }
-      return;
-    }
-
     const plan = evaluateRuleExecution(rule, mockMsg);
     if (plan.type === 'ignore') {
-      setTestState({
-        loading: false,
-        status: 'blocked',
-        reason: `Silenced: Chatter override condition is set to ignore @${cleanSimUser}.`,
+      useLogStore.getState().add({
+        kind: 'system',
+        message: `[Simulated Reply] Silenced/Ignored for @${cleanSimUser} (Chatter Override)`,
       });
+      setLastTestOutput(`[Silenced/Ignored for @${cleanSimUser} by Chatter Override]`);
+      setIsTesting(false);
+      setTestSent(true);
+      setTimeout(() => setTestSent(false), 2500);
       return;
     }
 
-    if (plan.type === 'static') {
-      setTestState({
-        loading: false,
-        status: 'allowed',
-        output: renderAutoReply(plan.text, mockMsg),
-      });
-      return;
-    }
-
-    // 2. Generate live response using rule's persona prompt (or override instructions)
-    try {
-      await rpc.invoke(Channels.AutoRepliesSave, { rule }).catch(() => undefined);
-      const result = await rpc.invoke(Channels.AutoRepliesGenerate, {
-        ruleId: rule.id,
-        send: false,
-        message: mockMsg,
-        overrideInstructions: plan.isOverride ? plan.instructions : undefined,
-      });
-
-      if (result.ok && result.message) {
-        setTestState({
-          loading: false,
-          status: 'allowed',
-          output: result.message,
+    if (plan.type === 'ai') {
+      try {
+        const res = await rpc.invoke(Channels.AutoRepliesGenerate, {
+          ruleId: rule.id,
+          send: false,
+          message: mockMsg,
+          overrideInstructions: plan.isOverride ? plan.instructions : undefined,
         });
-      } else {
-        setTestState({
-          loading: false,
-          status: 'allowed',
-          error: result.error ?? 'AI did not return a response. Check API keys in settings.',
+        const out = res.ok && res.message ? res.message : `[AI generated response with instructions: "${plan.instructions || rule.aiInstructions || 'Witty banter'}"]`;
+        setLastTestOutput(out);
+        useLogStore.getState().add({
+          kind: 'chat',
+          message: `[Simulated AI Reply for @${cleanSimUser}] ${out}`,
+        });
+      } catch {
+        const fallback = rule.aiFallback || `[Generated AI reply for instructions: "${plan.instructions || rule.aiInstructions || 'Witty banter'}"]`;
+        setLastTestOutput(fallback);
+        useLogStore.getState().add({
+          kind: 'chat',
+          message: `[Simulated AI Reply for @${cleanSimUser}] ${fallback}`,
         });
       }
-    } catch (err) {
-      setTestState({
-        loading: false,
-        status: 'allowed',
-        error: String(err),
-      });
+      setIsTesting(false);
+      setTestSent(true);
+      setTimeout(() => setTestSent(false), 2500);
+      return;
     }
+
+    const previewText = renderAutoReply(plan.text, mockMsg);
+    const tag = plan.isOverride ? `[Simulated Override for @${cleanSimUser}]` : `[Simulated Reply for @${cleanSimUser}]`;
+    setLastTestOutput(previewText);
+    useLogStore.getState().add({
+      kind: 'chat',
+      message: `${tag} ${previewText}`,
+    });
+
+    setIsTesting(false);
+    setTestSent(true);
+    setTimeout(() => setTestSent(false), 2500);
   };
 
+  const rankOptions: SegmentedOption<PermissionLevel>[] = RANKS.map((value) => ({
+    value,
+    label: t(lang, `ranks.${value}`),
+  }));
+
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
-      {/* Top Sub-Header Toolbar */}
-      <div className="flex h-[38px] shrink-0 items-center gap-2 border-b border-rule bg-surface px-3">
-        <Button size="sm" variant="outline" onClick={onBack} title={t(lang, 'workspace.backToCommands')}>
-          <BackIcon size={13} className="text-accent-text" />
-          <span className="font-bold">{t(lang, 'workspace.backToCommands')}</span>
-        </Button>
+    <div className="flex h-full flex-col overflow-y-auto bg-surface font-sans text-foreground">
+      {/* Sticky Sub-Header Banner */}
+      <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-rule bg-surface/95 px-4 py-2.5 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <Button size="sm" variant="outline" onClick={onBack} title={t(lang, 'sequence.back')}>
+            <BackIcon size={13} />
+            <span>{t(lang, 'sequence.back')}</span>
+          </Button>
 
-        <span aria-hidden className="mx-1 h-[22px] w-px bg-rule" />
+          <div className="h-4 w-px bg-rule" />
 
-        <div className="flex items-center gap-2 min-w-0">
-          <Sparkles size={13} className="text-accent-text shrink-0" />
-          <span className="truncate font-sans text-[13px] font-extrabold text-ink">
-            {rule.triggers[0] ? `!${rule.triggers[0]}` : t(lang, 'workspace.untitled')}
-          </span>
-          <span className="font-sans text-[11px] text-muted hidden sm:inline">
-            · {t(lang, 'aiStudio.title')}
-          </span>
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} className="text-purple-400" />
+            <Input
+              value={rule.triggers[0] ?? ''}
+              onChange={(e) => {
+                const nextTriggers = [...rule.triggers];
+                nextTriggers[0] = e.target.value;
+                update(rule.id, { triggers: nextTriggers });
+              }}
+              className="h-7 w-48 font-semibold text-[13px]"
+              placeholder="Trigger command..."
+            />
+          </div>
         </div>
 
-        {/* Right Status Badges & Active Toggle */}
-        <div className="ms-auto flex items-center gap-2">
-          <Switch
-            checked={rule.enabled}
-            onChange={(enabled) => update(rule.id, { enabled })}
-            label={rule.enabled ? t(lang, 'common.active') : t(lang, 'workspace.paused')}
-          />
-          <span className="rounded-md border border-rule bg-surface-2 px-2 py-0.5 font-mono text-[10.5px] uppercase font-bold text-accent-text">
-            {provider === 'groq' ? 'Groq' : 'OpenRouter'}
-          </span>
-          <span className="rounded-md border border-rule bg-surface-2 px-2 py-0.5 font-mono text-[10.5px] text-muted hidden md:inline truncate max-w-[160px]">
-            {rule.aiModel ?? 'llama-3.1-8b-instant'}
-          </span>
-          <span className="rounded-md border border-rule bg-surface-2 px-2 py-0.5 font-mono text-[10.5px] text-muted hidden sm:inline">
-            {rule.aiMaxTokens ?? 120} tok
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={rule.enabled}
+              onChange={(checked) => update(rule.id, { enabled: checked })}
+              label={t(lang, 'workspace.enable')}
+            />
+            <span className="font-mono text-[11px] text-muted">
+              {rule.enabled ? t(lang, 'workspace.enable') : t(lang, 'workspace.disable')}
+            </span>
+          </div>
+
+          <div className="h-4 w-px bg-rule" />
+
+          <div className="flex items-center gap-1.5 rounded-md border border-rule bg-surface-2/60 px-2 py-0.5">
+            <span className="font-mono text-[10.5px] text-muted">Test as:</span>
+            <Input
+              value={testUser}
+              onChange={(e) => setTestUser(e.target.value)}
+              placeholder="@viewer"
+              className="h-6 w-24 text-[11px] font-mono px-1.5"
+            />
+            <Button
+              size="sm"
+              onClick={handleTestSimulate}
+              disabled={isTesting}
+              className="h-6 border border-purple-500/40 bg-purple-600/90 text-white hover:bg-purple-600 px-2 text-[11px]"
+            >
+              <Play size={11} className="fill-current me-1" />
+              <span>{testSent ? '✓ Simulated!' : isTesting ? 'Testing…' : t(lang, 'sequence.runTest')}</span>
+            </Button>
+          </div>
+
+          {onSwitchToNormal && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                update(rule.id, { responseMode: 'static' });
+                onSwitchToNormal();
+              }}
+              className="border-sky-500/40 bg-sky-500/10 text-sky-300 hover:border-sky-500/60 hover:bg-sky-500/20"
+              title={t(lang, 'workspace.openReplyStudio')}
+            >
+              <MessageSquare size={12} className="text-sky-400 me-1" />
+              <span>{t(lang, 'workspace.prepared')}</span>
+            </Button>
+          )}
+
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              remove(rule.id);
+              onBack();
+            }}
+            className="text-red-400 hover:bg-red-500/10 hover:text-red-300"
+            title={t(lang, 'workspace.delete')}
+          >
+            <Trash2 size={13} />
+          </Button>
         </div>
       </div>
 
-      {/* Main Studio Scroll Canvas */}
-      <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-5 xl:p-6 space-y-6">
-        {/* Banner Section */}
-        <div className="border-b border-rule pb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      {/* Main Studio Body */}
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6">
+        {/* Section 1: Trigger & Matching Rules */}
+        <section className="rounded-lg border border-rule bg-surface-3 p-4">
+          <div className="mb-4 flex items-center justify-between border-b border-rule pb-3">
             <div>
-              <h2 className="font-sans text-base font-bold tracking-tight text-ink flex items-center gap-2">
-                <Bot size={18} className="text-accent-text" />
-                <span>{t(lang, 'aiStudio.title')}</span>
-                <span className="text-muted text-[13px] font-normal">
-                  ({rule.triggers.map((tr) => (tr ? `!${tr}` : '')).filter(Boolean).join(', ') || 'No trigger set'})
-                </span>
+              <h2 className="font-semibold text-[13px] tracking-tight">
+                {t(lang, 'workspace.triggerWord')} & {t(lang, 'workspace.matchMode')}
               </h2>
-              <p className="font-sans text-[12px] text-muted mt-0.5">
-                {t(lang, 'aiStudio.studioSubtitle')}
+              <p className="text-[11px] text-muted">
+                Configure chat words that activate this AI smart reply
               </p>
             </div>
-          </div>
-        </div>
 
-        {/* Section 1: Command Triggers & Quick Triggers/Cooldown */}
-        <div className="rounded-lg border border-rule bg-surface-3 p-5 space-y-4 shadow-sm">
-          <div className="flex items-center justify-between border-b border-hair pb-2">
-            <h3 className="font-sans text-[13px] font-bold text-ink tracking-wide flex items-center gap-2">
-              <Terminal size={15} className="text-accent-text" />
-              <span>Command Triggers & Activation</span>
-            </h3>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted">{t(lang, 'workspace.responseType')}:</span>
+              <SegmentedControl<'static' | 'ai'>
+                value={rule.responseMode ?? 'ai'}
+                onChange={(mode) => {
+                  update(rule.id, { responseMode: mode });
+                  if (mode === 'static' && onSwitchToNormal) {
+                    onSwitchToNormal();
+                  }
+                }}
+                options={[
+                  { value: 'static', label: t(lang, 'workspace.prepared') },
+                  { value: 'ai', label: `✨ ${t(lang, 'workspace.ai')}` },
+                ]}
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Triggers List */}
-            <div className="space-y-2">
-              <label className="ui-label">{t(lang, 'workspace.triggerWord')}</label>
-              <div className="space-y-1.5">
-                {rule.triggers.map((trigger, idx) => (
-                  <div key={idx} className="flex items-center gap-1.5">
-                    <Input
-                      dir="auto"
-                      className="h-8 font-mono text-[12px]"
-                      value={trigger}
-                      onChange={(e) => setTrigger(idx, e.target.value)}
-                      placeholder={idx === 0 ? 'welcome' : 'hi'}
-                    />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* Trigger Chips */}
+            <div className="flex flex-col gap-2 rounded-md border border-rule/80 bg-surface/60 p-3">
+              <span className="font-medium text-[12px] text-foreground">
+                {t(lang, 'workspace.triggerWord')}
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5 min-h-[32px]">
+                {rule.triggers.map((trig, idx) => (
+                  <span
+                    key={idx}
+                    className="flex items-center gap-1 rounded-md border border-rule bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-ink shadow-xs"
+                  >
+                    <span>!{trig}</span>
                     {rule.triggers.length > 1 && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => removeTrigger(idx)}
-                        title="Remove trigger"
-                      >
-                        <X size={12} />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-                <Button size="sm" variant="outline" onClick={addTrigger}>
-                  <Plus size={12} />
-                  <span>{t(lang, 'workspace.addTrigger')}</span>
-                </Button>
-              </div>
-            </div>
-
-            {/* Match Mode & Permissions */}
-            <div className="space-y-4">
-              <Field label={t(lang, 'workspace.matchMode')}>
-                <SegmentedControl
-                  name={`matchMode-${rule.id}`}
-                  value={rule.matchMode}
-                  options={[
-                    { value: 'exact', label: t(lang, 'workspace.exact') },
-                    { value: 'startsWith', label: t(lang, 'workspace.starts') },
-                    { value: 'contains', label: t(lang, 'workspace.contains') },
-                  ]}
-                  onChange={(matchMode) => update(rule.id, { matchMode })}
-                />
-              </Field>
-
-              <div className="space-y-3">
-                <Field label="Trigger Rank">
-                  <SegmentedControl
-                    name={`rank-${rule.id}`}
-                    value={rule.minimumRank ?? 'everyone'}
-                    options={[
-                      { value: 'everyone', label: 'All' },
-                      { value: 'vip', label: 'VIP' },
-                      { value: 'mod', label: 'Mod' },
-                      { value: 'broadcaster', label: 'Host' },
-                    ]}
-                    onChange={(rank) => update(rule.id, { minimumRank: rank as PermissionLevel })}
-                  />
-                </Field>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label={`Global Cooldown · ${rule.cooldownSeconds}s`}>
-                    <Slider
-                      min={0}
-                      max={120}
-                      step={5}
-                      value={rule.cooldownSeconds}
-                      onChange={(cooldownSeconds) => update(rule.id, { cooldownSeconds })}
-                      ariaLabel="Global cooldown"
-                    />
-                  </Field>
-
-                  <Field label={`User Cooldown · ${rule.userCooldownSeconds ?? 0}s`}>
-                    <Input
-                      dir="ltr"
-                      type="number"
-                      min={0}
-                      max={3600}
-                      className="h-8 font-mono text-[11.5px]"
-                      value={rule.userCooldownSeconds ?? 0}
-                      onChange={(event) =>
-                        update(rule.id, {
-                          userCooldownSeconds: Math.max(0, Math.min(3600, Number(event.target.value) || 0)),
-                        })
-                      }
-                    />
-                  </Field>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Section 2: Chatter Access (Who can trigger) */}
-        <div className="rounded-lg border border-rule bg-surface-3 p-5 space-y-4 shadow-sm">
-          <div>
-            <h3 className="font-sans text-[13px] font-bold text-ink tracking-wide flex items-center gap-2">
-              <UserCheck size={15} className="text-accent-text" />
-              <span>{t(lang, 'aiStudio.userRestrictions')}</span>
-            </h3>
-            <p className="font-sans text-[11px] text-muted">
-              {t(lang, 'aiStudio.userRestrictionsHint')}
-            </p>
-          </div>
-
-          <SegmentedControl
-            name={`${rule.id}-restriction`}
-            value={restriction}
-            options={[
-              { value: 'none', label: t(lang, 'aiStudio.restrictEveryone') },
-              { value: 'allowlist', label: t(lang, 'aiStudio.restrictAllowlist') },
-              { value: 'blocklist', label: t(lang, 'aiStudio.restrictBlocklist') },
-            ]}
-            onChange={(res) => update(rule.id, { aiUserRestriction: res })}
-          />
-
-          {restriction !== 'none' && (
-            <div className="space-y-3 border-t border-hair pt-3">
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    dir="ltr"
-                    className="h-8 font-mono text-[12px] ps-6"
-                    placeholder={t(lang, 'aiStudio.userTagsPlaceholder')}
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddUserTag();
-                      }
-                    }}
-                  />
-                  <span className="absolute start-2 top-1/2 -translate-y-1/2 font-mono text-muted text-[11px]">
-                    @
-                  </span>
-                </div>
-                <Button size="sm" variant="outline" onClick={handleAddUserTag}>
-                  <Plus size={12} />
-                  <span>{t(lang, 'aiStudio.addUser')}</span>
-                </Button>
-              </div>
-
-              {/* Tag Chips */}
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {targetUsers.length === 0 ? (
-                  <span className="font-sans text-[11px] text-muted italic">
-                    {t(lang, 'aiStudio.noTargetUsers')}
-                  </span>
-                ) : (
-                  targetUsers.map((user) => (
-                    <span
-                      key={user}
-                      className="flex items-center gap-1.5 rounded-md border border-rule bg-surface-2 px-2.5 py-1 font-mono text-[11.5px] font-bold text-ink shadow-xs"
-                    >
-                      <span className="text-accent-text">@{user}</span>
                       <button
                         type="button"
-                        className="text-muted hover:text-accent-text transition-colors"
-                        onClick={() => handleRemoveUserTag(user)}
-                        title={`Remove @${user}`}
+                        onClick={() => handleRemoveTrigger(idx)}
+                        className="text-muted hover:text-red-400"
                       >
-                        <X size={11} />
+                        <X size={10} />
                       </button>
-                    </span>
-                  ))
-                )}
+                    )}
+                  </span>
+                ))}
               </div>
 
-              {/* Friendly Tip Box */}
-              <div className="flex items-start gap-2 rounded-md border border-accent/30 bg-accent-soft p-2.5 text-[11.5px] text-ink">
-                <Info size={14} className="text-accent-text shrink-0 mt-0.5" />
-                <span>{t(lang, 'aiStudio.userTip')}</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Specific Chatter Overrides (Priority 1) */}
-        <ChatterOverridesSection rule={rule} update={update} lang={lang} />
-
-        {/* Section 3: AI Persona & Instructions (No response presets) */}
-        <div className="rounded-lg border border-rule bg-surface-3 p-5 space-y-3 shadow-sm">
-          <div>
-            <h3 className="font-sans text-[13px] font-bold text-ink tracking-wide">
-              {t(lang, 'aiStudio.generalInstructions')}
-            </h3>
-            <p className="font-sans text-[11px] text-muted">
-              {t(lang, 'aiStudio.generalInstructionsHint')}
-            </p>
-          </div>
-
-          <textarea
-            dir="auto"
-            rows={5}
-            className="w-full resize-y rounded-md border border-rule bg-surface-2 p-3 font-[Cairo] text-[13px] text-ink focus-visible:outline-none focus-visible:border-accent shadow-inner"
-            placeholder={t(lang, 'aiStudio.generalInstructionsHint')}
-            value={rule.aiInstructions ?? ''}
-            onChange={(e) => update(rule.id, { aiInstructions: e.target.value })}
-          />
-        </div>
-
-        {/* Section 4: Live Interactive Playground & Simulator */}
-        <div className="rounded-lg border border-rule bg-surface-3 p-5 space-y-4 shadow-sm">
-          <div>
-            <h3 className="font-sans text-[13px] font-bold text-ink tracking-wide flex items-center gap-2">
-              <Cpu size={15} className="text-accent-text" />
-              <span>{t(lang, 'aiStudio.playgroundTitle')}</span>
-            </h3>
-            <p className="font-sans text-[11px] text-muted">
-              {t(lang, 'aiStudio.playgroundSubtitle')}
-            </p>
-          </div>
-
-          {/* Test Input Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end rounded-lg border border-rule bg-surface-2 p-3.5">
-            <div className="sm:col-span-5 space-y-1">
-              <label className="ui-label text-[10px]">{t(lang, 'aiStudio.simulatedUser')}</label>
-              <div className="relative">
-                <span className="absolute start-2 top-1/2 -translate-y-1/2 font-mono text-muted text-[11px]">
-                  @
-                </span>
+              <div className="mt-1 flex items-center gap-1.5">
                 <Input
-                  dir="ltr"
-                  className="h-8 ps-6 font-mono text-[11.5px]"
-                  value={simUser}
-                  onChange={(e) => setSimUser(e.target.value)}
-                  placeholder="username"
+                  value={newTriggerInput}
+                  onChange={(e) => setNewTriggerInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddTrigger();
+                    }
+                  }}
+                  placeholder="Add another alias (e.g. discord)..."
+                  className="h-7 text-[11px]"
                 />
+                <Button size="sm" variant="outline" onClick={handleAddTrigger} className="h-7 px-2">
+                  <Plus size={11} />
+                </Button>
               </div>
             </div>
 
-            <div className="sm:col-span-4 space-y-1">
-              <label className="ui-label text-[10px]">{t(lang, 'aiStudio.simulatedMessage')}</label>
-              <Input
-                dir="auto"
-                className="h-8 font-sans text-[11.5px]"
-                value={simMessage}
-                onChange={(e) => setSimMessage(e.target.value)}
-                placeholder="!welcome"
+            {/* Match Mode */}
+            <div className="flex flex-col gap-2 rounded-md border border-rule/80 bg-surface/60 p-3">
+              <span className="font-medium text-[12px] text-foreground">
+                {t(lang, 'workspace.matchMode')}
+              </span>
+              <SegmentedControl
+                value={rule.matchMode}
+                options={[
+                  { value: 'exact', label: t(lang, 'workspace.exact') },
+                  { value: 'startsWith', label: t(lang, 'workspace.starts') },
+                  { value: 'contains', label: t(lang, 'workspace.contains') },
+                  { value: 'regex', label: t(lang, 'workspace.regex') },
+                ]}
+                onChange={(matchMode) => update(rule.id, { matchMode })}
+              />
+              <span className="text-[10.5px] text-muted">
+                {rule.matchMode === 'exact'
+                  ? 'Message must match the trigger word exactly.'
+                  : rule.matchMode === 'startsWith'
+                  ? 'Message starts with the trigger word.'
+                  : rule.matchMode === 'contains'
+                  ? 'Trigger word can appear anywhere inside the message.'
+                  : 'Treats trigger word as a regular expression.'}
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 2: AI Persona & Prompt Instructions */}
+        <section className="flex flex-col gap-3 rounded-lg border border-rule bg-surface-3 p-4">
+          <div className="flex items-center justify-between border-b border-rule pb-2">
+            <div>
+              <h2 className="font-semibold text-[13px] tracking-tight flex items-center gap-2">
+                <Sparkles size={14} className="text-accent-text" />
+                <span>{t(lang, 'aiStudio.generalInstructions')}</span>
+              </h2>
+              <p className="text-[11px] text-muted mt-0.5">
+                {t(lang, 'aiStudio.generalInstructionsHint')}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted">Insert:</span>
+              {['{username}', '{mention}', '{message}'].map((token) => (
+                <button
+                  key={token}
+                  type="button"
+                  onClick={() => handleInsertToken(token)}
+                  className="rounded border border-rule bg-surface px-1.5 py-0.5 font-mono text-[10px] hover:border-accent hover:text-accent"
+                >
+                  {token}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <textarea
+                rows={5}
+                value={rule.aiInstructions ?? ''}
+                onChange={(e) => update(rule.id, { aiInstructions: e.target.value })}
+                placeholder="e.g. Respond as a witty, playful AI assistant in under 25 words. Acknowledge {username} and give helpful advice..."
+                className="w-full rounded border border-rule bg-surface p-3 text-[12px] text-foreground placeholder:text-muted/60 focus:outline-none focus:ring-1 focus:ring-accent font-sans"
               />
             </div>
 
-            <div className="sm:col-span-3">
-              <Button
-                size="sm"
-                className="w-full h-8 font-bold"
-                disabled={testState.loading}
-                onClick={handleRunTest}
-              >
-                <Send size={12} />
-                <span>{testState.loading ? t(lang, 'aiStudio.testing') : t(lang, 'aiStudio.testButton')}</span>
-              </Button>
+            {/* Live AI Preview Bubble */}
+            <div className="flex flex-col justify-between rounded border border-purple-500/30 bg-purple-500/5 p-3">
+              <div className="flex items-center justify-between border-b border-purple-500/20 pb-2 text-[11px] font-semibold text-[#c4b5fd]">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles size={13} />
+                  <span>Live AI Preview</span>
+                </div>
+                {lastTestOutput && (
+                  <span className="text-[9.5px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                    Simulated Output
+                  </span>
+                )}
+              </div>
+
+              <div className="my-2 min-h-[48px] text-[12px] text-foreground">
+                {isTesting ? (
+                  <span className="text-muted animate-pulse font-mono text-[11px]">
+                    Generating AI reply via {provider === 'openrouter' ? 'OpenRouter' : 'Groq'}…
+                  </span>
+                ) : lastTestOutput ? (
+                  <span className="italic font-medium">&ldquo;{lastTestOutput}&rdquo;</span>
+                ) : (
+                  <span className="italic text-muted">
+                    {rule.aiInstructions
+                      ? `Active Prompt: "${rule.aiInstructions}"`
+                      : 'Enter prompt instructions on the left or click "Run Test" above to test simulation.'}
+                  </span>
+                )}
+              </div>
+
+              <span className="font-mono text-[10px] text-muted">
+                Engine: {provider === 'openrouter' ? 'OpenRouter' : 'Groq'} · {rule.aiModel ?? 'llama-3.1-8b-instant'}
+              </span>
             </div>
           </div>
+        </section>
 
-          {/* Test Output Box */}
-          {(testState.output || testState.error || testState.reason || testState.loading) && (
-            <div className="rounded-lg border border-rule bg-surface-2 p-4 space-y-2 text-start">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hair pb-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[10.5px] uppercase font-bold text-muted">
-                    Chatter Match:
+        {/* Section 3: AI Engine, Model & API Settings */}
+        <section className="flex flex-col gap-3 rounded-lg border border-rule bg-surface-3 p-4">
+          <div className="border-b border-rule pb-2">
+            <h3 className="font-semibold text-[13px] tracking-tight">
+              {t(lang, 'aiStudio.modelSettings')}
+            </h3>
+            <p className="text-[11px] text-muted">
+              Configure provider, model selection, token budget, and offline fallback
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* Provider & Model */}
+            <div className="flex flex-col gap-2.5 rounded-md border border-rule/80 bg-surface/60 p-3">
+              <span className="font-medium text-[12px] text-foreground">
+                {t(lang, 'workspace.provider')}
+              </span>
+              <SegmentedControl
+                name="aiProvider"
+                value={provider}
+                options={[
+                  { value: 'groq', label: 'Groq (Default)' },
+                  { value: 'openrouter', label: 'OpenRouter' },
+                ]}
+                onChange={(aiProvider) =>
+                  update(rule.id, {
+                    aiProvider,
+                    aiModel:
+                      aiProvider === 'groq'
+                        ? 'llama-3.1-8b-instant'
+                        : 'meta-llama/llama-3.2-3b-instruct:free',
+                  })
+                }
+              />
+
+              <span className="font-medium text-[12px] text-foreground mt-1">
+                {t(lang, 'workspace.model')}
+              </span>
+              <Input
+                dir="ltr"
+                className="font-mono text-[11px] h-7"
+                value={rule.aiModel ?? 'llama-3.1-8b-instant'}
+                onChange={(e) => update(rule.id, { aiModel: e.target.value })}
+              />
+              <div className="flex flex-wrap gap-1">
+                {MODEL_PRESETS.map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    className={`rounded border px-1.5 py-0.5 font-mono text-[9.5px] transition-colors ${
+                      rule.aiModel === m.value
+                        ? 'border-purple-500/50 bg-purple-500/15 text-[#c4b5fd]'
+                        : 'border-rule bg-surface-2 text-muted hover:border-accent hover:text-ink'
+                    }`}
+                    onClick={() => update(rule.id, { aiModel: m.value, aiProvider: m.provider })}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Token limits & Offline Fallback */}
+            <div className="flex flex-col gap-3 rounded-md border border-rule/80 bg-surface/60 p-3">
+              <div>
+                <div className="flex items-center justify-between text-[12px] mb-1.5">
+                  <span className="font-medium text-foreground">
+                    {t(lang, 'autoReplies.aiMaxTokens')}
                   </span>
-                  {testState.status === 'allowed' ? (
-                    <span className="flex items-center gap-1 rounded border border-rule bg-surface-3 px-2 py-0.5 font-mono text-[10.5px] font-bold text-ink">
-                      <CheckCircle2 size={12} className="text-emerald-500" />
-                      <span>{t(lang, 'aiStudio.statusAllowed')}</span>
-                    </span>
-                  ) : testState.status === 'skipped' ? (
-                    <span className="flex items-center gap-1 rounded border border-rule bg-surface-3 px-2 py-0.5 font-mono text-[10.5px] font-bold text-amber-500">
-                      <AlertCircle size={12} />
-                      <span>{t(lang, 'aiStudio.statusSkipped')}</span>
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 rounded border border-rule bg-surface-3 px-2 py-0.5 font-mono text-[10.5px] font-bold text-accent-text">
-                      <AlertCircle size={12} />
-                      <span>{t(lang, 'aiStudio.statusBlocked')}</span>
-                    </span>
-                  )}
+                  <span className="font-mono text-muted text-[11px]">
+                    {rule.aiMaxTokens ?? 120} tokens
+                  </span>
+                </div>
+                <Slider
+                  min={40}
+                  max={240}
+                  step={10}
+                  value={rule.aiMaxTokens ?? 120}
+                  onChange={(aiMaxTokens) => update(rule.id, { aiMaxTokens })}
+                  ariaLabel={t(lang, 'autoReplies.aiMaxTokens')}
+                />
+                <div className="flex justify-between font-mono text-[9.5px] text-muted mt-1">
+                  <span>40 tokens (Short)</span>
+                  <span>240 tokens (Long)</span>
                 </div>
               </div>
 
-              {testState.loading ? (
-                <div className="flex items-center gap-2 py-2 font-mono text-[11px] text-muted animate-pulse">
-                  <Sparkles size={13} className="text-accent-text" />
-                  <span>Generating AI response via {provider === 'groq' ? 'Groq' : 'OpenRouter'}…</span>
-                </div>
-              ) : testState.reason ? (
-                <div className="font-sans text-[12px] text-muted italic py-1">
-                  {testState.reason}
-                </div>
-              ) : testState.error ? (
-                <div className="flex items-center gap-2 text-accent-text font-mono text-[11px]">
-                  <AlertCircle size={14} />
-                  <span>{testState.error}</span>
-                </div>
-              ) : (
-                <div className="font-sans text-[13px] text-ink font-bold pt-1">
-                  &ldquo;{testState.output}&rdquo;
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Section 5: Engine, Model & Limits */}
-        <div className="rounded-lg border border-rule bg-surface-3 p-5 space-y-4 shadow-sm">
-          <div>
-            <h3 className="font-sans text-[13px] font-bold text-ink tracking-wide">
-              {t(lang, 'aiStudio.modelSettings')}
-            </h3>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="space-y-4">
-              <Field label={t(lang, 'workspace.provider')}>
-                <SegmentedControl
-                  name="aiProvider"
-                  value={provider}
-                  options={[
-                    { value: 'groq', label: 'Groq (Default)' },
-                    { value: 'openrouter', label: 'OpenRouter' },
-                  ]}
-                  onChange={(aiProvider) =>
-                    update(rule.id, {
-                      aiProvider,
-                      aiModel: aiProvider === 'groq' ? 'llama-3.1-8b-instant' : 'meta-llama/llama-3.2-3b-instruct:free',
-                    })
-                  }
-                />
-              </Field>
-
-              <Field label={t(lang, 'workspace.model')}>
-                <div className="space-y-1.5">
-                  <Input
-                    dir="ltr"
-                    className="font-mono text-[11px] h-8"
-                    value={rule.aiModel ?? 'llama-3.1-8b-instant'}
-                    onChange={(e) => update(rule.id, { aiModel: e.target.value })}
-                  />
-                  <div className="flex flex-wrap gap-1">
-                    {MODEL_PRESETS.map((m) => (
-                      <button
-                        key={m.value}
-                        type="button"
-                        className="rounded border border-rule bg-surface-2 px-2 py-0.5 font-mono text-[9.5px] text-muted hover:border-accent hover:text-ink transition-colors"
-                        onClick={() => update(rule.id, { aiModel: m.value, aiProvider: m.provider })}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </Field>
-            </div>
-
-            <div className="space-y-4">
-              <Field label={`${t(lang, 'autoReplies.aiMaxTokens')} · ${rule.aiMaxTokens ?? 120}`}>
-                <div className="space-y-1.5">
-                  <div className="flex justify-between font-mono text-[10px] text-muted">
-                    <span>40 tokens (Short)</span>
-                    <span>240 tokens (Long)</span>
-                  </div>
-                  <Slider
-                    min={40}
-                    max={240}
-                    step={10}
-                    value={rule.aiMaxTokens ?? 120}
-                    onChange={(aiMaxTokens) => update(rule.id, { aiMaxTokens })}
-                    ariaLabel={t(lang, 'autoReplies.aiMaxTokens')}
-                  />
-                </div>
-              </Field>
-
-              <Field label={t(lang, 'workspace.fallback')}>
+              <div className="pt-2 border-t border-hair space-y-1">
+                <span className="font-medium text-[12px] text-foreground">
+                  {t(lang, 'workspace.fallback')}
+                </span>
                 <Input
                   dir="auto"
-                  className="h-8 font-sans text-[11.5px]"
-                  placeholder="Message to send if AI is unreachable"
+                  className="h-7 text-[11px]"
+                  placeholder="Message to send if AI service is unavailable..."
                   value={rule.aiFallback ?? ''}
                   onChange={(e) => update(rule.id, { aiFallback: e.target.value })}
                 />
-              </Field>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
+
+        {/* Section 4: Specific Chatter Overrides (Priority 1) */}
+        <ChatterOverridesSection rule={rule} update={update} lang={lang} />
+
+        {/* Section 5: Permission & Cooldowns */}
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {/* Permission Rank */}
+          <div className="flex flex-col gap-3 rounded-lg border border-rule bg-surface-3 p-4">
+            <div className="border-b border-rule pb-2">
+              <h3 className="font-semibold text-[13px]">{t(lang, 'workspace.who')}</h3>
+              <p className="text-[11px] text-muted">Minimum rank required to trigger this AI reply</p>
+            </div>
+            <SegmentedControl
+              value={rule.minimumRank ?? 'everyone'}
+              options={rankOptions}
+              onChange={(minimumRank) => update(rule.id, { minimumRank })}
+            />
+          </div>
+
+          {/* Cooldowns */}
+          <div className="flex flex-col gap-3 rounded-lg border border-rule bg-surface-3 p-4">
+            <div className="border-b border-rule pb-2">
+              <h3 className="font-semibold text-[13px]">{t(lang, 'workspace.cooldown')}</h3>
+              <p className="text-[11px] text-muted">Global and per-user spam prevention</p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-medium">Global:</span>
+                  <span className="font-mono text-muted">{rule.cooldownSeconds || 0}s</span>
+                </div>
+                <Slider
+                  value={rule.cooldownSeconds || 0}
+                  min={0}
+                  max={300}
+                  step={5}
+                  onChange={(v) => update(rule.id, { cooldownSeconds: v })}
+                  ariaLabel="Cooldown"
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-hair">
+                <span className="text-[11px] font-medium">{t(lang, 'autoReplies.userCooldown')}:</span>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={3600}
+                    value={rule.userCooldownSeconds ?? 0}
+                    onChange={(e) =>
+                      update(rule.id, {
+                        userCooldownSeconds: Math.max(0, Number(e.target.value) || 0),
+                      })
+                    }
+                    className="h-7 w-20 text-center font-mono text-[11px]"
+                  />
+                  <span className="text-[11px] text-muted">s</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 6: Output Actions & Sinks */}
+        <section className="flex flex-col gap-4 rounded-lg border border-rule bg-surface-3 p-4">
+          <div className="border-b border-rule pb-2">
+            <h3 className="font-semibold text-[13px]">{t(lang, 'workspace.writesTo')}</h3>
+            <p className="text-[11px] text-muted">Outputs updated when this AI reply triggers</p>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between rounded border border-rule bg-surface p-3">
+              <div className="flex items-center gap-2.5">
+                <MessageSquare size={15} className="text-purple-400" />
+                <div>
+                  <div className="text-[12px] font-semibold">{t(lang, 'workspace.chatReply')}</div>
+                  <div className="text-[11px] text-muted">Post generated AI response directly to Twitch chat</div>
+                </div>
+              </div>
+              <Switch
+                checked={rule.responseEnabled !== false}
+                onChange={(checked) => update(rule.id, { responseEnabled: checked })}
+                label={t(lang, 'workspace.chatReply')}
+              />
+            </div>
+
+            <div className="flex flex-col gap-3 rounded border border-rule bg-surface p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Tv size={15} className="text-amber-500" />
+                  <div>
+                    <div className="text-[12px] font-semibold">{t(lang, 'workspace.streamTitle')}</div>
+                    <div className="text-[11px] text-muted">Dynamically update Twitch stream title on trigger</div>
+                  </div>
+                </div>
+                <Switch
+                  checked={rule.titleActionEnabled ?? false}
+                  onChange={(checked) => update(rule.id, { titleActionEnabled: checked })}
+                  label={t(lang, 'workspace.streamTitle')}
+                />
+              </div>
+
+              {rule.titleActionEnabled && (
+                <div className="border-t border-hair pt-3">
+                  <TriggerTitleAction rule={rule} lang={lang} update={update} />
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );

@@ -539,3 +539,25 @@ export function clampChatInspectorWidth(
   return Math.max(min, Math.min(Math.round(width), dynamicMax));
 }
 
+/**
+ * Ensures a username color has enough luminance to be easily readable against dark backgrounds.
+ * If too dark (e.g. dark blue, brown, or near-black), scales the color up to a bright, vibrant tone.
+ */
+export function ensureReadableColor(hex?: string | null, fallback = '#38bdf8'): string {
+  if (!hex || typeof hex !== 'string') return fallback;
+  const clean = hex.trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(clean)) return fallback;
+  const r = parseInt(clean.slice(1, 3), 16);
+  const g = parseInt(clean.slice(3, 5), 16);
+  const b = parseInt(clean.slice(5, 7), 16);
+  // Perceived relative luminance
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  if (luminance >= 0.35) return clean;
+  // If too dark, brighten while keeping hue ratio
+  const boost = Math.max(1.6, 0.45 / Math.max(0.06, luminance));
+  const newR = Math.min(255, Math.round(Math.max(r * boost, 75)));
+  const newG = Math.min(255, Math.round(Math.max(g * boost, 75)));
+  const newB = Math.min(255, Math.round(Math.max(b * boost, 75)));
+  return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
+}
+

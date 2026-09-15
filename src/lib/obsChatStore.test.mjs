@@ -6,12 +6,14 @@ function createMockDeps(overrides = {}) {
   const sentChats = [];
   const timedOutUsers = [];
   const bannedUsers = [];
+  const deletedMessageIds = [];
   const shoutouts = [];
 
   const deps = {
     sentChats,
     timedOutUsers,
     bannedUsers,
+    deletedMessageIds,
     shoutouts,
     sendChat: async (message) => {
       sentChats.push(message);
@@ -23,6 +25,10 @@ function createMockDeps(overrides = {}) {
     },
     banUser: async (target, reason) => {
       bannedUsers.push({ target, reason });
+      return { ok: true };
+    },
+    deleteMessage: async (messageId) => {
+      deletedMessageIds.push(messageId);
       return { ok: true };
     },
     shoutoutUser: async (target) => {
@@ -169,6 +175,11 @@ test('moderation actions timeout, ban, shoutout and mark messages deleted', asyn
   const shoutoutRes = await store.getState().shoutoutUser('@goodfriend');
   assert.equal(shoutoutRes.ok, true);
   assert.deepEqual(deps.shoutouts, ['goodfriend']);
+
+  const deleteRes = await store.getState().deleteMessage('m-1');
+  assert.equal(deleteRes.ok, true);
+  assert.deepEqual(deps.deletedMessageIds, ['m-1']);
+  assert.equal(store.getState().messages[0].deleted, true);
 });
 
 test('updateSettings updates dock preferences', () => {

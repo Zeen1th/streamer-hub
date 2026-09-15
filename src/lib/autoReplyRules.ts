@@ -235,22 +235,26 @@ export function evaluateRuleExecution(
   },
   message: ChatMessage,
 ): RuleExecutionPlan {
+  const isAi = rule.responseMode === 'ai';
+
   // 1. Evaluate any chatter condition overrides first (Priority 1)
   if (rule.aiConditions && rule.aiConditions.length > 0) {
     const condResult = evaluateAiConditions(rule.aiConditions, message, rule.aiInstructions ?? '');
     if (condResult.action === 'ignore') {
       return { type: 'ignore', reason: 'Ignored by chatter condition', matchedCondition: condResult.matchedCondition };
     }
-    if (condResult.action === 'static_reply' && condResult.staticReply !== undefined) {
+    // Prepared commands cannot have an AI reply; only static (normal text) overrides are executed
+    if (!isAi && condResult.action === 'static_reply' && condResult.staticReply !== undefined) {
       return { type: 'static', text: condResult.staticReply, isOverride: true, matchedCondition: condResult.matchedCondition };
     }
-    if (condResult.matchedCondition && condResult.matchedCondition.thenType === 'instructions') {
+    // AI commands cannot have a normal text response; only AI instructions overrides are executed
+    if (isAi && condResult.matchedCondition && condResult.matchedCondition.thenType === 'instructions') {
       return { type: 'ai', instructions: condResult.instructions, isOverride: true, matchedCondition: condResult.matchedCondition };
     }
   }
 
   // 2. Default route (Priority 2: for standard chatters)
-  if (rule.responseMode === 'ai') {
+  if (isAi) {
     return { type: 'ai', instructions: rule.aiInstructions ?? '', isOverride: false };
   }
   return { type: 'static', text: rule.response ?? '', isOverride: false };

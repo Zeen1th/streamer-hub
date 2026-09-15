@@ -17,14 +17,16 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     {
         private readonly SemaphoreSlim _sendLock = new(1, 1);
 
-        public ClientConnection(WebSocket socket, string target = "overlay")
+        public ClientConnection(WebSocket socket, string target = "overlay", string overlayId = "default")
         {
             Socket = socket;
             Target = target;
+            OverlayId = overlayId;
         }
 
         public WebSocket Socket { get; }
         public string Target { get; }
+        public string OverlayId { get; }
 
         public async Task SendAsync(string message, CancellationToken cancellationToken)
         {
@@ -55,6 +57,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     private readonly int _preferredPort;
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
     private readonly ConcurrentDictionary<Guid, ClientConnection> _clients = new();
+    private readonly ConcurrentDictionary<string, ChatOverlaySettings> _overlaySettings = new(StringComparer.Ordinal);
     private readonly object _stateLock = new();
     private readonly HashSet<string> _seenMessageIds = new(StringComparer.Ordinal);
     private readonly Queue<string> _seenMessageOrder = new();
@@ -83,6 +86,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         _assetRoot = Path.GetFullPath(assetRoot);
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _obsChatSettings = obsChatSettings ?? settings;
+        _overlaySettings["default"] = _settings;
         _connected = connected;
         _preferredPort = preferredPort;
     }
@@ -96,6 +100,9 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     public Uri WebSocketUrl { get; private set; } = null!;
 
     public event Func<string, Task>? ChatSendRequested;
+    public event Func<string, int, Task>? ChatTimeoutRequested;
+    public event Func<string, Task>? ChatBanRequested;
+    public event Func<string, Task>? ChatDeleteMessageRequested;
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -187,20 +194,58 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         await BroadcastAsync(ChatOverlayProtocol.Emotes(providers), cancellationToken).ConfigureAwait(false);
     }
 
+    public void RegisterOverlays(IEnumerable<ChatOverlayInstance> overlays)
+    {
+        ArgumentNullException.ThrowIfNull(overlays);
+        lock (_stateLock)
+        {
+            foreach (var o in overlays)
+            {
+                if (o is not null && !string.IsNullOrWhiteSpace(o.Id))
+                {
+                    _overlaySettings[o.Id] = o.Settings ?? new();
+                    if (o.Id == "default" || o.IsMain)
+                    {
+                        _settings = o.Settings ?? new();
+                    }
+                }
+            }
+        }
+    }
+
+    public async Task UpdateOverlaySettingsAsync(string overlayId, ChatOverlaySettings settings, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var id = string.IsNullOrWhiteSpace(overlayId) ? "default" : overlayId.Trim();
+        lock (_stateLock)
+        {
+            _overlaySettings[id] = settings;
+            if (string.Equals(id, "default", StringComparison.OrdinalIgnoreCase))
+            {
+                _settings = settings;
+            }
+        }
+        await BroadcastToOverlayAsync(id, ChatOverlayProtocol.Settings(settings), cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task UpdateSettingsAsync(ChatOverlaySettings settings, CancellationToken cancellationToken = default) =>
-        await UpdateSettingsAsync(settings, "overlay", cancellationToken).ConfigureAwait(false);
+        await UpdateOverlaySettingsAsync("default", settings, cancellationToken).ConfigureAwait(false);
 
     public async Task UpdateSettingsAsync(ChatOverlaySettings settings, string target, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        lock (_stateLock)
+        if (string.Equals(target, "obs-chat", StringComparison.OrdinalIgnoreCase))
         {
-            if (string.Equals(target, "obs-chat", StringComparison.OrdinalIgnoreCase))
+            lock (_stateLock)
+            {
                 _obsChatSettings = settings;
-            else
-                _settings = settings;
+            }
+            await BroadcastAsync(ChatOverlayProtocol.Settings(settings), "obs-chat", cancellationToken).ConfigureAwait(false);
         }
-        await BroadcastAsync(ChatOverlayProtocol.Settings(settings), target, cancellationToken).ConfigureAwait(false);
+        else
+        {
+            await UpdateOverlaySettingsAsync("default", settings, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public async Task SetConnectedAsync(bool connected, CancellationToken cancellationToken = default)
@@ -219,9 +264,33 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     public async Task ReloadAsync(CancellationToken cancellationToken = default) =>
         await ReloadAsync("overlay", cancellationToken).ConfigureAwait(false);
 
+    public async Task ReloadOverlayAsync(string overlayId, CancellationToken cancellationToken = default)
+    {
+        var id = string.IsNullOrWhiteSpace(overlayId) ? "default" : overlayId.Trim();
+        await BroadcastToOverlayAsync(id, ChatOverlayProtocol.Reload(), cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task ReloadAsync(string target, CancellationToken cancellationToken = default)
     {
-        await BroadcastAsync(ChatOverlayProtocol.Reload(), target, cancellationToken).ConfigureAwait(false);
+        if (string.Equals(target, "obs-chat", StringComparison.OrdinalIgnoreCase))
+        {
+            await BroadcastAsync(ChatOverlayProtocol.Reload(), "obs-chat", cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await ReloadOverlayAsync("default", cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task SetOverlayPreviewAsync(string overlayId, bool enabled, IReadOnlyList<ChatMessage>? sampleMessages = null, CancellationToken cancellationToken = default)
+    {
+        var id = string.IsNullOrWhiteSpace(overlayId) ? "default" : overlayId.Trim();
+        lock (_stateLock)
+        {
+            _previewEnabled = enabled;
+            _previewMessages = sampleMessages;
+        }
+        await BroadcastToOverlayAsync(id, ChatOverlayProtocol.Preview(enabled, sampleMessages), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task SetPreviewAsync(bool enabled, IReadOnlyList<ChatMessage>? sampleMessages = null, CancellationToken cancellationToken = default) =>
@@ -409,18 +478,36 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         }
 
         var target = "overlay";
+        var overlayId = "default";
         var query = context.Request.Url?.Query;
-        if (!string.IsNullOrEmpty(query) && query.Contains("target=obs-chat", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(query))
         {
-            target = "obs-chat";
+            var pairs = query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var pair in pairs)
+            {
+                var parts = pair.Split('=', 2);
+                var key = Uri.UnescapeDataString(parts[0]);
+                var val = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : "";
+                if (string.Equals(key, "target", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.Equals(val, "obs-chat", StringComparison.OrdinalIgnoreCase))
+                        target = "obs-chat";
+                }
+                else if ((string.Equals(key, "id", StringComparison.OrdinalIgnoreCase) ||
+                          string.Equals(key, "overlayId", StringComparison.OrdinalIgnoreCase)) &&
+                         !string.IsNullOrWhiteSpace(val))
+                {
+                    overlayId = val.Trim();
+                }
+            }
         }
-        else if (context.Request.Url?.AbsolutePath.Contains("obs-chat", StringComparison.OrdinalIgnoreCase) == true)
+        if (context.Request.Url?.AbsolutePath.Contains("obs-chat", StringComparison.OrdinalIgnoreCase) == true)
         {
             target = "obs-chat";
         }
 
         var id = Guid.NewGuid();
-        var client = new ClientConnection(upgrade.WebSocket, target);
+        var client = new ClientConnection(upgrade.WebSocket, target, overlayId);
         _clients[id] = client;
         try
         {
@@ -429,9 +516,14 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emotes;
             lock (_stateLock)
             {
-                settings = string.Equals(target, "obs-chat", StringComparison.OrdinalIgnoreCase)
-                    ? _obsChatSettings
-                    : _settings;
+                if (string.Equals(target, "obs-chat", StringComparison.OrdinalIgnoreCase))
+                {
+                    settings = _obsChatSettings;
+                }
+                else
+                {
+                    settings = _overlaySettings.TryGetValue(overlayId, out var s) ? s : _settings;
+                }
                 connected = _connected;
                 emotes = _emoteProviders;
             }
@@ -463,13 +555,41 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                     {
                         var text = Encoding.UTF8.GetString(buffer, 0, result.Count);
                         using var doc = JsonDocument.Parse(text);
-                        if (doc.RootElement.TryGetProperty("kind", out var k) && k.GetString() == "send-chat" &&
-                            doc.RootElement.TryGetProperty("message", out var m))
+                        if (doc.RootElement.TryGetProperty("kind", out var k))
                         {
-                            var chatMsg = m.GetString();
-                            if (!string.IsNullOrWhiteSpace(chatMsg) && ChatSendRequested is not null)
+                            var kind = k.GetString();
+                            if (kind == "send-chat" && doc.RootElement.TryGetProperty("message", out var m))
                             {
-                                await ChatSendRequested.Invoke(chatMsg).ConfigureAwait(false);
+                                var chatMsg = m.GetString();
+                                if (!string.IsNullOrWhiteSpace(chatMsg) && ChatSendRequested is not null)
+                                {
+                                    await ChatSendRequested.Invoke(chatMsg).ConfigureAwait(false);
+                                }
+                            }
+                            else if (kind == "timeout-user" && doc.RootElement.TryGetProperty("user", out var timeoutUserProp))
+                            {
+                                var user = timeoutUserProp.GetString();
+                                var duration = doc.RootElement.TryGetProperty("duration", out var timeoutDurationProp) && timeoutDurationProp.TryGetInt32(out var parsedD) ? parsedD : 60;
+                                if (!string.IsNullOrWhiteSpace(user) && ChatTimeoutRequested is not null)
+                                {
+                                    await ChatTimeoutRequested.Invoke(user, duration).ConfigureAwait(false);
+                                }
+                            }
+                            else if (kind == "ban-user" && doc.RootElement.TryGetProperty("user", out var banUserProp))
+                            {
+                                var user = banUserProp.GetString();
+                                if (!string.IsNullOrWhiteSpace(user) && ChatBanRequested is not null)
+                                {
+                                    await ChatBanRequested.Invoke(user).ConfigureAwait(false);
+                                }
+                            }
+                            else if (kind == "delete-message" && doc.RootElement.TryGetProperty("messageId", out var delMidProp))
+                            {
+                                var messageId = delMidProp.GetString();
+                                if (!string.IsNullOrWhiteSpace(messageId) && ChatDeleteMessageRequested is not null)
+                                {
+                                    await ChatDeleteMessageRequested.Invoke(messageId).ConfigureAwait(false);
+                                }
                             }
                         }
                     }
@@ -548,6 +668,28 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         var targets = string.IsNullOrWhiteSpace(target)
             ? _clients.ToArray()
             : _clients.Where(p => string.Equals(p.Value.Target, target, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+        var sends = targets.Select(async pair =>
+        {
+            try
+            {
+                await pair.Value.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or InvalidOperationException)
+            {
+                if (_clients.TryRemove(pair.Key, out var client)) client.Dispose();
+            }
+        });
+        await Task.WhenAll(sends).ConfigureAwait(false);
+    }
+
+    private async Task BroadcastToOverlayAsync(string overlayId, string message, CancellationToken cancellationToken)
+    {
+        var id = string.IsNullOrWhiteSpace(overlayId) ? "default" : overlayId.Trim();
+        var targets = _clients.Where(p =>
+            string.Equals(p.Value.Target, "overlay", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(p.Value.OverlayId, id, StringComparison.OrdinalIgnoreCase)
+        ).ToArray();
 
         var sends = targets.Select(async pair =>
         {

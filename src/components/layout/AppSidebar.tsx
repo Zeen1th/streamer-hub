@@ -7,6 +7,8 @@ import {
   Home,
   Key,
   Menu,
+  MessageSquare,
+  Plus,
   Settings,
   Terminal,
   Tv,
@@ -14,6 +16,7 @@ import {
 import { cn } from '../../lib/cn';
 import { t } from '../../i18n/translations';
 import { useAutoReplyStore } from '../../store/autoReplyStore';
+import { useChatOverlayStore } from '../../store/chatOverlayStore';
 import { useConnectionStore } from '../../store/connectionStore';
 import { useCounterStore } from '../../store/counterStore';
 import { useSequenceStore } from '../../store/sequenceStore';
@@ -48,7 +51,13 @@ export function AppSidebar() {
   const broadcasterAvatarUrl = useConnectionStore((s) => s.broadcasterAvatarUrl);
   const broadcasterDisplayName = useConnectionStore((s) => s.broadcasterDisplayName);
 
+  const overlays = useChatOverlayStore((s) => s.overlays);
+  const activeOverlayId = useChatOverlayStore((s) => s.activeOverlayId);
+  const setActiveOverlay = useChatOverlayStore((s) => s.setActiveOverlay);
+  const createOverlay = useChatOverlayStore((s) => s.createOverlay);
+
   const [commandsExpanded, setCommandsExpanded] = useState(true);
+  const [overlayExpanded, setOverlayExpanded] = useState(true);
 
   // Calculate live category counts directly via projection
   const rows = useMemo(
@@ -194,21 +203,106 @@ export function AppSidebar() {
           )}
         </div>
 
-        {/* Chat Overlay Navigation Item */}
+        {/* Chat Overlay Group Accordion */}
+        <div className="flex flex-col mt-0.5">
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTab !== 'overlay') {
+                setTab('overlay');
+              } else {
+                setOverlayExpanded((v) => !v);
+              }
+            }}
+            data-nav="overlay"
+            data-od-id="nav-overlay"
+            className={cn(
+              'group relative mx-2 flex h-[34px] w-[calc(100%-16px)] items-center gap-[10px] rounded-[6px] px-[10px] text-start text-[12.5px] font-medium transition-colors',
+              activeTab === 'overlay'
+                ? 'bg-[#2A3138] text-white font-bold before:content-[""] before:absolute before:-left-2 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-r-[3px] before:bg-accent'
+                : 'text-[#9aa3af] hover:bg-white/[0.05] hover:text-[#f0f3f7]',
+            )}
+          >
+            <Tv size={16} className="shrink-0" />
+            <span className="flex-1 truncate">{t(lang, 'nav.chat')}</span>
+            <span
+              role="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOverlayExpanded((v) => !v);
+              }}
+              className="grid size-[14px] place-items-center rounded-[4px] p-0.5 text-[#868F9D] hover:bg-white/[0.08] hover:text-white transition-colors"
+              aria-label={overlayExpanded ? 'Collapse overlays' : 'Expand overlays'}
+            >
+              {overlayExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </span>
+          </button>
+
+          {/* Nested Overlay Pages */}
+          {overlayExpanded && (
+            <div className="flex flex-col gap-[1px] py-1 px-2">
+              {overlays.map((ov) => {
+                const isSelected = activeTab === 'overlay' && activeOverlayId === ov.id;
+                return (
+                  <button
+                    key={ov.id}
+                    type="button"
+                    onClick={() => {
+                      void setActiveOverlay(ov.id);
+                      if (activeTab !== 'overlay') {
+                        setTab('overlay');
+                      }
+                    }}
+                    className={cn(
+                      'group flex h-[30px] w-full items-center gap-[9px] rounded-[6px] ps-[34px] pe-[10px] text-start text-[12px] transition-colors',
+                      isSelected
+                        ? 'bg-[#2A3138] text-white font-bold'
+                        : 'text-[#9aa3af] hover:bg-white/[0.05] hover:text-[#f0f3f7] font-medium',
+                    )}
+                  >
+                    <span className="flex-1 truncate">{ov.name}</span>
+                    {ov.isMain && (
+                      <span className="ms-auto font-mono text-[9px] uppercase tracking-wider px-[4px] py-[1px] rounded-[3px] border border-purple-500/30 bg-purple-500/15 text-[#d8b4fe] font-semibold">
+                        {t(lang, 'chat.overlays.main')}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+
+              {/* Add New Overlay Button in Sidebar */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeTab !== 'overlay') setTab('overlay');
+                  const defaultName = `${t(lang, 'chat.overlays.newDefaultName')} ${overlays.length + 1}`;
+                  void createOverlay(defaultName);
+                }}
+                className="group flex h-[28px] w-full items-center gap-[9px] rounded-[6px] ps-[34px] pe-[10px] text-start text-[11.5px] text-[#9aa3af] hover:bg-white/[0.05] hover:text-[#f0f3f7] transition-colors"
+                title={t(lang, 'chat.overlays.add')}
+              >
+                <Plus size={13} className="shrink-0 text-accent-text" />
+                <span className="truncate">{t(lang, 'chat.overlays.add')}</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* OBS Streamer Chat Navigation Item */}
         <button
           type="button"
-          onClick={() => setTab('overlay')}
-          data-nav="overlay"
-          data-od-id="nav-overlay"
+          onClick={() => setTab('obs-chat')}
+          data-nav="obs-chat"
+          data-od-id="nav-obs-chat"
           className={cn(
             'group relative mx-2 flex h-[34px] w-[calc(100%-16px)] items-center gap-[10px] rounded-[6px] px-[10px] text-start text-[12.5px] font-medium transition-colors',
-            activeTab === 'overlay'
+            activeTab === 'obs-chat'
               ? 'bg-[#2A3138] text-white font-bold before:content-[""] before:absolute before:-left-2 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-r-[3px] before:bg-accent'
               : 'text-[#9aa3af] hover:bg-white/[0.05] hover:text-[#f0f3f7]',
           )}
         >
-          <Tv size={16} className="shrink-0" />
-          <span className="flex-1 truncate">Chat Overlay</span>
+          <MessageSquare size={16} className="shrink-0" />
+          <span className="flex-1 truncate">{t(lang, 'nav.obsChat')}</span>
         </button>
 
         {/* Activity Log Navigation Item */}

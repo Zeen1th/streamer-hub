@@ -20,11 +20,14 @@ import { useCounterStore } from './store/counterStore';
 import { useAutoReplyStore } from './store/autoReplyStore';
 import { useSequenceStore } from './store/sequenceStore';
 import { useChatOverlayStore, useObsChatOverlayStore } from './store/chatOverlayStore';
+import { useObsChatStore } from './store/obsChatStore';
 import { useLogStore } from './store/logStore';
 import { useKeybindStore } from './store/keybindStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useToolStore } from './store/toolStore';
 import { useUpdateStore } from './store/updateStore';
+import { ObsChatView } from './components/tools/chat/ObsChatView';
+import { ReauthPromptModal } from './components/modals/ReauthPromptModal';
 
 export default function App() {
   const tab = useToolStore((s) => s.activeTab);
@@ -91,6 +94,7 @@ export default function App() {
       useSequenceStore.getState().handleChatMessage(message);
       useChatOverlayStore.getState().addMessage(message);
       useObsChatOverlayStore.getState().addMessage(message);
+      useObsChatStore.getState().addMessage(message);
     });
     const offRedemption = rpc.on(Events.TwitchChannelPointsRedeemed, (redemption) => {
       useSequenceStore.getState().handleChannelPointsRedemption(redemption);
@@ -98,10 +102,12 @@ export default function App() {
     const offProfile = rpc.on(Events.TwitchUserProfile, (payload) => {
       useChatOverlayStore.getState().applyProfile(payload.userId, payload.avatarUrl, payload.color);
       useObsChatOverlayStore.getState().applyProfile(payload.userId, payload.avatarUrl, payload.color);
+      useObsChatStore.getState().applyProfile(payload.userId, payload.avatarUrl, payload.color);
     });
     const offCleared = rpc.on(Events.TwitchChatCleared, (payload) => {
       useChatOverlayStore.getState().clearByScope(payload.scope, payload.id);
       useObsChatOverlayStore.getState().clearByScope(payload.scope, payload.id);
+      useObsChatStore.getState().clearByScope(payload.scope, payload.id);
     });
     const offCoreLog = rpc.on(Events.CoreLog, (payload) => useLogStore.getState().addLocal({ kind: 'system', message: payload.message }));
     const offKeybind = rpc.on(Events.KeybindTriggered, ({ bindingId }) => useKeybindStore.getState().trigger(bindingId));
@@ -209,12 +215,13 @@ export default function App() {
             {tab === 'home' && <HomeView />}
             {tab === 'commands' && <CommandsView />}
             {tab === 'overlay' && <ChatView target="overlay" />}
-            {tab === 'obs-chat' && <ChatView target="obs-chat" />}
+            {tab === 'obs-chat' && <ObsChatView />}
             {tab === 'activity' && <ActivityLog className="min-h-0 flex-1" />}
             {tab === 'settings' && <SettingsView />}
           </main>
         </div>
       )}
+      <ReauthPromptModal />
       <WindowResizeHandles />
     </div>
   );

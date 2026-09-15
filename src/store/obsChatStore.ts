@@ -44,6 +44,7 @@ export interface ObsChatStoreDeps {
   sendChat: (message: string) => Promise<{ ok: boolean; error?: string }>;
   timeoutUser: (target: string, durationSeconds: number, reason?: string) => Promise<{ ok: boolean; error?: string }>;
   banUser: (target: string, reason?: string) => Promise<{ ok: boolean; error?: string }>;
+  deleteMessage: (messageId: string) => Promise<{ ok: boolean; error?: string }>;
   shoutoutUser: (target: string) => Promise<{ ok: boolean; error?: string }>;
   getDockUrl?: () => Promise<{ url: string; dockUrl?: string }>;
 }
@@ -71,6 +72,15 @@ export const defaultDeps: ObsChatStoreDeps = {
     try {
       const { rpc } = await import('../rpc');
       const res = await rpc.invoke(Channels.TwitchModerationBan, { target, reason });
+      return { ok: res.ok, error: res.error };
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  },
+  deleteMessage: async (messageId) => {
+    try {
+      const { rpc } = await import('../rpc');
+      const res = await rpc.invoke(Channels.TwitchModerationDeleteMessage, { messageId });
       return { ok: res.ok, error: res.error };
     } catch (e: unknown) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -109,7 +119,7 @@ export interface ObsChatState {
   sendMessage: (text: string) => Promise<{ ok: boolean; error?: string }>;
   timeoutUser: (target: string, durationSeconds?: number, reason?: string) => Promise<{ ok: boolean; error?: string }>;
   banUser: (target: string, reason?: string) => Promise<{ ok: boolean; error?: string }>;
-  deleteMessage: (messageId: string) => void;
+  deleteMessage: (messageId: string) => Promise<{ ok: boolean; error?: string }>;
   shoutoutUser: (target: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
@@ -127,6 +137,9 @@ export function createObsChatStore(deps: ObsChatStoreDeps = defaultDeps) {
           id: msg.id || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           timestamp: msg.timestamp || new Date().toISOString(),
         };
+        if (state.messages.some((m) => m.id === item.id)) {
+          return state;
+        }
         const next = [...state.messages, item];
         if (next.length > state.maxMessages) {
           next.splice(0, next.length - state.maxMessages);
@@ -215,8 +228,9 @@ export function createObsChatStore(deps: ObsChatStoreDeps = defaultDeps) {
       return res;
     },
 
-    deleteMessage: (messageId) => {
+    deleteMessage: async (messageId) => {
       get().clearByScope('message', messageId);
+      return deps.deleteMessage(messageId);
     },
 
     shoutoutUser: async (target) => {

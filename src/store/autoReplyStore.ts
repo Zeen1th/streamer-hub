@@ -200,6 +200,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     }
   },
   handleChatMessage: (message) => {
+    if (message.isSelf || message.id?.startsWith('self-')) return;
     const now = Date.now();
     const candidates = get().rules.filter((item) => {
       if (!item.enabled) return false;

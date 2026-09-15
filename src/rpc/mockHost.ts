@@ -1,4 +1,4 @@
-import type { ActionKeybind, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlaySettings, CommandSequence, ConnectionStatus, Counter, RpcEnvelope, TwitchRewardInfo, TwitchSettings } from './contracts';
+import type { ActionKeybind, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, ConnectionStatus, Counter, RpcEnvelope, TwitchRewardInfo, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -11,6 +11,7 @@ const SEQUENCES_STORAGE_KEY = 'streamer-hub-mock-sequences';
 const KEYBIND_STORAGE_KEY = 'streamer-hub-mock-keybinds';
 const AUTO_REPLY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-auto-reply-settings';
 const CHAT_OVERLAY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-chat-overlay-settings';
+const CHAT_OVERLAYS_STORAGE_KEY = 'streamer-hub-mock-chat-overlays';
 const OBS_CHAT_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-obs-chat-settings';
 const CHAT_OVERLAY_URL = 'http://127.0.0.1:49178/chat-overlay.html';
 const OBS_CHAT_DOCK_URL = 'http://127.0.0.1:49178/obs-chat.html';
@@ -62,6 +63,7 @@ export class MockHost {
   private sequences: CommandSequence[];
   private keybinds: ActionKeybind[];
   private chatOverlaySettings: ChatOverlaySettings;
+  private chatOverlays: ChatOverlayInstance[];
   private obsChatSettings: ChatOverlaySettings;
   private readonly listeners = new Set<(message: RpcEnvelope) => void>();
   private isMaximized = false;
@@ -76,6 +78,7 @@ export class MockHost {
     this.autoReplySettings = this.loadAutoReplySettings();
     this.keybinds = this.loadKeybinds();
     this.chatOverlaySettings = this.loadChatOverlaySettings();
+    this.chatOverlays = this.loadChatOverlays();
     this.obsChatSettings = this.loadObsChatSettings();
     if (options.twitchConnected !== undefined) {
       this.twitchConnected = options.twitchConnected;
@@ -334,6 +337,25 @@ export class MockHost {
         break;
       case Channels.TwitchSendChatMessage: {
         const st = this.status();
+        const payload = request.payload as { message?: string } | undefined;
+        if (this.twitchConnected && payload?.message) {
+          const senderLogin = st.activeChatSenderLogin || 'Streamer';
+          const isBroadcaster = st.activeChatSender === 'broadcaster';
+          const msg: ChatMessage = {
+            id: `self-${crypto.randomUUID()}`,
+            username: senderLogin,
+            userId: senderLogin.toLowerCase(),
+            isBroadcaster,
+            isMod: !isBroadcaster,
+            isVip: false,
+            isSubscriber: isBroadcaster,
+            message: payload.message,
+            timestamp: new Date().toISOString(),
+            color: isBroadcaster ? '#e91916' : '#00ad03',
+            isSelf: true,
+          };
+          this.emitEvent(Events.TwitchChatMessage, msg);
+        }
         this.respond(request, {
           ok: this.twitchConnected,
           senderRole: st.activeChatSender,
@@ -385,11 +407,54 @@ export class MockHost {
       case Channels.ChatOverlaySaveSettings:
         this.chatOverlaySettings = request.payload as ChatOverlaySettings;
         localStorage.setItem(CHAT_OVERLAY_SETTINGS_STORAGE_KEY, JSON.stringify(this.chatOverlaySettings));
+        const defaultInst = this.chatOverlays.find((o) => o.id === 'default' || o.isMain);
+        if (defaultInst) {
+          defaultInst.settings = this.chatOverlaySettings;
+          localStorage.setItem(CHAT_OVERLAYS_STORAGE_KEY, JSON.stringify(this.chatOverlays));
+        }
         this.respond(request, { ok: true });
         break;
-      case Channels.ChatOverlayGetUrl:
-        this.respond(request, { url: CHAT_OVERLAY_URL, dockUrl: OBS_CHAT_DOCK_URL });
+      case Channels.ChatOverlaysList:
+        this.respond(request, { overlays: structuredClone(this.chatOverlays) });
         break;
+      case Channels.ChatOverlaysSave: {
+        const payload = request.payload as { overlay?: ChatOverlayInstance };
+        if (payload?.overlay) {
+          const idx = this.chatOverlays.findIndex((o) => o.id === payload.overlay!.id);
+          if (idx >= 0) {
+            this.chatOverlays[idx] = payload.overlay;
+          } else {
+            this.chatOverlays.push(payload.overlay);
+          }
+          if (payload.overlay.id === 'default' || payload.overlay.isMain) {
+            this.chatOverlaySettings = payload.overlay.settings;
+            localStorage.setItem(CHAT_OVERLAY_SETTINGS_STORAGE_KEY, JSON.stringify(this.chatOverlaySettings));
+          }
+          localStorage.setItem(CHAT_OVERLAYS_STORAGE_KEY, JSON.stringify(this.chatOverlays));
+          this.respond(request, { ok: true });
+        } else {
+          this.respond(request, { ok: false, error: 'Invalid payload' });
+        }
+        break;
+      }
+      case Channels.ChatOverlaysDelete: {
+        const payload = request.payload as { id?: string };
+        if (payload?.id && payload.id !== 'default') {
+          this.chatOverlays = this.chatOverlays.filter((o) => o.id !== payload.id);
+          localStorage.setItem(CHAT_OVERLAYS_STORAGE_KEY, JSON.stringify(this.chatOverlays));
+          this.respond(request, { ok: true });
+        } else {
+          this.respond(request, { ok: false, error: 'Cannot delete main overlay' });
+        }
+        break;
+      }
+      case Channels.ChatOverlayGetUrl: {
+        const payload = request.payload as { overlayId?: string } | undefined;
+        const id = payload?.overlayId;
+        const url = !id || id === 'default' ? CHAT_OVERLAY_URL : `${CHAT_OVERLAY_URL}?id=${encodeURIComponent(id)}`;
+        this.respond(request, { url, dockUrl: OBS_CHAT_DOCK_URL });
+        break;
+      }
       case Channels.ChatOverlayReload:
       case 'chat-overlay/reload':
         this.respond(request, { ok: true });
@@ -433,11 +498,11 @@ export class MockHost {
         break;
       case Channels.UpdateCheck:
         this.respond(request, {
-          currentVersion: '0.2.9',
-          latestVersion: '0.2.9',
+          currentVersion: '0.3.0',
+          latestVersion: '0.3.0',
           updateAvailable: false,
           releaseUrl: 'https://github.com/Zeen1th/streamer-hub/releases/latest',
-          downloadUrl: 'https://github.com/Zeen1th/streamer-hub/releases/download/v0.2.9/StreamerHub-Setup-v0.2.9.exe',
+          downloadUrl: 'https://github.com/Zeen1th/streamer-hub/releases/download/v0.3.0/StreamerHub-Setup-v0.3.0.exe',
           releaseNotes: 'The current release is installed.',
         });
         break;
@@ -493,6 +558,7 @@ export class MockHost {
       case Channels.TwitchModerationVip:
       case Channels.TwitchModerationUnvip:
       case Channels.TwitchModerationClear:
+      case Channels.TwitchModerationDeleteMessage:
       case Channels.TwitchModerationShoutout:
         this.respond(request, { ok: true, wasMod: false });
         break;
@@ -545,6 +611,26 @@ export class MockHost {
       void 0;
     }
     return { ...DEFAULT_CHAT_OVERLAY_SETTINGS };
+  }
+
+  private loadChatOverlays(): ChatOverlayInstance[] {
+    try {
+      const raw = localStorage.getItem(CHAT_OVERLAYS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      void 0;
+    }
+    return [
+      {
+        id: 'default',
+        name: 'Main Overlay',
+        isMain: true,
+        settings: this.chatOverlaySettings,
+      },
+    ];
   }
 
   private loadObsChatSettings(): ChatOverlaySettings {

@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import {
   Plus,
-  Trash2,
   UserCheck,
   VolumeX,
+  X,
 } from 'lucide-react';
 import type { AiConditionRule, AiConditionThenType, AutoReply } from '../../rpc/contracts';
+import { normalizeUsername } from '../../lib/autoReplyRules';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -17,34 +19,83 @@ interface ChatterOverridesSectionProps {
 }
 
 export function ChatterOverridesSection({ rule, update, lang }: ChatterOverridesSectionProps) {
-  const conditions: AiConditionRule[] = rule.aiConditions ?? [];
+  const [tagInput, setTagInput] = useState('');
+  const isAi = rule.responseMode === 'ai';
 
-  const handleAddOverride = () => {
+  // Extract the single chatter override condition
+  const conditions = rule.aiConditions ?? [];
+  const existingCond: AiConditionRule | undefined =
+    conditions.find((c) => c.ifType === 'username') ?? conditions[0];
+
+  const targetUsers: string[] = existingCond
+    ? existingCond.ifValue
+        .split(/[,;\s]+/)
+        .map(normalizeUsername)
+        .filter(Boolean)
+    : [];
+
+  // If command is AI, only 'instructions' or 'ignore' are permitted (NO normal text)
+  // If command is Prepared, only 'static_reply' or 'ignore' are permitted (NO AI reply)
+  const rawMode: AiConditionThenType = existingCond?.thenType ?? (isAi ? 'instructions' : 'static_reply');
+  const overrideMode: AiConditionThenType = rawMode === 'ignore'
+    ? 'ignore'
+    : isAi
+      ? 'instructions'
+      : 'static_reply';
+  const overrideValue: string = existingCond?.thenValue ?? '';
+
+  const saveCondition = (nextUsers: string[], mode: AiConditionThenType, value: string) => {
+    if (nextUsers.length === 0) {
+      update(rule.id, { aiConditions: [], aiTargetUsers: [] });
+      return;
+    }
+
+    // Enforce valid mode strictly
+    const sanitizedMode: AiConditionThenType = mode === 'ignore'
+      ? 'ignore'
+      : isAi
+        ? 'instructions'
+        : 'static_reply';
+
     const nextCondition: AiConditionRule = {
-      id: `override-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: existingCond?.id || 'chatter-override',
       ifType: 'username',
-      ifValue: '',
-      thenType: 'static_reply',
-      thenValue: '',
+      ifValue: nextUsers.join(', '),
+      thenType: sanitizedMode,
+      thenValue: value,
     };
-    update(rule.id, { aiConditions: [...conditions, nextCondition] });
-  };
-
-  const handleUpdateCondition = (index: number, patch: Partial<AiConditionRule>) => {
-    const nextConditions = conditions.map((item, i) => (i === index ? { ...item, ...patch } : item));
-    update(rule.id, { aiConditions: nextConditions });
-  };
-
-  const handleRemoveCondition = (index: number) => {
-    const nextConditions = conditions.filter((_, i) => i !== index);
-    update(rule.id, { aiConditions: nextConditions });
-  };
-
-  const handleInsertToken = (index: number, token: string) => {
-    const current = conditions[index]?.thenValue || '';
-    handleUpdateCondition(index, {
-      thenValue: current ? `${current} ${token}` : token,
+    update(rule.id, {
+      aiConditions: [nextCondition],
+      aiTargetUsers: nextUsers,
     });
+  };
+
+  const handleAddUser = () => {
+    const clean = normalizeUsername(tagInput);
+    if (!clean) return;
+    if (!targetUsers.includes(clean)) {
+      const nextUsers = [...targetUsers, clean];
+      saveCondition(nextUsers, overrideMode, overrideValue);
+    }
+    setTagInput('');
+  };
+
+  const handleRemoveUser = (userToRemove: string) => {
+    const nextUsers = targetUsers.filter((u) => u !== userToRemove);
+    saveCondition(nextUsers, overrideMode, overrideValue);
+  };
+
+  const handleModeChange = (newMode: AiConditionThenType) => {
+    saveCondition(targetUsers, newMode, overrideValue);
+  };
+
+  const handleValueChange = (newValue: string) => {
+    saveCondition(targetUsers, overrideMode, newValue);
+  };
+
+  const handleInsertToken = (token: string) => {
+    const nextValue = overrideValue ? `${overrideValue} ${token}` : token;
+    handleValueChange(nextValue);
   };
 
   return (
@@ -57,210 +108,198 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
             <h2 className="font-semibold text-[13px] tracking-tight text-foreground">
               {lang === 'ar' ? 'استثناءات المتابعين (أولوية أولى)' : 'Specific Chatter Overrides (Priority 1)'}
             </h2>
-            {conditions.length > 0 && (
+            {targetUsers.length > 0 && (
               <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 font-mono text-[10px] text-emerald-300 font-semibold">
-                {conditions.length} active
+                {targetUsers.length} {targetUsers.length === 1 ? 'user' : 'users'}
               </span>
             )}
           </div>
           <p className="text-[11px] text-muted">
             {lang === 'ar'
-              ? 'تخصيص ردود خاصة لمستخدمين محددين (عادي أو ذكاء اصطناعي). يتم التحقق منها أولاً ثم الانتقال للرد العادي.'
-              : 'Execute custom static text or AI prompts for specific viewers. Evaluated first; falls back to default if no match.'}
+              ? isAi
+                ? 'أضف أسماء المتابعين لتخصيص رد ذكاء اصطناعي خاص بهم أو تجاهلهم. عند تطابقهم ينفذ الاستثناء أولاً ويتخطى الرد الافتراضي.'
+                : 'أضف أسماء المتابعين لتخصيص رد عادي خاص بهم أو تجاهلهم. عند تطابقهم ينفذ الاستثناء أولاً ويتخطى الرد الافتراضي.'
+              : isAi
+                ? 'Add viewers to receive custom AI instructions or be silenced. Matches execute first; all others receive the default AI reply.'
+                : 'Add viewers to receive a custom normal text message or be silenced. Matches execute first; all others receive the default reply.'}
           </p>
         </div>
-
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleAddOverride}
-          className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/50 hover:bg-emerald-500/20"
-        >
-          <Plus size={12} className="me-1" />
-          <span>{lang === 'ar' ? 'إضافة استثناء' : 'Add Override'}</span>
-        </Button>
       </div>
 
-      {/* Conditions List */}
-      {conditions.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-rule py-6 text-center">
-          <UserCheck size={24} className="text-muted/60 mb-1.5" />
-          <p className="text-[12px] font-medium text-foreground">
-            {lang === 'ar' ? 'لا توجد استثناءات مخصصة' : 'No chatter overrides configured'}
-          </p>
-          <p className="text-[11px] text-muted max-w-sm mt-0.5 mb-3">
-            {lang === 'ar'
-              ? 'جميع المشاهدين سيتلقون الرد الافتراضي. أضف استثناءً إذا كنت تريد الرد بشكل مميز على مستخدمين محددين.'
-              : 'All viewers receive the default response above. Add an override if you want special VIPs, friends, or roles to get unique replies.'}
-          </p>
-          <Button size="sm" variant="outline" onClick={handleAddOverride}>
+      {/* Viewers List Input */}
+      <div className="space-y-2">
+        <label className="text-[11px] font-medium text-foreground">
+          {lang === 'ar' ? 'قائمة المشاهدين المستثنين' : 'Overridden Viewers List'}
+        </label>
+
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <span className="absolute start-2.5 top-1/2 -translate-y-1/2 font-mono text-[11px] text-muted">
+              @
+            </span>
+            <Input
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddUser();
+                }
+              }}
+              placeholder={
+                lang === 'ar'
+                  ? 'اكتب اسم المشاهد واضغط Enter للإضافة...'
+                  : 'Type viewer username and press Enter to add...'
+              }
+              className="h-8 ps-6 text-[11.5px] font-mono"
+            />
+          </div>
+
+          <Button size="sm" variant="outline" onClick={handleAddUser} className="h-8 px-3">
             <Plus size={12} className="me-1" />
-            <span>{lang === 'ar' ? 'إضافة استثناء للمتابعين' : 'Add First Chatter Override'}</span>
+            <span>{lang === 'ar' ? 'إضافة' : 'Add'}</span>
           </Button>
         </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {conditions.map((cond, idx) => (
-            <div
-              key={cond.id || idx}
-              className="relative flex flex-col gap-3 rounded-md border border-rule/80 bg-surface/60 p-3 shadow-xs"
-            >
-              {/* Card top bar */}
-              <div className="flex items-center justify-between border-b border-hair pb-2">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded bg-surface-2 font-mono text-[10px] font-bold text-muted">
-                    #{idx + 1}
-                  </span>
-                  <span className="font-semibold text-[11.5px] text-foreground">
-                    {cond.ifType === 'username'
-                      ? cond.ifValue ? `@${cond.ifValue}` : 'Any chatter'
-                      : `Role: ${cond.ifValue}`}
-                  </span>
-                  <span
-                    className={cn(
-                      'rounded px-1.5 py-0.2 font-mono text-[9.5px] font-semibold uppercase',
-                      cond.thenType === 'static_reply' && 'bg-sky-500/15 text-sky-300 border border-sky-500/30',
-                      cond.thenType === 'instructions' && 'bg-purple-500/15 text-purple-300 border border-purple-500/30',
-                      cond.thenType === 'ignore' && 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
-                    )}
-                  >
-                    {cond.thenType === 'static_reply'
-                      ? 'Static Text'
-                      : cond.thenType === 'instructions'
-                      ? 'AI Prompt'
-                      : 'Silent (Ignore)'}
-                  </span>
-                </div>
 
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => handleRemoveCondition(idx)}
-                  className="h-6 w-6 p-0 text-red-400 hover:bg-red-500/10 hover:text-red-300"
-                  title="Remove Override"
+        {/* Tags / Chips */}
+        <div className="flex flex-wrap items-center gap-1.5 min-h-[32px] pt-0.5">
+          {targetUsers.length === 0 ? (
+            <span className="font-sans text-[11px] text-muted italic">
+              {lang === 'ar'
+                ? 'لا يوجد متابعون في القائمة. الجميع سيتلقون الرد الافتراضي.'
+                : 'No viewers in list. Everyone receives the default response above.'}
+            </span>
+          ) : (
+            targetUsers.map((user) => (
+              <span
+                key={user}
+                className="flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-mono text-[11.5px] font-semibold text-emerald-300 shadow-xs"
+              >
+                <span>@{user}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveUser(user)}
+                  className="text-emerald-400/70 hover:text-red-400 transition-colors"
+                  title={`Remove @${user}`}
                 >
-                  <Trash2 size={12} />
-                </Button>
-              </div>
+                  <X size={11} />
+                </button>
+              </span>
+            ))
+          )}
+        </div>
+      </div>
 
-              {/* Target Chatter Configuration */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10.5px] font-medium text-muted">
-                    {lang === 'ar' ? 'الهدف (المتابع أو الرتبة)' : 'Target Chatter (User or Role)'}
-                  </label>
-                  <div className="flex items-center gap-1.5">
-                    <SegmentedControl<'username' | 'role'>
-                      value={cond.ifType === 'role' ? 'role' : 'username'}
-                      onChange={(val) => {
-                        handleUpdateCondition(idx, {
-                          ifType: val,
-                          ifValue: val === 'role' ? 'vip' : '',
-                        });
-                      }}
-                      options={[
-                        { value: 'username', label: 'User' },
-                        { value: 'role', label: 'Role' },
-                      ]}
-                      className="shrink-0 text-[10.5px]"
-                    />
-                    {cond.ifType === 'role' ? (
-                      <SegmentedControl<'vip' | 'mod' | 'subscriber'>
-                        value={(cond.ifValue as 'vip' | 'mod' | 'subscriber') || 'vip'}
-                        onChange={(val) => handleUpdateCondition(idx, { ifValue: val })}
-                        options={[
-                          { value: 'vip', label: 'VIP' },
-                          { value: 'mod', label: 'Mod' },
-                          { value: 'subscriber', label: 'Sub' },
-                        ]}
-                        className="flex-1 text-[10.5px]"
-                      />
-                    ) : (
-                      <Input
-                        value={cond.ifValue}
-                        onChange={(e) => handleUpdateCondition(idx, { ifValue: e.target.value })}
-                        placeholder="@username (e.g. friend_alex)"
-                        className="h-7 text-[11px] font-mono"
-                      />
-                    )}
-                  </div>
-                </div>
-
-                {/* Response Mode Selector */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10.5px] font-medium text-muted">
-                    {lang === 'ar' ? 'طريقة الرد للاستثناء' : 'Override Response Mode'}
-                  </label>
-                  <SegmentedControl<AiConditionThenType>
-                    value={cond.thenType}
-                    onChange={(thenType) => handleUpdateCondition(idx, { thenType })}
-                    options={[
-                      { value: 'static_reply', label: 'Static Text' },
-                      { value: 'instructions', label: '✨ AI Prompt' },
-                      { value: 'ignore', label: '🔇 Silent' },
-                    ]}
-                    className="text-[10.5px]"
-                  />
-                </div>
-              </div>
-
-              {/* Response Payload */}
-              {cond.thenType === 'static_reply' && (
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10.5px] font-medium text-muted">
-                      {lang === 'ar' ? 'نص الرد الخاص' : 'Custom Static Reply'}
-                    </label>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[9.5px] text-muted">Insert:</span>
-                      {['{username}', '{mention}'].map((token) => (
-                        <button
-                          key={token}
-                          type="button"
-                          onClick={() => handleInsertToken(idx, token)}
-                          className="rounded border border-rule bg-surface px-1 py-0.2 font-mono text-[9px] hover:border-accent hover:text-accent"
-                        >
-                          {token}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <Input
-                    value={cond.thenValue}
-                    onChange={(e) => handleUpdateCondition(idx, { thenValue: e.target.value })}
-                    placeholder="e.g. Welcome back VIP friend! Glad to see you here."
-                    className="h-7 text-[11.5px]"
-                  />
-                </div>
-              )}
-
-              {cond.thenType === 'instructions' && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10.5px] font-medium text-muted">
-                    {lang === 'ar' ? 'توجيهات الذكاء الاصطناعي الخاصة بهذا المتابع' : 'Custom AI Instructions for this Chatter'}
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={cond.thenValue}
-                    onChange={(e) => handleUpdateCondition(idx, { thenValue: e.target.value })}
-                    placeholder="e.g. Greet them with high excitement and playfully reference our co-op game."
-                    className="w-full rounded border border-rule bg-surface p-2 text-[11.5px] text-foreground placeholder:text-muted/60 focus:outline-none focus:ring-1 focus:ring-accent font-sans"
-                  />
-                </div>
-              )}
-
-              {cond.thenType === 'ignore' && (
-                <div className="rounded border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-300 flex items-center gap-2">
-                  <VolumeX size={13} className="shrink-0" />
-                  <span>
-                    {lang === 'ar'
-                      ? 'لن يتم إرسال أي رد عندما يكتب هذا المتابع كلمة التفعيل.'
-                      : 'Silence active: No response is emitted when this chatter triggers the command.'}
-                  </span>
-                </div>
-              )}
+      {/* Override Response Configuration (When targetUsers has at least 1 user) */}
+      {targetUsers.length > 0 && (
+        <div className="space-y-3 rounded-md border border-rule/80 bg-surface/60 p-3 pt-3 mt-1">
+          {/* Response Mode Selector */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-medium text-foreground">
+                {lang === 'ar' ? 'الرد الخاص بهؤلاء المتابعين' : 'Response for Listed Viewers'}
+              </label>
+              <span
+                className={cn(
+                  'rounded px-1.5 py-0.2 font-mono text-[9.5px] font-semibold uppercase',
+                  overrideMode === 'static_reply' && 'bg-sky-500/15 text-sky-300 border border-sky-500/30',
+                  overrideMode === 'instructions' && 'bg-purple-500/15 text-purple-300 border border-purple-500/30',
+                  overrideMode === 'ignore' && 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
+                )}
+              >
+                {overrideMode === 'static_reply'
+                  ? 'Normal Text'
+                  : overrideMode === 'instructions'
+                  ? 'AI Banter'
+                  : 'Silent'}
+              </span>
             </div>
-          ))}
+
+            <SegmentedControl<AiConditionThenType>
+              value={overrideMode}
+              onChange={handleModeChange}
+              options={
+                isAi
+                  ? [
+                      { value: 'instructions', label: lang === 'ar' ? 'رد ذكاء اصطناعي ✨' : '✨ AI Reply' },
+                      { value: 'ignore', label: lang === 'ar' ? 'صامت (تجاهل) 🔇' : '🔇 Silent' },
+                    ]
+                  : [
+                      { value: 'static_reply', label: lang === 'ar' ? 'رد عادي' : 'Normal Text' },
+                      { value: 'ignore', label: lang === 'ar' ? 'صامت (تجاهل) 🔇' : '🔇 Silent' },
+                    ]
+              }
+              className="text-[11px]"
+            />
+          </div>
+
+          {/* Static Reply Text */}
+          {overrideMode === 'static_reply' && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10.5px] font-medium text-muted">
+                  {lang === 'ar' ? 'نص الرد الخاص' : 'Custom Static Message'}
+                </label>
+                <div className="flex items-center gap-1">
+                  <span className="text-[9.5px] text-muted">Insert:</span>
+                  {['{username}', '{mention}'].map((token) => (
+                    <button
+                      key={token}
+                      type="button"
+                      onClick={() => handleInsertToken(token)}
+                      className="rounded border border-rule bg-surface px-1 py-0.2 font-mono text-[9px] hover:border-accent hover:text-accent"
+                    >
+                      {token}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Input
+                value={overrideValue}
+                onChange={(e) => handleValueChange(e.target.value)}
+                placeholder={
+                  lang === 'ar'
+                    ? 'مثال: أهلاً بصديقنا المميز {mention}! نورت البث.'
+                    : 'e.g. Welcome back VIP friend {mention}! Glad to see you here.'
+                }
+                className="h-8 text-[11.5px]"
+              />
+            </div>
+          )}
+
+          {/* AI Persona Instructions */}
+          {overrideMode === 'instructions' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10.5px] font-medium text-muted">
+                {lang === 'ar'
+                  ? 'توجيهات الذكاء الاصطناعي الخاصة بهؤلاء المتابعين'
+                  : 'Custom AI Instructions for Listed Viewers'}
+              </label>
+              <textarea
+                rows={2}
+                value={overrideValue}
+                onChange={(e) => handleValueChange(e.target.value)}
+                placeholder={
+                  lang === 'ar'
+                    ? 'مثال: رحب بهم بحماس وامزح معهم بخصوص لعبتنا الأخيرة...'
+                    : 'e.g. Greet them with high excitement and playfully banter about our co-op game...'
+                }
+                className="w-full rounded border border-rule bg-surface p-2 text-[11.5px] text-foreground placeholder:text-muted/60 focus:outline-none focus:ring-1 focus:ring-accent font-sans"
+              />
+            </div>
+          )}
+
+          {/* Silent Mode */}
+          {overrideMode === 'ignore' && (
+            <div className="rounded border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 text-[11px] text-amber-300 flex items-center gap-2">
+              <VolumeX size={13} className="shrink-0" />
+              <span>
+                {lang === 'ar'
+                  ? 'تفعيل الصمت: لن يتم إرسال أي رد عندما يكتب المشاهدون المذكورون في القائمة أعلاه كلمة التفعيل.'
+                  : 'Silence active: No response is sent when viewers in this list trigger the command.'}
+              </span>
+            </div>
+          )}
         </div>
       )}
     </section>

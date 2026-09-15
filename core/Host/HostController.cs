@@ -27,9 +27,33 @@ public sealed class ChatOverlayHostBridge
 
     public ChatOverlaySettings GetObsChatState() => _settings.ObsChat;
 
-    public string GetUrl() => _server.OverlayUrl?.ToString() ?? string.Empty;
+    public IReadOnlyList<ChatOverlayInstance> GetOverlays() => _settings.ChatOverlays;
+
+    public ChatOverlayInstance? GetOverlay(string id) => _settings.GetChatOverlay(id);
+
+    public string GetUrl(string? overlayId = null)
+    {
+        var baseUri = _server.OverlayUrl?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(baseUri)) return string.Empty;
+        if (string.IsNullOrWhiteSpace(overlayId) || string.Equals(overlayId, "default", StringComparison.OrdinalIgnoreCase))
+            return baseUri;
+        return $"{baseUri}?id={Uri.EscapeDataString(overlayId)}";
+    }
 
     public string GetDockUrl() => _server.DockUrl?.ToString() ?? string.Empty;
+
+    public async Task<bool> SaveOverlayAsync(ChatOverlayInstance overlay, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(overlay);
+        _settings.SaveChatOverlay(overlay);
+        await _server.UpdateOverlaySettingsAsync(overlay.Id, overlay.Settings, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public bool DeleteOverlay(string id)
+    {
+        return _settings.DeleteChatOverlay(id);
+    }
 
     public async Task<bool> SaveSettingsAsync(ChatOverlaySettings settings, CancellationToken cancellationToken = default)
     {
@@ -64,14 +88,24 @@ public sealed class ChatOverlayHostBridge
         CancellationToken cancellationToken = default) =>
         await _server.PublishEmotesAsync(providers, cancellationToken).ConfigureAwait(false);
 
-    public async Task ReloadAsync(CancellationToken cancellationToken = default) =>
-        await _server.ReloadAsync("overlay", cancellationToken).ConfigureAwait(false);
+    public async Task ReloadAsync(string? overlayId = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(overlayId))
+            await _server.ReloadAsync("overlay", cancellationToken).ConfigureAwait(false);
+        else
+            await _server.ReloadOverlayAsync(overlayId, cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task ReloadObsChatAsync(CancellationToken cancellationToken = default) =>
         await _server.ReloadAsync("obs-chat", cancellationToken).ConfigureAwait(false);
 
-    public async Task SetPreviewAsync(bool enabled, IReadOnlyList<ChatMessage>? sampleMessages = null, CancellationToken cancellationToken = default) =>
-        await _server.SetPreviewAsync(enabled, sampleMessages, "overlay", cancellationToken).ConfigureAwait(false);
+    public async Task SetPreviewAsync(bool enabled, IReadOnlyList<ChatMessage>? sampleMessages = null, string? overlayId = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(overlayId))
+            await _server.SetPreviewAsync(enabled, sampleMessages, "overlay", cancellationToken).ConfigureAwait(false);
+        else
+            await _server.SetOverlayPreviewAsync(overlayId, enabled, sampleMessages, cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task SetObsChatPreviewAsync(bool enabled, IReadOnlyList<ChatMessage>? sampleMessages = null, CancellationToken cancellationToken = default) =>
         await _server.SetPreviewAsync(enabled, sampleMessages, "obs-chat", cancellationToken).ConfigureAwait(false);
@@ -164,6 +198,9 @@ public sealed class HostController : IDisposable
         WireBotState();
         RefreshKeybinds();
         chatOverlayServer.ChatSendRequested += async msg => await SendChatMessageCoreAsync(msg).ConfigureAwait(false);
+        chatOverlayServer.ChatTimeoutRequested += async (u, d) => await _twitch.TimeoutUserAsync(u, d).ConfigureAwait(false);
+        chatOverlayServer.ChatBanRequested += async u => await _twitch.BanUserAsync(u).ConfigureAwait(false);
+        chatOverlayServer.ChatDeleteMessageRequested += async id => await _twitch.DeleteChatMessageAsync(id).ConfigureAwait(false);
     }
 
     private string Lang => _settings.Language == "ar" ? "ar" : "en";
@@ -351,8 +388,33 @@ public sealed class HostController : IDisposable
             if (ok) _settings.Flush();
             return new { ok };
         });
-        _dispatcher.Register(Channels.ChatOverlayGetUrl, (_, _) =>
-            Task.FromResult<object?>(new { url = _chatOverlay.GetUrl(), dockUrl = _chatOverlay.GetDockUrl() }));
+        _dispatcher.Register(Channels.ChatOverlayGetUrl, (payload, _) =>
+        {
+            string? overlayId = null;
+            if (payload.HasValue && payload.Value.ValueKind == JsonValueKind.Object && payload.Value.TryGetProperty("overlayId", out var idProp))
+            {
+                overlayId = idProp.GetString();
+            }
+            return Task.FromResult<object?>(new { url = _chatOverlay.GetUrl(overlayId), dockUrl = _chatOverlay.GetDockUrl() });
+        });
+        _dispatcher.Register(Channels.ChatOverlaysList, (_, _) =>
+            Task.FromResult<object?>(new { overlays = _chatOverlay.GetOverlays() }));
+        _dispatcher.Register(Channels.ChatOverlaysSave, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ChatOverlaysSavePayload>(payload ?? default);
+            if (request?.Overlay is null) return new { ok = false, error = "Invalid overlay payload" };
+            var ok = await _chatOverlay.SaveOverlayAsync(request.Overlay, ct).ConfigureAwait(false);
+            if (ok) _settings.Flush();
+            return new { ok };
+        });
+        _dispatcher.Register(Channels.ChatOverlaysDelete, (payload, _) =>
+        {
+            var request = Json.Deserialize<ChatOverlaysDeletePayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Id)) return Task.FromResult<object?>(new { ok = false, error = "Invalid ID" });
+            var ok = _chatOverlay.DeleteOverlay(request.Id);
+            if (ok) _settings.Flush();
+            return Task.FromResult<object?>(new { ok });
+        });
         _dispatcher.Register(Channels.ObsChatGetState, (_, _) =>
             Task.FromResult<object?>(_chatOverlay.GetObsChatState()));
         _dispatcher.Register(Channels.ObsChatSaveSettings, async (payload, ct) =>
@@ -588,6 +650,10 @@ public sealed class HostController : IDisposable
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
             var duration = request.DurationSeconds.GetValueOrDefault(60);
             var result = await _twitch.TimeoutUserAsync(request.Target, duration, request.Reason, ct).ConfigureAwait(false);
+            if (!result.Ok)
+            {
+                Log("moderation", $"Timeout failed for @{request.Target}: {result.Error}");
+            }
             return new { ok = result.Ok, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchModerationSmartTimeout, async (payload, ct) =>
@@ -597,6 +663,10 @@ public sealed class HostController : IDisposable
             if (_twitch.State != TwitchState.Connected) return new { ok = false, wasMod = false, error = "TWITCH CHAT IS NOT CONNECTED" };
             var duration = request.DurationSeconds.GetValueOrDefault(60);
             var result = await _twitch.SmartModTimeoutAsync(request.Target, duration, request.Reason, ct).ConfigureAwait(false);
+            if (!result.Ok)
+            {
+                Log("moderation", $"Smart timeout failed for @{request.Target}: {result.Error}");
+            }
             return new { ok = result.Ok, wasMod = result.WasMod, target = result.TargetUser, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchModerationBan, async (payload, ct) =>
@@ -605,6 +675,10 @@ public sealed class HostController : IDisposable
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
             var result = await _twitch.BanUserAsync(request.Target, request.Reason, ct).ConfigureAwait(false);
+            if (!result.Ok)
+            {
+                Log("moderation", $"Ban failed for @{request.Target}: {result.Error}");
+            }
             return new { ok = result.Ok, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchModerationUnban, async (payload, ct) =>
@@ -613,6 +687,10 @@ public sealed class HostController : IDisposable
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
             var result = await _twitch.UnbanUserAsync(request.Target, ct).ConfigureAwait(false);
+            if (!result.Ok)
+            {
+                Log("moderation", $"Unban failed for @{request.Target}: {result.Error}");
+            }
             return new { ok = result.Ok, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchModerationMod, async (payload, ct) =>
@@ -653,6 +731,18 @@ public sealed class HostController : IDisposable
             var result = await _twitch.ClearChatAsync(ct).ConfigureAwait(false);
             return new { ok = result.Ok, error = result.Error };
         });
+        _dispatcher.Register(Channels.TwitchModerationDeleteMessage, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<ModerationDeleteMessagePayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.MessageId)) return new { ok = false, error = "EMPTY_MESSAGE_ID" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.DeleteChatMessageAsync(request.MessageId, ct).ConfigureAwait(false);
+            if (!result.Ok)
+            {
+                Log("moderation", $"Delete message failed ({request.MessageId}): {result.Error}");
+            }
+            return new { ok = result.Ok, error = result.Error };
+        });
         _dispatcher.Register(Channels.TwitchModerationShoutout, async (payload, ct) =>
         {
             var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
@@ -673,16 +763,17 @@ public sealed class HostController : IDisposable
             await PublishChatOverlayMessageAsync(msg).ConfigureAwait(false);
             return new { ok = true };
         });
-        _dispatcher.Register(Channels.ChatOverlayReload, async (_, ct) =>
+        _dispatcher.Register(Channels.ChatOverlayReload, async (payload, ct) =>
         {
-            await _chatOverlay.ReloadAsync(ct).ConfigureAwait(false);
+            var request = Json.Deserialize<ChatOverlayReloadPayload>(payload ?? default);
+            await _chatOverlay.ReloadAsync(request?.OverlayId, ct).ConfigureAwait(false);
             return new { ok = true };
         });
         _dispatcher.Register(Channels.ChatOverlaySetPreview, async (payload, ct) =>
         {
             var request = Json.Deserialize<ChatOverlaySetPreviewPayload>(payload ?? default);
             var enabled = request?.Enabled ?? false;
-            await _chatOverlay.SetPreviewAsync(enabled, request?.Messages, ct).ConfigureAwait(false);
+            await _chatOverlay.SetPreviewAsync(enabled, request?.Messages, request?.OverlayId, ct).ConfigureAwait(false);
             return new { ok = true };
         });
         _dispatcher.Register(Channels.ObsChatReload, async (_, ct) =>
@@ -1053,14 +1144,58 @@ public sealed class HostController : IDisposable
             var elapsed = DateTime.UtcNow - _lastChatSentAt;
             if (elapsed < TimeSpan.FromSeconds(1))
                 await Task.Delay(TimeSpan.FromSeconds(1) - elapsed).ConfigureAwait(false);
-            var (chatClient, _, _) = ResolveActiveChatSender();
-            var ok = await chatClient.SendChatMessageAsync(message.Trim()).ConfigureAwait(false);
-            if (ok) _lastChatSentAt = DateTime.UtcNow;
+            var (chatClient, senderRole, senderLogin) = ResolveActiveChatSender();
+            var trimmed = message.Trim();
+            var ok = await chatClient.SendChatMessageAsync(trimmed).ConfigureAwait(false);
+            if (ok)
+            {
+                _lastChatSentAt = DateTime.UtcNow;
+                PublishSelfChatMessage(trimmed, senderRole, senderLogin);
+            }
             return ok;
         }
         finally
         {
             _chatSendLock.Release();
+        }
+    }
+
+    private void PublishSelfChatMessage(string text, string senderRole, string senderLogin)
+    {
+        try
+        {
+            var username = !string.IsNullOrWhiteSpace(senderLogin) ? senderLogin : (!string.IsNullOrWhiteSpace(_twitchChannel) ? _twitchChannel : "Streamer");
+            var isBroadcaster = senderRole == "broadcaster" || string.Equals(username, _twitchChannel, StringComparison.OrdinalIgnoreCase);
+            var isMod = !isBroadcaster;
+            string? avatarUrl = null;
+            if (_twitchUserProfiles.TryGet(username, out var avatar))
+            {
+                avatarUrl = avatar;
+            }
+
+            var chatMessage = new ChatMessage
+            {
+                Id = $"self-{Guid.NewGuid():N}",
+                Username = username,
+                UserId = username.ToLowerInvariant(),
+                AvatarUrl = avatarUrl,
+                IsBroadcaster = isBroadcaster,
+                IsMod = isMod,
+                IsVip = false,
+                IsSubscriber = isBroadcaster,
+                Message = text,
+                Timestamp = DateTime.UtcNow.ToString("o"),
+                Color = isBroadcaster ? "#e91916" : "#00ad03",
+                IsSelf = true,
+            };
+
+            Log("system", CoreStrings.L(Lang, "chat-relayed") + $"{chatMessage.Username}: {chatMessage.Message}");
+            PostEvent(Events.TwitchChatMessage, chatMessage);
+            _ = PublishChatOverlayMessageAsync(chatMessage);
+        }
+        catch (Exception ex)
+        {
+            Log("error", $"Failed to publish self chat message: {ex.Message}");
         }
     }
 

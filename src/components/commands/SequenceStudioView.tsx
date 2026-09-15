@@ -89,6 +89,19 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     const rawTarget = (overrideTarget !== undefined ? overrideTarget : testTarget).trim();
     const formattedInput = rawTarget ? (rawTarget.startsWith('@') ? rawTarget : `@${rawTarget}`) : '';
 
+    const needsTarget = sequence.steps.some(
+      (s) => s.type === 'moderation' && s.moderationAction !== 'clear_chat' && (!s.targetUser || s.targetUser.includes('{input}') || s.targetUser.includes('{target}')),
+    );
+    if (needsTarget && !rawTarget) {
+      setTestStatus({
+        status: 'error',
+        message: lang === 'ar'
+          ? 'يرجى إدخال اسم مستخدم مستهدف للتجربة (مثال: @viewer)'
+          : 'Please enter a target username (e.g. @viewer) to test moderation.',
+      });
+      return;
+    }
+
     setTestStatus({
       status: 'running',
       message: t(lang, 'sequence.running'),

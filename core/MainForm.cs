@@ -208,6 +208,7 @@ public sealed class MainForm : Form
             "app.streamerhub", wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 
         _chatOverlayServer = new ChatOverlayServer(wwwroot, _settings.ChatOverlay, _settings.ObsChat);
+        _chatOverlayServer.RegisterOverlays(_settings.ChatOverlays);
         await _chatOverlayServer.StartAsync(_shutdown.Token);
         _host = new HostController(this, _webView, _settings, _chatOverlayServer, appData, _shutdown.Token);
         await _host.InitializeAsync();

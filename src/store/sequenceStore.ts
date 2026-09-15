@@ -12,6 +12,7 @@ import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 import {
   executeSequence,
+  extractCommandArguments,
   isSequenceOnCooldown,
   matchesSequenceTrigger,
   type SequenceExecutionContext,
@@ -410,11 +411,15 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
 
       if (matches) {
         handled = true;
+        const userInput = message.customRewardId
+          ? message.message
+          : extractCommandArguments(message.message, seq.chatTrigger || '');
+
         await get().runSequence(seq.id, {
           username: message.username,
           userId: message.userId,
           source: message.customRewardId ? 'channel_points' : 'chat',
-          userInput: message.message,
+          userInput,
         });
       }
     }

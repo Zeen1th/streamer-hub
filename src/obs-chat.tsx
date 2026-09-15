@@ -8,26 +8,25 @@ import '@fontsource/cairo/600.css';
 import '@fontsource/cairo/700.css';
 import '@fontsource/cairo/800.css';
 import '@fontsource/cairo/900.css';
-import '@fontsource/cinzel/600.css';
-import '@fontsource/cinzel/700.css';
 import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/700.css';
 import './index.css';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Send } from 'lucide-react';
+import { ArrowDown, AtSign, Ban, Clock, MessageSquare, Send, Trash2 } from 'lucide-react';
 import {
-  DEFAULT_CHAT_OVERLAY_SETTINGS,
+  ensureReadableColor,
+  formatBidiText,
+  isRtlText,
   normalizeChatOverlayMessage,
   normalizeChatOverlaySettings,
   type NormalizedChatOverlayMessage,
 } from './lib/chatOverlay';
 import { applyChatFilters } from './lib/chatOverlayFilters';
-import { mergeEmoteProviders, type ThirdPartyEmoteMap } from './lib/chatEmotes';
-import { ChatScene } from './overlay/ChatScene';
-import { CHAT_OVERLAY_CANVAS } from './rpc/contracts';
-import type { ChatMessage, ChatOverlaySettings } from './rpc/contracts';
+import { mergeEmoteProviders, tokenizeMessage, type ThirdPartyEmoteMap } from './lib/chatEmotes';
+import type { ChatMessage, ChatOverlaySettings, EmoteRange } from './rpc/contracts';
+import { DEFAULT_CHAT_OVERLAY_SETTINGS } from './lib/chatOverlay';
 
 type EnvelopeKind =
   | 'hello'
@@ -38,8 +37,7 @@ type EnvelopeKind =
   | 'profile'
   | 'clear'
   | 'emotes'
-  | 'reload'
-  | 'preview';
+  | 'reload';
 
 const KNOWN_KINDS: readonly EnvelopeKind[] = [
   'hello',
@@ -51,7 +49,6 @@ const KNOWN_KINDS: readonly EnvelopeKind[] = [
   'clear',
   'emotes',
   'reload',
-  'preview',
 ];
 
 interface OverlayEnvelope {
@@ -78,28 +75,79 @@ interface ClearPayload {
   id?: string;
 }
 
-interface PreviewPayload {
-  enabled?: boolean;
-  messages?: unknown[];
+interface DockMessageItem extends NormalizedChatOverlayMessage {
+  deleted?: boolean;
 }
 
 function ObsChatDockApp() {
   const [settings, setSettings] = useState<ChatOverlaySettings>(DEFAULT_CHAT_OVERLAY_SETTINGS);
-  const [messages, setMessages] = useState<NormalizedChatOverlayMessage[]>([]);
-  const [previewMessages, setPreviewMessages] = useState<NormalizedChatOverlayMessage[] | null>(null);
+  const [messages, setMessages] = useState<DockMessageItem[]>([]);
   const [providers, setProviders] = useState<Record<string, ThirdPartyEmoteMap>>({});
+  const [connected, setConnected] = useState(false);
   const [inputMsg, setInputMsg] = useState('');
-  const [fit, setFit] = useState(1);
+  const [fontSize, setFontSize] = useState<number>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const saved = Number(localStorage.getItem('streamer-hub-obs-dock-font-size'));
+      if ([12, 13, 14, 16].includes(saved)) return saved;
+    }
+    return 13;
+  });
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const [newMessagesCount, setNewMessagesCount] = useState(0);
 
   const seenMessageIds = useRef(new Set<string>());
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const wsRef = useRef<WebSocket | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const prevMessagesLength = useRef(0);
 
-  const removeMessage = useCallback((id: string) => {
-    setMessages((current) => current.filter((candidate) => candidate.id !== id));
-  }, []);
+  const changeFontSize = (size: number) => {
+    setFontSize(size);
+    try {
+      localStorage.setItem('streamer-hub-obs-dock-font-size', String(size));
+    } catch {
+      // ignore
+    }
+  };
 
+  // Auto-scroll handler
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const added = messages.length - prevMessagesLength.current;
+    prevMessagesLength.current = messages.length;
+
+    if (!isScrolledUp) {
+      el.scrollTop = el.scrollHeight;
+      setNewMessagesCount(0);
+    } else if (added > 0) {
+      setNewMessagesCount((c) => c + added);
+    }
+  }, [messages.length, isScrolledUp]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const scrolledUp = distanceFromBottom > 60;
+    setIsScrolledUp(scrolledUp);
+    if (!scrolledUp) {
+      setNewMessagesCount(0);
+    }
+  };
+
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    setIsScrolledUp(false);
+    setNewMessagesCount(0);
+  };
+
+  // Connect WebSocket to /ws?target=obs-chat
   useEffect(() => {
     let disposed = false;
     let socket: WebSocket | null = null;
@@ -111,6 +159,10 @@ function ObsChatDockApp() {
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
       socket = new WebSocket(`${scheme}://${host}/ws?target=obs-chat`);
       wsRef.current = socket;
+
+      socket.addEventListener('open', () => {
+        if (!disposed) setConnected(true);
+      });
 
       socket.addEventListener('message', (event) => {
         const envelope = parseEnvelope(event.data);
@@ -154,9 +206,21 @@ function ObsChatDockApp() {
             if (payload?.scope === 'all') {
               setMessages([]);
             } else if (payload?.scope === 'user' && payload.id) {
-              setMessages((current) => current.filter((message) => message.userId !== payload.id));
+              const targetId = payload.id;
+              setMessages((current) =>
+                current.map((message) =>
+                  message.userId === targetId || message.username.toLowerCase() === targetId.toLowerCase()
+                    ? { ...message, deleted: true }
+                    : message,
+                ),
+              );
             } else if (payload?.scope === 'message' && payload.id) {
-              setMessages((current) => current.filter((message) => message.id !== payload.id));
+              const targetId = payload.id;
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === targetId ? { ...message, deleted: true } : message,
+                ),
+              );
             }
             return;
           }
@@ -178,28 +242,14 @@ function ObsChatDockApp() {
               if (typeof oldest === 'string') seenMessageIds.current.delete(oldest);
             }
 
-            setPreviewMessages(null);
-            setMessages((current) => [...current, message]);
-
-            const duration = active.flow.durationSeconds;
-            if (duration > 0) {
-              window.setTimeout(() => removeMessage(message.id), duration * 1000);
-            }
+            setMessages((current) => {
+              const next = [...current, message];
+              return next.length > 500 ? next.slice(-500) : next;
+            });
             return;
           }
           case 'reload': {
             window.location.reload();
-            return;
-          }
-          case 'preview': {
-            const payload = envelope.payload as PreviewPayload;
-            if (payload?.enabled && Array.isArray(payload.messages) && payload.messages.length > 0) {
-              setPreviewMessages(
-                payload.messages.map((m) => normalizeChatOverlayMessage(m as Partial<ChatMessage>)),
-              );
-            } else {
-              setPreviewMessages(null);
-            }
             return;
           }
           default:
@@ -208,6 +258,7 @@ function ObsChatDockApp() {
       });
 
       socket.addEventListener('close', () => {
+        if (!disposed) setConnected(false);
         if (disposed) return;
         retryTimer = window.setTimeout(connect, 1500);
       });
@@ -228,23 +279,6 @@ function ObsChatDockApp() {
       }
       wsRef.current = null;
     };
-  }, [removeMessage]);
-
-  useEffect(() => {
-    setMessages((current) => current.slice(-settings.flow.maxMessages));
-  }, [settings.flow.maxMessages]);
-
-  useEffect(() => {
-    const measure = () => {
-      const scale = Math.min(
-        window.innerWidth / CHAT_OVERLAY_CANVAS.width,
-        (window.innerHeight - 36) / CHAT_OVERLAY_CANVAS.height,
-      );
-      setFit(Number.isFinite(scale) && scale > 0 ? scale : 1);
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
   }, []);
 
   const thirdParty = useMemo(
@@ -252,54 +286,414 @@ function ObsChatDockApp() {
     [providers, settings.emotes],
   );
 
+  const handleTimeout = useCallback((username: string) => {
+    const clean = username.replace(/^@+/, '').trim();
+    if (!clean || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ kind: 'timeout-user', user: clean, duration: 60 }));
+    setMessages((cur) =>
+      cur.map((m) =>
+        m.username.toLowerCase() === clean.toLowerCase() ? { ...m, deleted: true } : m,
+      ),
+    );
+  }, []);
+
+  const handleBan = useCallback((username: string) => {
+    const clean = username.replace(/^@+/, '').trim();
+    if (!clean || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ kind: 'ban-user', user: clean }));
+    setMessages((cur) =>
+      cur.map((m) =>
+        m.username.toLowerCase() === clean.toLowerCase() ? { ...m, deleted: true } : m,
+      ),
+    );
+  }, []);
+
+  const handleDelete = useCallback((messageId: string) => {
+    if (!messageId || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ kind: 'delete-message', messageId }));
+    setMessages((cur) => cur.map((m) => (m.id === messageId ? { ...m, deleted: true } : m)));
+  }, []);
+
+  const handleMention = useCallback((username: string) => {
+    const clean = username.replace(/^@+/, '').trim();
+    if (!clean) return;
+    setInputMsg((prev) => (prev ? `${prev.trimEnd()} @${clean} ` : `@${clean} `));
+    inputRef.current?.focus();
+  }, []);
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     const text = inputMsg.trim();
     if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     wsRef.current.send(JSON.stringify({ kind: 'send-chat', message: text }));
     setInputMsg('');
+    scrollToBottom();
   };
 
-  const isExact = Math.abs(fit - 1) < 0.001;
-  const displayMessages = previewMessages ?? messages;
-
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-transparent">
-      {/* Visual Chat Scene */}
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        <div
-          className={isExact ? 'h-full w-full' : 'co-fit'}
-          style={isExact ? undefined : { transform: `scale(${fit})`, transformOrigin: 'top left' }}
-        >
-          <ChatScene
-            settings={settings}
-            messages={displayMessages}
-            thirdParty={thirdParty}
-            alwaysRenderBlock={Boolean(previewMessages && previewMessages.length > 0)}
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#13171b] text-[#e6edf3] select-text font-sans">
+      <style>{`
+        @keyframes chatMsgIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-chat-in {
+          animation: chatMsgIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+      `}</style>
+      {/* Top Header */}
+      <header className="flex h-8 shrink-0 items-center justify-between border-b border-white/10 bg-[#182026] px-2.5 text-xs select-none">
+        <div className="flex items-center gap-2">
+          <span
+            className={`size-2 rounded-full transition-colors ${
+              connected ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-amber-400'
+            }`}
+            title={connected ? 'Connected to Streamer Hub' : 'Connecting...'}
           />
+          <span className="font-display font-bold uppercase tracking-wider text-[11.5px] text-white">
+            Streamer Chat
+          </span>
         </div>
+
+        <div className="flex items-center gap-1.5">
+          {/* Font Size Selector */}
+          <div className="flex items-center gap-0.5 rounded bg-black/40 p-0.5 font-mono text-[10px]">
+            {([12, 13, 14, 16] as const).map((size) => (
+              <button
+                key={size}
+                type="button"
+                onClick={() => changeFontSize(size)}
+                className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                  fontSize === size ? 'bg-accent text-white font-bold shadow-sm' : 'text-slate-300 hover:text-white hover:bg-white/10'
+                }`}
+                title={`Font Size: ${size}px`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+
+          {/* Clear Feed */}
+          <button
+            type="button"
+            onClick={() => setMessages([])}
+            className="p-1 rounded text-slate-300 hover:text-rose-400 hover:bg-white/10 transition-colors cursor-pointer"
+            title="Clear Chat Feed"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </header>
+
+      {/* Main Messages Feed Area */}
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-[#13171b]">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto px-2 py-1.5 custom-scrollbar"
+        >
+          {messages.length === 0 ? (
+            <div className="grid h-full place-items-center text-center select-none">
+              <div className="max-w-xs space-y-2 p-6">
+                <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-white/[0.08] text-slate-300">
+                  <MessageSquare size={20} />
+                </div>
+                <p className="text-xs text-slate-400 font-medium">
+                  Stream chat will appear here in real-time.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="min-h-full flex flex-col justify-end">
+              <div className="flex-1 min-h-0" />
+              <div className="space-y-1">
+                {messages.map((msg) => (
+                  <DockMessageRow
+                    key={msg.id}
+                    message={msg}
+                    fontSize={fontSize}
+                    thirdParty={thirdParty}
+                    onMention={handleMention}
+                    onTimeout={handleTimeout}
+                    onBan={handleBan}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Floating 'New Messages' Pill when Scrolled Up */}
+        {isScrolledUp && newMessagesCount > 0 && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="absolute bottom-3 start-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent px-3 py-1 font-sans text-xs font-semibold text-white shadow-lg hover:brightness-110 transition-all animate-bounce cursor-pointer"
+          >
+            <ArrowDown size={11} strokeWidth={2.5} />
+            <span>New messages</span>
+            <span className="rounded-full bg-black/40 px-1.5 py-0.2 text-[10px] font-bold">{newMessagesCount}</span>
+          </button>
+        )}
       </div>
 
       {/* Quick Input Bar for Streamer Dock in OBS */}
-      <form onSubmit={handleSend} className="flex h-9 shrink-0 items-center gap-1.5 border-t border-white/[0.08] bg-[#1a2228] px-2 select-text">
+      <form
+        onSubmit={handleSend}
+        className="flex h-9 shrink-0 items-center gap-1.5 border-t border-white/10 bg-[#182026] px-2 select-text"
+      >
         <input
+          ref={inputRef}
           type="text"
           dir="auto"
           value={inputMsg}
           onChange={(e) => setInputMsg(e.target.value)}
           placeholder="Send message to Twitch..."
-          className="h-7 flex-1 rounded bg-[#13171b] px-2 text-xs text-ink outline-none border border-white/[0.1] focus:border-accent"
+          className="h-7 flex-1 rounded bg-[#0f1418] px-2.5 text-xs text-white placeholder:text-slate-400 outline-none border border-white/15 focus:border-accent font-sans"
         />
         <button
           type="submit"
           disabled={!inputMsg.trim()}
-          className="flex h-7 items-center justify-center rounded bg-accent px-2.5 text-xs font-semibold text-accent-contrast disabled:opacity-40 cursor-pointer"
+          className="flex h-7 items-center justify-center rounded bg-accent px-3 text-xs font-bold text-white hover:brightness-110 disabled:opacity-40 cursor-pointer transition-colors shadow-sm"
+          title="Send"
         >
-          <Send size={12} />
+          <Send size={12} strokeWidth={2.5} />
         </button>
       </form>
     </div>
   );
+}
+
+interface DockMessageRowProps {
+  message: DockMessageItem;
+  fontSize: number;
+  thirdParty: ThirdPartyEmoteMap;
+  onMention: (user: string) => void;
+  onTimeout: (user: string) => void;
+  onBan: (user: string) => void;
+  onDelete: (id: string) => void;
+}
+
+function DockMessageRow({
+  message,
+  fontSize,
+  thirdParty,
+  onMention,
+  onTimeout,
+  onBan,
+  onDelete,
+}: DockMessageRowProps) {
+  const [hovered, setHovered] = useState(false);
+  const isRtl = isRtlText(message.message);
+  const timeStr = formatTime(message.timestamp);
+  const userColor = ensureReadableColor(message.color);
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className={`group relative rounded-[4px] px-2 py-0.5 transition-colors leading-snug animate-chat-in ${
+        message.deleted
+          ? 'opacity-40 bg-red-950/20 line-through'
+          : hovered
+          ? 'bg-white/[0.06]'
+          : 'hover:bg-white/[0.04]'
+      } ${message.isBroadcaster ? 'border-s-2 border-accent/80' : ''}`}
+      style={{ fontSize: `${fontSize}px` }}
+    >
+      <div className="flex items-baseline gap-1.5 flex-wrap">
+        {/* Timestamp */}
+        {timeStr && (
+          <span className="font-mono text-[11px] text-[#94a3b8] select-none shrink-0 font-medium">
+            {timeStr}
+          </span>
+        )}
+
+        {/* User Avatar if present */}
+        {message.avatarUrl && (
+          <img
+            src={message.avatarUrl}
+            alt=""
+            className="size-3.5 rounded-full object-cover shrink-0 select-none inline-block align-text-bottom"
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
+        )}
+
+        {/* Badges */}
+        <span className="inline-flex items-center gap-1 select-none shrink-0">
+          {message.isBroadcaster && (
+            <span
+              className="rounded bg-[#dc2626] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
+              title="Broadcaster"
+            >
+              Host
+            </span>
+          )}
+          {message.isMod && (
+            <span
+              className="rounded bg-[#16a34a] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
+              title="Moderator"
+            >
+              Mod
+            </span>
+          )}
+          {message.isVip && (
+            <span
+              className="rounded bg-[#d946ef] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
+              title="VIP"
+            >
+              VIP
+            </span>
+          )}
+          {message.isSubscriber && !message.isBroadcaster && (
+            <span
+              className="rounded bg-[#9333ea] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
+              title="Subscriber"
+            >
+              Sub
+            </span>
+          )}
+        </span>
+
+        {/* Username */}
+        <button
+          type="button"
+          onClick={() => onMention(message.username)}
+          className="font-bold hover:underline cursor-pointer select-text text-start"
+          style={{ color: userColor }}
+          title={`Click to mention @${message.username}`}
+        >
+          {message.username}
+        </button>
+        <span className="text-white/60 select-none font-bold">:</span>
+
+        {/* Message Content with Emotes & BiDi */}
+        <span
+          dir={isRtl ? 'rtl' : 'ltr'}
+          className={`break-words text-[#f8fafc] font-normal leading-relaxed select-text ${
+            isRtl ? 'font-arabic' : 'font-sans'
+          }`}
+        >
+          {message.deleted ? (
+            <em className="text-rose-400 font-mono text-[11.5px] italic select-none">Message deleted by moderator</em>
+          ) : (
+            <DockMessageText
+              text={message.message}
+              emotes={message.emotes}
+              thirdParty={thirdParty}
+              isRtl={isRtl}
+            />
+          )}
+        </span>
+      </div>
+
+      {/* Floating Action Buttons on Hover */}
+      {hovered && !message.deleted && (
+        <div className="absolute end-2 -top-3 z-20 flex items-center gap-1 rounded-md border border-white/20 bg-[#1e2732] px-1 py-0.5 shadow-xl select-none">
+          {/* Mention */}
+          <button
+            type="button"
+            onClick={() => onMention(message.username)}
+            className="rounded p-1 text-sky-400 hover:text-white hover:bg-sky-500/30 transition-colors cursor-pointer"
+            title={`Mention @${message.username}`}
+          >
+            <AtSign size={13} strokeWidth={2.2} />
+          </button>
+
+          {/* Timeout 60s */}
+          <button
+            type="button"
+            onClick={() => onTimeout(message.username)}
+            className="rounded p-1 text-amber-400 hover:text-white hover:bg-amber-500/30 transition-colors cursor-pointer"
+            title={`Timeout @${message.username} (60s)`}
+          >
+            <Clock size={13} strokeWidth={2.2} />
+          </button>
+
+          {/* Ban User */}
+          <button
+            type="button"
+            onClick={() => onBan(message.username)}
+            className="rounded p-1 text-rose-400 hover:text-white hover:bg-rose-500/30 transition-colors cursor-pointer"
+            title={`Ban @${message.username}`}
+          >
+            <Ban size={13} strokeWidth={2.2} />
+          </button>
+
+          {/* Delete Message */}
+          <button
+            type="button"
+            onClick={() => onDelete(message.id)}
+            className="rounded p-1 text-red-400 hover:text-white hover:bg-red-500/30 transition-colors cursor-pointer"
+            title="Delete message"
+          >
+            <Trash2 size={13} strokeWidth={2.2} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DockMessageText({
+  text,
+  emotes,
+  thirdParty,
+  isRtl,
+}: {
+  text: string;
+  emotes?: readonly EmoteRange[];
+  thirdParty?: ThirdPartyEmoteMap;
+  isRtl: boolean;
+}) {
+  const { tokens } = useMemo(
+    () => tokenizeMessage(text, emotes, thirdParty, { twitch: true }),
+    [text, emotes, thirdParty],
+  );
+
+  const hasEmotes = tokens.some((t) => t.type === 'emote');
+  if (!hasEmotes) {
+    return <span>{formatBidiText(text, isRtl)}</span>;
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" dir={isRtl ? 'rtl' : 'ltr'}>
+      {tokens.map((token, index) =>
+        token.type === 'emote' ? (
+          <img
+            key={`emote-${index}`}
+            src={token.url}
+            alt={token.name}
+            title={token.name}
+            className="inline-block h-[1.35em] w-auto max-w-[2.5em] object-contain align-middle select-none"
+            loading="eager"
+            onError={(e) => {
+              const replacement = document.createElement('span');
+              replacement.textContent = token.name;
+              e.currentTarget.replaceWith(replacement);
+            }}
+          />
+        ) : (
+          <span key={`text-${index}`} dir={isRtl ? 'rtl' : 'ltr'}>
+            {formatBidiText(token.value, isRtl)}
+          </span>
+        ),
+      )}
+    </span>
+  );
+}
+
+function formatTime(iso?: string): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
 }
 
 function parseEnvelope(value: unknown): OverlayEnvelope | null {

@@ -524,6 +524,25 @@ const EN = {
   'chat.minLengthHint': 'Drops very short spam. 0 disables the check.',
   'chat.animationDuration': 'Animation Duration',
   'chat.obsUrlHint2': 'Add a Browser Source in OBS at 1920x1080 and leave it at 100% scale. Scaling the source inside OBS will soften the overlay.',
+  'chat.overlays.title': 'Overlays',
+  'chat.overlays.main': 'Main',
+  'chat.overlays.add': 'Add Overlay',
+  'chat.overlays.newPrompt': 'Enter a name for the new chat overlay:',
+  'chat.overlays.newDefaultName': 'Custom Overlay',
+  'chat.overlays.duplicate': 'Duplicate',
+  'chat.overlays.rename': 'Rename',
+  'chat.overlays.renamePrompt': 'Enter new name for overlay:',
+  'chat.overlays.delete': 'Delete',
+  'chat.overlays.deleteConfirm': 'Are you sure you want to delete overlay "{name}"?',
+  'chat.overlays.copySettings': 'Copy Settings',
+  'chat.overlays.pasteSettings': 'Paste Settings',
+  'chat.overlays.copied': 'Settings copied!',
+  'chat.overlays.pasted': 'Settings pasted!',
+  'chat.overlays.cannotDeleteMain': 'Cannot delete the main chat overlay.',
+  'chat.overlays.browserUrl': 'OBS Browser Source URL',
+  'chat.overlays.copyUrl': 'Copy URL',
+  'chat.overlays.urlCopied': 'URL copied to clipboard!',
+  'chat.overlays.openBrowser': 'Open in Browser',
 } as const;
 
 const AR: Record<keyof typeof EN, string> = {
@@ -1037,6 +1056,25 @@ const AR: Record<keyof typeof EN, string> = {
   'chat.minLengthHint': 'يحذف السبام القصير. 0 يعطّل الفحص.',
   'chat.animationDuration': 'مدة الحركة',
   'chat.obsUrlHint2': 'أضف Browser Source في OBS بمقاس 1920x1080 واتركه بمقياس 100%. تصغير المصدر داخل OBS يقلل حدة العرض.',
+  'chat.overlays.title': 'شاشات الدردشة',
+  'chat.overlays.main': 'الرئيسية',
+  'chat.overlays.add': 'إضافة شاشة جديدة',
+  'chat.overlays.newPrompt': 'أدخل اسماً لشاشة الدردشة الجديدة:',
+  'chat.overlays.newDefaultName': 'شاشة مخصصة',
+  'chat.overlays.duplicate': 'تكرار',
+  'chat.overlays.rename': 'إعادة تسمية',
+  'chat.overlays.renamePrompt': 'أدخل الاسماً الجديداً للشاشة:',
+  'chat.overlays.delete': 'حذف',
+  'chat.overlays.deleteConfirm': 'هل أنت متأكد من حذف الشاشة "{name}"؟',
+  'chat.overlays.copySettings': 'نسخ الإعدادات',
+  'chat.overlays.pasteSettings': 'لصق الإعدادات',
+  'chat.overlays.copied': 'تم نسخ الإعدادات!',
+  'chat.overlays.pasted': 'تم لصق الإعدادات!',
+  'chat.overlays.cannotDeleteMain': 'لا يمكن حذف شاشة الدردشة الرئيسية.',
+  'chat.overlays.browserUrl': 'رابط متصفح OBS',
+  'chat.overlays.copyUrl': 'نسخ الرابط',
+  'chat.overlays.urlCopied': 'تم نسخ الرابط إلى الحافظة!',
+  'chat.overlays.openBrowser': 'فتح في المتصفح',
 };
 
 
@@ -1300,6 +1338,16 @@ Object.assign(EN, {
   'obsChat.guideStep1': '1. In OBS Studio, open Docks → Custom Browser Docks...',
   'obsChat.guideStep2': '2. Set Dock Name to "Streamer Chat" and paste the URL below.',
   'obsChat.guideStep3': '3. Click Apply, and dock the chat panel anywhere in your OBS workspace!',
+
+  'reauthPrompt.badge': 'Action Required',
+  'reauthPrompt.title': 'Twitch Re-authentication Required',
+  'reauthPrompt.subtitle': 'Update v0.3.0 brings in-chat moderation to Streamer Chat and OBS',
+  'reauthPrompt.desc': 'Streamer Hub now supports quick Timeout, Ban, and Message Deletion directly from your chat feed. To allow the app to perform moderation actions on your channel, Twitch requires you to re-authenticate with the updated permissions.',
+  'reauthPrompt.benefit1': 'Live Timeout (60s) & Ban directly on message hover',
+  'reauthPrompt.benefit2': 'Direct message deletion on Twitch and stream overlays',
+  'reauthPrompt.benefit3': 'Secure official Twitch OAuth authorization',
+  'reauthPrompt.authorizeBtn': 'Re-authenticate with Twitch',
+  'reauthPrompt.laterBtn': 'Remind Me Later',
 });
 
 Object.assign(AR, {
@@ -1562,6 +1610,16 @@ Object.assign(AR, {
   'obsChat.guideStep1': '1. في برنامج OBS Studio، افتح قائمة Docks ثم Custom Browser Docks...',
   'obsChat.guideStep2': '2. اكتب اسم النافذة "Streamer Chat" والصق الرابط أدناه.',
   'obsChat.guideStep3': '3. اضغط Apply وثبّت نافذة الشات في أي مكان يناسبك في واجهة OBS!',
+
+  'reauthPrompt.badge': 'مطلوب إجراء',
+  'reauthPrompt.title': 'إعادة مصادقة تويتش مطلوبة',
+  'reauthPrompt.subtitle': 'تحديث v0.3.0 يضيف أدوات الإشراف المباشر في شات البث وOBS',
+  'reauthPrompt.desc': 'يدعم Streamer Hub الآن ميزات الكتم (Timeout)، الحظر (Ban)، وحذف الرسائل مباشرة من واجهة الشات. لتتمكن من تنفيذ إجراءات الإشراف على قناتك، يطلب تويتش إعادة تسجيل الدخول لمنح الصلاحيات الجديدة.',
+  'reauthPrompt.benefit1': 'كتم مؤقت (60 ثانية) وحظر مباشر بضغطة زر',
+  'reauthPrompt.benefit2': 'حذف فوري للرسائل على تويتش والأوفرباي',
+  'reauthPrompt.benefit3': 'مصادقة رسمية وآمنة عبر تويتش OAuth',
+  'reauthPrompt.authorizeBtn': 'إعادة المصادقة مع تويتش',
+  'reauthPrompt.laterBtn': 'تذكيري لاحقاً',
 });
 
 export const STRINGS: Record<Language, Dict> = { en: EN as unknown as Dict, ar: AR as unknown as Dict };

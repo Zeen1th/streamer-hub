@@ -117,7 +117,9 @@ function OverlayApp() {
     const connect = () => {
       if (disposed) return;
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      socket = new WebSocket(`${scheme}://${window.location.host}/ws`);
+      const urlParams = new URLSearchParams(window.location.search);
+      const overlayId = urlParams.get('id') || urlParams.get('overlayId') || 'default';
+      socket = new WebSocket(`${scheme}://${window.location.host}/ws?target=overlay&id=${encodeURIComponent(overlayId)}`);
 
       socket.addEventListener('open', () => {
         reconnectAttempt.current = 0;

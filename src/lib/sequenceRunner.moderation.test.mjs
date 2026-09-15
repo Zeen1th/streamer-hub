@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  extractCommandArguments,
   extractTargetUsername,
   replaceSequenceTokens,
   executeSequence,
@@ -93,7 +94,7 @@ test('executeSequence runs smart_timeout moderation step and invokes sink', asyn
   assert.ok(modNotice, 'Expected note that user was a mod and will be re-modded');
 });
 
-test('executeSequence skips moderation when targetUser is explicitly empty string (except clear_chat)', async () => {
+test('executeSequence halts moderation when targetUser is explicitly empty string (except clear_chat)', async () => {
   const actionsCalled = [];
 
   const sequence = {
@@ -126,12 +127,13 @@ test('executeSequence skips moderation when targetUser is explicitly empty strin
     },
   });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.executedSteps, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.executedSteps, 0);
   assert.equal(actionsCalled.length, 0, 'Should not call action if target is empty');
+  assert.match(result.error || '', /empty target username/i);
 });
 
-test('executeSequence skips timeout moderation step when input is empty and targetUser is {input}', async () => {
+test('executeSequence halts moderation step when input is empty and targetUser is {input}', async () => {
   const actionsCalled = [];
 
   const sequence = {
@@ -164,9 +166,10 @@ test('executeSequence skips timeout moderation step when input is empty and targ
     },
   });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.executedSteps, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.executedSteps, 0);
   assert.equal(actionsCalled.length, 0, 'Should not call action when target is empty');
+  assert.match(result.error || '', /empty target username/i);
 });
 
 test('executeSequence times out custom provided targetUser in test context', async () => {
@@ -243,4 +246,121 @@ test('executeSequence executes clear_chat without target user', async () => {
   assert.equal(result.executedSteps, 1);
   assert.equal(actionsCalled.length, 1);
   assert.equal(actionsCalled[0].action, 'clear_chat');
+});
+
+test('extractCommandArguments strips trigger cleanly from chat messages', () => {
+  assert.equal(extractCommandArguments('!timeout @kirin_x_', '!timeout'), '@kirin_x_');
+  assert.equal(extractCommandArguments('!TIMEOUT  @kirin_x_ 60', '!timeout'), '@kirin_x_ 60');
+  assert.equal(extractCommandArguments('!timeout', '!timeout'), '');
+  assert.equal(extractCommandArguments('!timeout   ', '!timeout'), '');
+  assert.equal(extractCommandArguments('bonk @viewer reason', 'bonk'), '@viewer reason');
+  assert.equal(extractCommandArguments('unrelated message', '!timeout'), 'unrelated message');
+});
+
+test('chat command sequence with arguments correctly isolates target instead of command name', async () => {
+  const actionsCalled = [];
+  const chatsSent = [];
+
+  const sequence = {
+    id: 'seq-chat-timeout',
+    enabled: true,
+    name: 'Bonk Command',
+    triggerType: 'chat',
+    chatTrigger: '!bonk',
+    cooldownSeconds: 0,
+    steps: [
+      {
+        id: 'step-1',
+        type: 'moderation',
+        moderationAction: 'smart_timeout',
+        targetUser: '{input}',
+        durationSeconds: 30,
+        reason: 'Bonked by {username}',
+      },
+      {
+        id: 'step-2',
+        type: 'chat',
+        chatMessage: 'Bonked @{target} for 30s!',
+      },
+    ],
+  };
+
+  // Simulating message: "!bonk @spammer 30s"
+  const rawChat = '!bonk @spammer 30s';
+  const args = extractCommandArguments(rawChat, sequence.chatTrigger);
+  assert.equal(args, '@spammer 30s');
+
+  const ctx = {
+    username: 'ModUser',
+    source: 'chat',
+    userInput: args,
+  };
+
+  const result = await executeSequence(sequence, ctx, {
+    executeModerationAction: async (action, target, durationSeconds, reason) => {
+      actionsCalled.push({ action, target, durationSeconds, reason });
+      return { ok: true, wasMod: false };
+    },
+    sendChatMessage: async (msg) => {
+      chatsSent.push(msg);
+      return true;
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.executedSteps, 2);
+  assert.equal(actionsCalled.length, 1);
+  assert.equal(actionsCalled[0].target, 'spammer', 'Target MUST be spammer, not bonk!');
+  assert.equal(chatsSent.length, 1);
+  assert.equal(chatsSent[0], 'Bonked @spammer for 30s!');
+});
+
+test('sequence execution halts when moderation action fails and does NOT execute subsequent chat message', async () => {
+  const chatsSent = [];
+  const logs = [];
+
+  const sequence = {
+    id: 'seq-fail-test',
+    enabled: true,
+    name: 'Self Timeout Attempt',
+    triggerType: 'chat',
+    chatTrigger: '!timeout',
+    cooldownSeconds: 0,
+    steps: [
+      {
+        id: 'step-1',
+        type: 'moderation',
+        moderationAction: 'timeout',
+        targetUser: '{input}',
+        durationSeconds: 60,
+      },
+      {
+        id: 'step-2',
+        type: 'chat',
+        chatMessage: '✅ @{target} has been timed out!',
+      },
+    ],
+  };
+
+  const ctx = {
+    username: 'Broadcaster',
+    source: 'chat',
+    userInput: '@Broadcaster',
+  };
+
+  const result = await executeSequence(sequence, ctx, {
+    executeModerationAction: async () => {
+      return { ok: false, error: 'CANNOT_TIMEOUT_BROADCASTER' };
+    },
+    sendChatMessage: async (msg) => {
+      chatsSent.push(msg);
+      return true;
+    },
+    log: (kind, msg) => logs.push({ kind, msg }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.executedSteps, 0);
+  assert.equal(chatsSent.length, 0, 'Subsequent chat message MUST NOT be sent when moderation fails');
+  assert.match(result.error || '', /Cannot timeout or ban the channel broadcaster/i);
 });

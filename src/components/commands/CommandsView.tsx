@@ -30,8 +30,6 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
 import { FeatureKeybindEditor } from '../tools/settings/FeatureKeybindEditor';
-import { ReplyComposer } from '../tools/auto-replies/ReplyComposer';
-import { TriggerTitleAction } from '../tools/auto-replies/TriggerTitleAction';
 import { CounterActionsGridView } from './CounterActionsGridView';
 import { AiReplyStudioView } from './AiReplyStudioView';
 import { ReplyStudioView } from './ReplyStudioView';
@@ -438,6 +436,10 @@ export function CommandsView() {
             <AiReplyStudioView
               rule={activeAiReply}
               onBack={() => setActiveAiReplyDetailId(null)}
+              onSwitchToNormal={() => {
+                setActiveAiReplyDetailId(null);
+                setActiveReplyDetailId(activeAiReply.id);
+              }}
               lang={lang}
             />
           ) : activeSequence ? (
@@ -1437,155 +1439,159 @@ function ReplyInspector({
   const update = useAutoReplyStore((s) => s.update);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
-  const undoHistory = useRef<string[]>([]);
 
   if (!rule) return null;
 
-  const setTrigger = (index: number, value: string) =>
-    update(rule.id, { triggers: rule.triggers.map((trigger, i) => i === index ? value : trigger) });
+  const isAi = rule.responseMode === 'ai';
+  const openStudio = () => {
+    if (isAi) {
+      onConfigureAiReply?.(rule.id);
+    } else {
+      onConfigureReply?.(rule.id);
+    }
+  };
 
-  const preview = rule.responseMode === 'ai'
+  const preview = isAi
     ? (rule.aiFallback || rule.aiInstructions || t(lang, 'workspace.aiGenerated'))
     : rule.response.replaceAll('{mention}', '@viewer').replaceAll('{username}', 'viewer').replaceAll('{message}', t(lang, 'workspace.sampleMessage'));
 
-  return <>
-    <InspectorHeader title={rule.triggers[0] || t(lang, 'workspace.untitled')} kind={rule.responseMode === 'ai' ? t(lang, 'workspace.aiReply') : t(lang, 'workspace.preparedReply')} onClose={onClose} />
-    <div className="app-scroll min-h-0 flex-1 space-y-4 px-3 py-3">
-      <InspectorField label={t(lang, 'workspace.triggerWord')}>
-        {rule.triggers.map((trigger, index) => <div key={index} className="mb-1 flex gap-1"><Input dir="auto" value={trigger} onChange={(event) => setTrigger(index, event.target.value)} />{rule.triggers.length > 1 && <Button size="sm" variant="ghost" onClick={() => update(rule.id, { triggers: rule.triggers.filter((_, i) => i !== index) })}><X size={12} /></Button>}</div>)}
-        <Button size="sm" variant="outline" onClick={() => update(rule.id, { triggers: [...rule.triggers, ''] })}><Plus size={12} />{t(lang, 'workspace.addTrigger')}</Button>
-      </InspectorField>
-      <InspectorField label={t(lang, 'workspace.matchMode')}><SegmentedControl value={rule.matchMode} options={[{ value: 'exact', label: t(lang, 'workspace.exact') }, { value: 'startsWith', label: t(lang, 'workspace.starts') }, { value: 'contains', label: t(lang, 'workspace.contains') }, { value: 'regex', label: t(lang, 'workspace.regex') }]} onChange={(matchMode) => update(rule.id, { matchMode })} /></InspectorField>
-      <InspectorField label={t(lang, 'workspace.responseType')}><SegmentedControl value={rule.responseMode ?? 'static'} options={[{ value: 'static', label: t(lang, 'workspace.prepared') }, { value: 'ai', label: t(lang, 'workspace.ai') }]} onChange={(responseMode) => update(rule.id, { responseMode })} /></InspectorField>
-      {rule.responseMode === 'ai' ? (
-        <>
-          {/* Middle Studio Launcher Card */}
-          <div className="rounded-[5px] border border-[#384048] bg-[#2e3338] p-3 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="ui-label">{t(lang, 'aiStudio.title')}</div>
-              <span className="rounded-[3px] border border-purple-500/30 bg-purple-500/15 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-[#c4b5fd] uppercase">
-                {rule.aiProvider === 'openrouter' ? 'OpenRouter' : 'Groq'}
-              </span>
-            </div>
+  const activeOverridesCount = rule.aiConditions?.length ?? 0;
 
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full justify-between h-8 text-[11px] rounded-[4px] border border-[#3d4856] bg-[#242a30] text-[#f0f3fa] hover:border-[#4d5a6c] hover:bg-[#2c333a]"
-              onClick={() => onConfigureAiReply?.(rule.id)}
+  return (
+    <>
+      <InspectorHeader
+        title={rule.triggers[0] ? (rule.triggers[0].startsWith('!') ? rule.triggers[0] : `!${rule.triggers[0]}`) : t(lang, 'workspace.untitled')}
+        kind={isAi ? t(lang, 'workspace.aiReply') : t(lang, 'workspace.preparedReply')}
+        onClose={onClose}
+      />
+      <div className="app-scroll min-h-0 flex-1 space-y-4 px-3 py-3">
+        {/* Quick Enable/Disable toggle */}
+        <div className="flex items-center justify-between rounded-md border border-hair bg-surface-2/40 px-3 py-2">
+          <div className="space-y-0.5">
+            <div className="text-[12.5px] font-bold text-ink">
+              {rule.enabled ? t(lang, 'workspace.enable') : t(lang, 'workspace.disable')}
+            </div>
+            <div className="font-mono text-[10px] text-muted">
+              {rule.enabled ? 'Active in chat' : 'Paused / Inactive'}
+            </div>
+          </div>
+          <Switch
+            checked={rule.enabled}
+            onChange={(enabled) => update(rule.id, { enabled })}
+            label={t(lang, 'workspace.enable')}
+          />
+        </div>
+
+        {/* Studio Launcher & Primary Config Card */}
+        <div className="rounded-[5px] border border-[#384048] bg-[#2e3338] p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="ui-label font-bold text-[11px]">Command Studio</span>
+            <span
+              className={`rounded-[3px] border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase ${
+                isAi
+                  ? 'border-purple-500/30 bg-purple-500/15 text-[#c4b5fd]'
+                  : 'border-[#38424d] bg-[#242b32] text-accent-text'
+              }`}
             >
-              <div className="flex items-center gap-1.5 font-bold">
-                <Sparkles size={12} className="text-accent-text" />
-                <span>{t(lang, 'aiStudio.openStudio')}</span>
-              </div>
-              <ChevronRight size={12} className="text-muted" />
-            </Button>
+              {isAi ? '✨ AI Reply' : '💬 Prepared'}
+            </span>
+          </div>
 
-            <div className="space-y-1 font-mono text-[10px] text-muted pt-1 border-t border-hair">
-              <div>
-                {rule.aiUserRestriction === 'allowlist'
-                  ? `Chatter Target: Only @${rule.aiTargetUsers?.join(', @') || 'selected users'}`
-                  : rule.aiUserRestriction === 'blocklist'
-                    ? `Chatter Target: Everyone except @${rule.aiTargetUsers?.join(', @') || 'selected users'}`
-                    : 'Chatter Target: Everyone'}
-              </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full justify-between h-9 text-[11.5px] rounded-[4px] border border-[#3d4856] bg-[#242a30] text-[#f0f3fa] hover:border-[#4d5a6c] hover:bg-[#2c333a] shadow-sm font-semibold"
+            onClick={openStudio}
+          >
+            <div className="flex items-center gap-2">
+              {isAi ? <Sparkles size={13} className="text-accent-text" /> : <Pencil size={13} className="text-accent-text" />}
+              <span>{isAi ? t(lang, 'aiStudio.openStudio') : t(lang, 'workspace.openReplyStudio')}</span>
             </div>
-          </div>
+            <ChevronRight size={13} className="text-muted" />
+          </Button>
 
-          {/* Model Options */}
-          <div className="space-y-2 border-t border-hair pt-2">
-            <InspectorField label={t(lang, 'workspace.provider')}>
-              <SegmentedControl
-                value={rule.aiProvider ?? 'groq'}
-                options={[
-                  { value: 'groq', label: 'Groq (Default)' },
-                  { value: 'openrouter', label: 'OpenRouter' },
-                ]}
-                onChange={(aiProvider) =>
-                  update(rule.id, {
-                    aiProvider,
-                    aiModel: aiProvider === 'openrouter' ? 'meta-llama/llama-3.2-3b-instruct:free' : 'llama-3.1-8b-instant',
-                  })
-                }
-              />
-            </InspectorField>
-
-            <InspectorField label={t(lang, 'workspace.model')}>
-              <Input
-                dir="ltr"
-                className="font-mono text-[11px] h-8"
-                value={rule.aiModel ?? 'llama-3.1-8b-instant'}
-                onChange={(e) => update(rule.id, { aiModel: e.target.value })}
-              />
-            </InspectorField>
-          </div>
-
-          {/* Trigger Rank */}
-          <PermissionField
-            value={rule.minimumRank ?? 'everyone'}
-            onChange={(minimumRank) => update(rule.id, { minimumRank })}
-          />
-
-          {/* Cooldowns */}
-          <CooldownField
-            value={rule.cooldownSeconds}
-            onChange={(cooldownSeconds) => update(rule.id, { cooldownSeconds })}
-          />
-          <InspectorField label={t(lang, 'autoReplies.userCooldown')}>
-            <Input
-              dir="ltr"
-              type="number"
-              min={0}
-              max={3600}
-              value={rule.userCooldownSeconds ?? 0}
-              onChange={(event) =>
-                update(rule.id, {
-                  userCooldownSeconds: Math.max(0, Math.min(3600, Number(event.target.value) || 0)),
-                })
-              }
+          {/* Quick Mode Switch */}
+          <div className="space-y-1 pt-1 border-t border-hair">
+            <div className="ui-label text-[10px] text-muted">{t(lang, 'workspace.responseType')}</div>
+            <SegmentedControl
+              value={rule.responseMode ?? 'static'}
+              options={[
+                { value: 'static', label: t(lang, 'workspace.prepared') },
+                { value: 'ai', label: t(lang, 'workspace.ai') },
+              ]}
+              onChange={(responseMode) => update(rule.id, { responseMode })}
             />
-          </InspectorField>
-        </>
-      ) : (
-        <>
-          {/* Middle Studio Launcher Card */}
-          <div className="rounded-[5px] border border-[#384048] bg-[#2e3338] p-3 space-y-2.5">
+          </div>
+
+          {/* Read-only Triggers Summary */}
+          <div className="space-y-1.5 pt-1 border-t border-hair">
             <div className="flex items-center justify-between">
-              <div className="ui-label">{t(lang, 'workspace.preparedReply')}</div>
-              <span className="rounded-[3px] border border-[#38424d] bg-[#242b32] px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-accent-text">
-                {t(lang, 'workspace.replyPill')}
+              <span className="ui-label text-[10px] text-muted">{t(lang, 'workspace.triggerWord')}</span>
+              <button
+                type="button"
+                onClick={openStudio}
+                className="text-[10px] font-mono text-accent-text hover:underline cursor-pointer"
+              >
+                Edit in Studio
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {rule.triggers.map((trig, idx) => (
+                <span
+                  key={idx}
+                  className="rounded border border-hair bg-surface-2 px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-ink"
+                >
+                  {trig.startsWith('!') ? trig : `!${trig}`}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Permissions & Cooldowns */}
+        <PermissionField
+          value={rule.minimumRank ?? 'everyone'}
+          onChange={(minimumRank) => update(rule.id, { minimumRank })}
+        />
+
+        <CooldownField
+          value={rule.cooldownSeconds}
+          onChange={(cooldownSeconds) => update(rule.id, { cooldownSeconds })}
+        />
+
+        <InspectorField label={t(lang, 'autoReplies.userCooldown')}>
+          <Input
+            dir="ltr"
+            type="number"
+            min={0}
+            max={3600}
+            value={rule.userCooldownSeconds ?? 0}
+            onChange={(event) =>
+              update(rule.id, {
+                userCooldownSeconds: Math.max(0, Math.min(3600, Number(event.target.value) || 0)),
+              })
+            }
+          />
+        </InspectorField>
+
+        {/* Quick Chatter Overrides Indicator */}
+        {activeOverridesCount > 0 && (
+          <div className="rounded border border-amber-500/25 bg-amber-500/10 p-2 text-[11px] text-amber-200">
+            <div className="font-semibold flex items-center justify-between">
+              <span>Chatter Overrides</span>
+              <span className="font-mono text-[10px] bg-amber-500/20 px-1 rounded">
+                {activeOverridesCount} active
               </span>
             </div>
-
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full justify-between h-8 text-[11px] rounded-[4px] border border-[#3d4856] bg-[#242a30] text-[#f0f3fa] hover:border-[#4d5a6c] hover:bg-[#2c333a]"
-              onClick={() => onConfigureReply?.(rule.id)}
-            >
-              <div className="flex items-center gap-1.5 font-bold">
-                <Pencil size={12} className="text-accent-text" />
-                <span>{t(lang, 'workspace.openReplyStudio')}</span>
-              </div>
-              <ChevronRight size={12} className="text-muted" />
-            </Button>
+            <div className="text-[10.5px] text-amber-300/80 mt-0.5">
+              Specific viewers have custom override responses configured in Studio.
+            </div>
           </div>
-
-          <InspectorField label={t(lang, 'workspace.response')}><ReplyComposer value={rule.response} onChange={(response) => { undoHistory.current.push(rule.response); update(rule.id, { response }); }} onUndo={() => { const response = undoHistory.current.pop(); if (response !== undefined) update(rule.id, { response }); }} placeholder={t(lang, 'workspace.response')} tokens={[{ token: '{mention}', label: '{mention}' }, { token: '{username}', label: '{username}' }, { token: '{message}', label: '{message}' }]} /></InspectorField>
-          <PermissionField value={rule.minimumRank ?? 'everyone'} onChange={(minimumRank) => update(rule.id, { minimumRank })} />
-          <CooldownField value={rule.cooldownSeconds} onChange={(cooldownSeconds) => update(rule.id, { cooldownSeconds })} />
-          <InspectorField label={t(lang, 'autoReplies.userCooldown')}><Input dir="ltr" type="number" min={0} max={3600} value={rule.userCooldownSeconds ?? 0} onChange={(event) => update(rule.id, { userCooldownSeconds: Math.max(0, Math.min(3600, Number(event.target.value) || 0)) })} /></InspectorField>
-          <div className="border-t-2 border-rule pt-3">
-            <div className="ui-label mb-2">{t(lang, 'workspace.writesTo')}</div>
-            <SinkRow label={t(lang, 'workspace.chatReply')} detail={rule.response || t(lang, 'workspace.notSet')} checked={rule.responseEnabled !== false} onChange={(responseEnabled) => update(rule.id, { responseEnabled })} />
-            <SinkRow label={t(lang, 'workspace.streamTitle')} detail={rule.titleTemplate || t(lang, 'workspace.notSet')} checked={rule.titleActionEnabled ?? false} onChange={(titleActionEnabled) => update(rule.id, { titleActionEnabled })} />
-          </div>
-          {rule.titleActionEnabled && <TriggerTitleAction rule={rule} lang={lang} update={update} />}
-        </>
-      )}
-    </div>
-    <InspectorFooter outputs={[preview].filter(Boolean)} savedAt={null} onDelete={() => useAutoReplyStore.getState().remove(rule.id)} />
-  </>;
+        )}
+      </div>
+      <InspectorFooter outputs={[preview].filter(Boolean)} savedAt={null} onDelete={() => useAutoReplyStore.getState().remove(rule.id)} />
+    </>
+  );
 }
 
 function InspectorHeader({ title, kind, onClose }: { title: string; kind: string; onClose: () => void }) {

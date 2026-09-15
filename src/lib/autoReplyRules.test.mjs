@@ -260,9 +260,10 @@ test('selectBestMatchingAutoReply resolves duplicate trigger candidates by chatt
   assert.equal(normalResult?.id, 'static-hello');
 });
 
-test('evaluateRuleExecution evaluates chatter override priority (static, AI, or ignore)', () => {
-  const unifiedRule = {
-    id: 'unified-1',
+test('evaluateRuleExecution enforces mode isolation: Prepared commands reject AI replies, AI commands reject static replies', () => {
+  // Prepared command: only static text and ignore allowed
+  const preparedRule = {
+    id: 'prep-1',
     responseMode: 'static',
     response: 'Welcome to the channel, {username}!',
     aiConditions: [
@@ -270,51 +271,97 @@ test('evaluateRuleExecution evaluates chatter override priority (static, AI, or 
         id: 'c1',
         ifType: 'username',
         ifValue: 'special_friend',
-        thenType: 'instructions',
-        thenValue: 'Welcome my best friend and ask about the weekend!',
+        thenType: 'static_reply',
+        thenValue: 'Welcome my best friend {mention}!',
       },
       {
         id: 'c2',
-        ifType: 'role',
-        ifValue: 'mod',
-        thenType: 'static_reply',
-        thenValue: 'Salute to moderator {mention}!',
-      },
-      {
-        id: 'c3',
         ifType: 'username',
         ifValue: 'banned_spammer',
         thenType: 'ignore',
         thenValue: '',
       },
+      {
+        id: 'c3_invalid_ai',
+        ifType: 'username',
+        ifValue: 'ai_fan',
+        thenType: 'instructions',
+        thenValue: 'This AI instruction should NOT execute because rule is Prepared',
+      },
     ],
   };
 
-  // 1. Friend matches override -> AI instructions
+  // 1. Friend matches static override -> static custom reply
   const friendMsg = { id: '1', username: 'special_friend', message: 'hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
-  const friendPlan = evaluateRuleExecution(unifiedRule, friendMsg);
-  assert.equal(friendPlan.type, 'ai');
+  const friendPlan = evaluateRuleExecution(preparedRule, friendMsg);
+  assert.equal(friendPlan.type, 'static');
   assert.equal(friendPlan.isOverride, true);
-  assert.equal(friendPlan.instructions, 'Welcome my best friend and ask about the weekend!');
+  assert.equal(friendPlan.text, 'Welcome my best friend {mention}!');
 
-  // 2. Mod matches override -> static custom reply
-  const modMsg = { id: '2', username: 'alex', message: 'hello', isBroadcaster: false, isMod: true, isVip: false, isSubscriber: false };
-  const modPlan = evaluateRuleExecution(unifiedRule, modMsg);
-  assert.equal(modPlan.type, 'static');
-  assert.equal(modPlan.isOverride, true);
-  assert.equal(modPlan.text, 'Salute to moderator {mention}!');
-
-  // 3. Spammer matches override -> ignore/silent
-  const spamMsg = { id: '3', username: 'banned_spammer', message: 'hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
-  const spamPlan = evaluateRuleExecution(unifiedRule, spamMsg);
+  // 2. Spammer matches ignore override -> ignore/silent
+  const spamMsg = { id: '2', username: 'banned_spammer', message: 'hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
+  const spamPlan = evaluateRuleExecution(preparedRule, spamMsg);
   assert.equal(spamPlan.type, 'ignore');
 
-  // 4. Standard viewer falls back to default static response (Priority 2)
+  // 3. User matching AI instruction condition does NOT get AI reply because rule is Prepared (falls back to default static)
+  const aiFanMsg = { id: '3', username: 'ai_fan', message: 'hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
+  const aiFanPlan = evaluateRuleExecution(preparedRule, aiFanMsg);
+  assert.equal(aiFanPlan.type, 'static');
+  assert.equal(aiFanPlan.isOverride, false);
+  assert.equal(aiFanPlan.text, 'Welcome to the channel, {username}!');
+
+  // 4. Standard viewer falls back to default static response
   const viewerMsg = { id: '4', username: 'normal_viewer', message: 'hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
-  const viewerPlan = evaluateRuleExecution(unifiedRule, viewerMsg);
+  const viewerPlan = evaluateRuleExecution(preparedRule, viewerMsg);
   assert.equal(viewerPlan.type, 'static');
   assert.equal(viewerPlan.isOverride, false);
-  assert.equal(viewerPlan.text, 'Welcome to the channel, {username}!');
+
+  // AI command: only AI instructions and ignore allowed
+  const aiRule = {
+    id: 'ai-1',
+    responseMode: 'ai',
+    aiInstructions: 'Default AI persona banter',
+    aiConditions: [
+      {
+        id: 'a1',
+        ifType: 'username',
+        ifValue: 'special_friend',
+        thenType: 'instructions',
+        thenValue: 'Roast my friend playfully',
+      },
+      {
+        id: 'a2',
+        ifType: 'username',
+        ifValue: 'banned_spammer',
+        thenType: 'ignore',
+        thenValue: '',
+      },
+      {
+        id: 'a3_invalid_static',
+        ifType: 'username',
+        ifValue: 'static_fan',
+        thenType: 'static_reply',
+        thenValue: 'This normal text should NOT execute because rule is AI',
+      },
+    ],
+  };
+
+  // 5. Friend matches AI override -> AI instructions
+  const aiFriendPlan = evaluateRuleExecution(aiRule, friendMsg);
+  assert.equal(aiFriendPlan.type, 'ai');
+  assert.equal(aiFriendPlan.isOverride, true);
+  assert.equal(aiFriendPlan.instructions, 'Roast my friend playfully');
+
+  // 6. Spammer matches ignore override on AI rule -> ignore/silent
+  const aiSpamPlan = evaluateRuleExecution(aiRule, spamMsg);
+  assert.equal(aiSpamPlan.type, 'ignore');
+
+  // 7. User matching static reply condition on AI rule does NOT get static response (falls back to default AI instructions)
+  const staticFanMsg = { id: '5', username: 'static_fan', message: 'hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
+  const staticFanPlan = evaluateRuleExecution(aiRule, staticFanMsg);
+  assert.equal(staticFanPlan.type, 'ai');
+  assert.equal(staticFanPlan.isOverride, false);
+  assert.equal(staticFanPlan.instructions, 'Default AI persona banter');
 });
 
 

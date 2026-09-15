@@ -13,6 +13,7 @@ import {
   DEFAULT_CHAT_INSPECTOR_WIDTH,
   MIN_CHAT_INSPECTOR_WIDTH,
   MAX_CHAT_INSPECTOR_WIDTH,
+  ensureReadableColor,
 } from './chatOverlay.ts';
 
 test('defaults are version 2 and internally consistent', () => {
@@ -284,5 +285,19 @@ test('clampChatInspectorWidth respects container bounds reserving canvas width',
   // If container is 900px, 900 - 320 = 580 dynamic max
   assert.equal(clampChatInspectorWidth(650, 900), 580);
   assert.equal(clampChatInspectorWidth(400, 900), 400);
+});
+
+test('ensureReadableColor brightens dark colors and leaves bright colors unchanged', () => {
+  // Pure dark blue #0000ff should be boosted
+  const darkBlue = ensureReadableColor('#0000ff');
+  assert.notEqual(darkBlue, '#0000ff');
+  assert.ok(darkBlue.startsWith('#'));
+
+  // Bright cyan #00ffff should stay the same
+  assert.equal(ensureReadableColor('#00ffff'), '#00ffff');
+
+  // Fallback for null / invalid
+  assert.equal(ensureReadableColor(null), '#38bdf8');
+  assert.equal(ensureReadableColor('invalid'), '#38bdf8');
 });
 

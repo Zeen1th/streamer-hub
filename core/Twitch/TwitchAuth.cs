@@ -29,7 +29,7 @@ public static class TwitchConstants
 {
     public const string ClientId = "n2vystw7pymd6owm06wahn67hgr08z";
     public const string RedirectUri = "http://localhost:8787/oauth";
-    public const string Scopes = "chat:read chat:edit channel:manage:broadcast channel:read:redemptions moderator:manage:banned_users channel:manage:moderators channel:manage:vips moderator:manage:chat_messages moderation:read";
+    public const string Scopes = "chat:read chat:edit channel:manage:broadcast channel:read:redemptions moderator:manage:banned_users channel:manage:moderators channel:manage:vips moderator:manage:chat_messages moderation:read moderator:manage:shoutouts";
     public const string IrcHost = "irc.chat.twitch.tv";
     public const int IrcPort = 6697;
 }
