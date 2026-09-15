@@ -300,6 +300,37 @@ export function createChatOverlayStore(
         return;
       }
 
+      const isSelfItem = Boolean(normalized.isSelf || normalized.id.startsWith('self-'));
+      let recentDuplicateIndex = -1;
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        const m = state.messages[i];
+        const isSelfM = Boolean(m.isSelf || m.id.startsWith('self-'));
+        if (!isSelfItem && !isSelfM) continue;
+        const sameUser =
+          (m.userId && normalized.userId && m.userId.toLowerCase() === normalized.userId.toLowerCase()) ||
+          m.username.toLowerCase() === normalized.username.toLowerCase();
+        const sameText = m.message.trim() === normalized.message.trim();
+        if (!sameUser || !sameText) continue;
+        const mTime = new Date(m.timestamp).getTime();
+        const itemTime = new Date(normalized.timestamp).getTime();
+        const withinWindow = Number.isFinite(mTime) && Number.isFinite(itemTime) ? Math.abs(itemTime - mTime) < 15000 : true;
+        if (withinWindow) {
+          recentDuplicateIndex = i;
+          break;
+        }
+      }
+
+      if (recentDuplicateIndex >= 0) {
+        const existing = state.messages[recentDuplicateIndex];
+        const existingIsSelf = Boolean(existing.isSelf || existing.id.startsWith('self-'));
+        if (existingIsSelf && !isSelfItem) {
+          const updated = [...state.messages];
+          updated[recentDuplicateIndex] = { ...existing, ...normalized, isSelf: true };
+          set({ messages: updated });
+        }
+        return;
+      }
+
       // A duration of 0 means messages never expire, so no timer is scheduled.
       const duration = state.settings.flow.durationSeconds;
       const timerId =

@@ -11,6 +11,10 @@ await RunAsync("shutdown_policy_only_diverts_a_user_window_close_to_tray", Shutd
 await RunAsync("profile_cache_batches_and_reuses_successful_lookups", ProfileCacheBatchesAndReusesSuccessfulLookupsAsync);
 await RunAsync("profile_cache_exposes_warmed_avatar_synchronously", ProfileCacheExposesWarmedAvatarSynchronouslyAsync);
 await RunAsync("profile_cache_logs_failures_once_per_user_session", ProfileCacheLogsFailuresOncePerUserSessionAsync);
+await RunAsync("echo_tracker_detects_and_consumes_host_echoes", EchoTrackerDetectsAndConsumesHostEchoesAsync);
+await RunAsync("echo_tracker_ignores_non_host_or_untracked_messages", EchoTrackerIgnoresNonHostOrUntrackedMessagesAsync);
+await RunAsync("echo_tracker_expires_stale_entries", EchoTrackerExpiresStaleEntriesAsync);
+await RunAsync("echo_tracker_handles_multiple_identical_messages", EchoTrackerHandlesMultipleIdenticalMessagesAsync);
 
 if (failures.Count > 0)
 {
@@ -23,7 +27,7 @@ if (failures.Count > 0)
     return;
 }
 
-Console.WriteLine("PASS 7/7");
+Console.WriteLine("PASS 11/11");
 
 async Task RunAsync(string name, Func<Task> test)
 {
@@ -202,6 +206,82 @@ async Task ProfileCacheLogsFailuresOncePerUserSessionAsync()
     var secondResult = second.Single();
     AssertFalse(secondResult.ShouldLogFailure, "second missing avatar should not log again");
     AssertEqual(1, fetchCount, "missing avatar should be cached for the session");
+}
+
+Task EchoTrackerDetectsAndConsumesHostEchoesAsync()
+{
+    var tracker = new HostMessageEchoTracker(TimeSpan.FromSeconds(25));
+
+    tracker.TrackSent("Streamer", "Welcome everyone to the stream!");
+    AssertEqual(1, tracker.TrackedCount, "tracked count after 1 message");
+
+    // Broadcaster IRC echo arrives
+    var consumed = tracker.IsEchoAndConsume("streamer", "Welcome everyone to the stream!", channelLogin: "streamer");
+    AssertTrue(consumed, "should consume first matching echo");
+    AssertEqual(0, tracker.TrackedCount, "tracked count after consumption");
+
+    // Second echo of the same message should not be consumed
+    var secondEcho = tracker.IsEchoAndConsume("streamer", "Welcome everyone to the stream!", channelLogin: "streamer");
+    AssertFalse(secondEcho, "second echo should not match any tracked message");
+
+    // Bot message test
+    tracker.TrackSent("mybot", "!song current playing song");
+    var botConsumed = tracker.IsEchoAndConsume("mybot", "!song current playing song", channelLogin: "streamer", botLogin: "mybot");
+    AssertTrue(botConsumed, "bot echo should be consumed");
+
+    return Task.CompletedTask;
+}
+
+Task EchoTrackerIgnoresNonHostOrUntrackedMessagesAsync()
+{
+    var tracker = new HostMessageEchoTracker(TimeSpan.FromSeconds(25));
+
+    // Message sent via web browser by streamer (not tracked via TrackSent)
+    var webMessageConsumed = tracker.IsEchoAndConsume("streamer", "Message typed in web browser", channelLogin: "streamer");
+    AssertFalse(webMessageConsumed, "messages not sent through TrackSent must not be consumed");
+
+    // Host tracked a message, but another viewer chats the same message
+    tracker.TrackSent("streamer", "GG");
+    var viewerConsumed = tracker.IsEchoAndConsume("viewer123", "GG", channelLogin: "streamer", botLogin: "mybot");
+    AssertFalse(viewerConsumed, "viewer message must not consume host echo");
+    AssertEqual(1, tracker.TrackedCount, "host tracked message must remain intact");
+
+    return Task.CompletedTask;
+}
+
+Task EchoTrackerExpiresStaleEntriesAsync()
+{
+    var tracker = new HostMessageEchoTracker(TimeSpan.FromSeconds(10));
+    var past = DateTime.UtcNow - TimeSpan.FromSeconds(15);
+
+    tracker.TrackSent("streamer", "old message", sentAt: past);
+    var consumed = tracker.IsEchoAndConsume("streamer", "old message", channelLogin: "streamer");
+    AssertFalse(consumed, "stale message past window should be pruned and not consumed");
+
+    return Task.CompletedTask;
+}
+
+Task EchoTrackerHandlesMultipleIdenticalMessagesAsync()
+{
+    var tracker = new HostMessageEchoTracker(TimeSpan.FromSeconds(25));
+
+    // Two identical auto-replies sent in succession
+    tracker.TrackSent("streamer", "Check out my discord: https://discord.gg");
+    tracker.TrackSent("streamer", "Check out my discord: https://discord.gg");
+    AssertEqual(2, tracker.TrackedCount, "both identical messages tracked");
+
+    var echo1 = tracker.IsEchoAndConsume("streamer", "Check out my discord: https://discord.gg", channelLogin: "streamer");
+    AssertTrue(echo1, "first echo consumed");
+    AssertEqual(1, tracker.TrackedCount, "one tracked entry remaining");
+
+    var echo2 = tracker.IsEchoAndConsume("streamer", "Check out my discord: https://discord.gg", channelLogin: "streamer");
+    AssertTrue(echo2, "second echo consumed");
+    AssertEqual(0, tracker.TrackedCount, "all entries consumed");
+
+    var echo3 = tracker.IsEchoAndConsume("streamer", "Check out my discord: https://discord.gg", channelLogin: "streamer");
+    AssertFalse(echo3, "third echo not consumed");
+
+    return Task.CompletedTask;
 }
 
 static void AssertEqual<T>(T expected, T actual, string label)

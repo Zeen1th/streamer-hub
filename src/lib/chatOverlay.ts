@@ -115,6 +115,7 @@ export interface NormalizedChatOverlayMessage {
   timestamp: string;
   emotes: EmoteRange[];
   color: string;
+  isSelf?: boolean;
 }
 
 /**
@@ -334,6 +335,7 @@ export function normalizeChatOverlayMessage(value: Partial<ChatMessage> | null |
     timestamp: trimAndCap(input.timestamp, 64),
     emotes: normalizeEmoteRanges(input.emotes),
     color: color(input.color, ''),
+    isSelf: input.isSelf === true || suppliedId.startsWith('self-'),
   };
 }
 

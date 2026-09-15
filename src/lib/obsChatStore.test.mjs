@@ -192,3 +192,63 @@ test('updateSettings updates dock preferences', () => {
   assert.equal(settings.density, 'compact');
   assert.equal(settings.showTimestamps, false);
 });
+
+test('addMessage deduplicates and upgrades self-message echoes within 15 seconds', () => {
+  const deps = createMockDeps();
+  const store = createObsChatStore(deps);
+
+  // First: host sends self message
+  store.getState().addMessage({
+    id: 'self-12345',
+    username: 'Streamer',
+    userId: 'streamer',
+    message: 'Welcome everyone to the stream!',
+    isBroadcaster: true,
+    isSelf: true,
+    timestamp: new Date().toISOString(),
+  });
+
+  assert.equal(store.getState().messages.length, 1);
+  assert.equal(store.getState().messages[0].id, 'self-12345');
+
+  // Then: Twitch IRC echo arrives with real server id
+  store.getState().addMessage({
+    id: 'twitch-server-id-999',
+    username: 'Streamer',
+    userId: 'streamer',
+    message: 'Welcome everyone to the stream!',
+    isBroadcaster: true,
+    isSelf: false,
+    timestamp: new Date().toISOString(),
+  });
+
+  // Must not have added a second message! It should have upgraded the existing message id.
+  const messages = store.getState().messages;
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, 'twitch-server-id-999');
+  assert.equal(messages[0].isSelf, true);
+
+  // Different message from same user is not deduplicated
+  store.getState().addMessage({
+    id: 'twitch-server-id-1000',
+    username: 'Streamer',
+    userId: 'streamer',
+    message: 'Enjoy the stream!',
+    isBroadcaster: true,
+    isSelf: false,
+    timestamp: new Date().toISOString(),
+  });
+  assert.equal(store.getState().messages.length, 2);
+
+  // Different user with same message is not deduplicated
+  store.getState().addMessage({
+    id: 'twitch-server-id-1001',
+    username: 'ViewerAlice',
+    userId: 'vieweralice',
+    message: 'Welcome everyone to the stream!',
+    isBroadcaster: false,
+    isSelf: false,
+    timestamp: new Date().toISOString(),
+  });
+  assert.equal(store.getState().messages.length, 3);
+});

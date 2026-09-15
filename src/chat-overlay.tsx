@@ -104,6 +104,8 @@ function OverlayApp() {
   const reconnectAttempt = useRef(0);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const messagesRef = useRef<NormalizedChatOverlayMessage[]>(messages);
+  messagesRef.current = messages;
 
   const removeMessage = useCallback((id: string) => {
     setMessages((current) => current.filter((candidate) => candidate.id !== id));
@@ -192,6 +194,41 @@ function OverlayApp() {
             if (seenMessageIds.current.size > 2048) {
               const oldest = seenMessageIds.current.values().next().value;
               if (typeof oldest === 'string') seenMessageIds.current.delete(oldest);
+            }
+
+            const isSelfItem = Boolean(message.isSelf || message.id.startsWith('self-'));
+            let dupIdx = -1;
+            for (let i = messagesRef.current.length - 1; i >= 0; i--) {
+              const m = messagesRef.current[i];
+              const isSelfM = Boolean(m.isSelf || m.id.startsWith('self-'));
+              if (!isSelfItem && !isSelfM) continue;
+              const sameUser =
+                (m.userId && message.userId && m.userId.toLowerCase() === message.userId.toLowerCase()) ||
+                m.username.toLowerCase() === message.username.toLowerCase();
+              const sameText = m.message.trim() === message.message.trim();
+              if (!sameUser || !sameText) continue;
+              const mTime = new Date(m.timestamp).getTime();
+              const itemTime = new Date(message.timestamp).getTime();
+              const withinWindow = Number.isFinite(mTime) && Number.isFinite(itemTime) ? Math.abs(itemTime - mTime) < 15000 : true;
+              if (withinWindow) {
+                dupIdx = i;
+                break;
+              }
+            }
+
+            if (dupIdx >= 0) {
+              const existing = messagesRef.current[dupIdx];
+              const existingIsSelf = Boolean(existing.isSelf || existing.id.startsWith('self-'));
+              if (existingIsSelf && !isSelfItem) {
+                setMessages((current) => {
+                  const idx = current.findIndex((m) => m.id === existing.id);
+                  if (idx === -1) return current;
+                  const next = [...current];
+                  next[idx] = { ...existing, ...message, isSelf: true };
+                  return next;
+                });
+              }
+              return;
             }
 
             setPreviewMessages(null);

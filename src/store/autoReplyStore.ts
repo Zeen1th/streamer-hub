@@ -206,7 +206,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       if (!item.enabled) return false;
       if (!hasPermission(message, item.minimumRank ?? 'everyone')) return false;
 
-      if (item.responseMode === 'ai' && !checkUserRestriction(item.aiUserRestriction, item.aiTargetUsers, message.username)) {
+      if (item.responseMode === 'ai' && !checkUserRestriction(item.aiUserRestriction, item.aiTargetUsers, message)) {
         return false;
       }
 

@@ -265,31 +265,101 @@ public sealed class TwitchIrcClient : ITwitchClient
             return (false, null, null, null, null, "NO USERNAME PROVIDED AND CHANNEL LOGIN UNKNOWN");
         }
 
-        var param = target.All(char.IsDigit) ? $"id={Uri.EscapeDataString(target)}" : $"login={Uri.EscapeDataString(target)}";
+        var isDigits = target.All(char.IsDigit);
+        var isNonAscii = target.Any(c => c > 127);
+
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?{param}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            if (!isNonAscii)
             {
-                return (false, null, null, null, null, await ReadHelixErrorAsync(response).ConfigureAwait(false));
+                var param = isDigits ? $"id={Uri.EscapeDataString(target)}" : $"login={Uri.EscapeDataString(target)}";
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?{param}");
+                AddHelixHeaders(request);
+                using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                    var data = document.RootElement.GetProperty("data");
+                    if (data.GetArrayLength() > 0)
+                    {
+                        var user = data[0];
+                        var userId = user.GetProperty("id").GetString();
+                        var login = user.GetProperty("login").GetString();
+                        var displayName = user.TryGetProperty("display_name", out var dn) ? dn.GetString() : login;
+                        var avatarUrl = user.TryGetProperty("profile_image_url", out var av) ? av.GetString() : null;
+
+                        return (true, userId, login, displayName, avatarUrl, null);
+                    }
+                }
             }
 
-            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
-            var data = document.RootElement.GetProperty("data");
-            if (data.GetArrayLength() == 0)
+            // Fallback for non-ASCII (e.g. Arabic display names) or if direct lookup returned no user:
+            // Query Helix search/channels which indexes localized display names
+            using var searchReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/search/channels?query={Uri.EscapeDataString(target)}&first=10");
+            AddHelixHeaders(searchReq);
+            using var searchResp = await Helix.SendAsync(searchReq, cancellationToken).ConfigureAwait(false);
+            if (searchResp.IsSuccessStatusCode)
             {
-                return (false, null, target, null, null, $"TWITCH USER NOT FOUND: {target}");
+                using var searchDoc = JsonDocument.Parse(await searchResp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                var channels = searchDoc.RootElement.GetProperty("data");
+                string? matchedChannelId = null;
+                string? matchedLogin = null;
+                string? matchedDisplayName = null;
+                string? matchedThumbnail = null;
+
+                var normTarget = TwitchPrivmsgParser.NormalizeArabic(target);
+                foreach (var channel in channels.EnumerateArray())
+                {
+                    var chId = channel.GetProperty("id").GetString();
+                    var chLogin = channel.TryGetProperty("broadcaster_login", out var bl) ? bl.GetString() : null;
+                    var chDisplay = channel.TryGetProperty("display_name", out var cd) ? cd.GetString() : chLogin;
+                    var chThumb = channel.TryGetProperty("thumbnail_url", out var tu) ? tu.GetString() : null;
+
+                    if (string.Equals(chDisplay, target, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(chLogin, target, StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrEmpty(normTarget) && TwitchPrivmsgParser.NormalizeArabic(chDisplay ?? string.Empty) == normTarget))
+                    {
+                        matchedChannelId = chId;
+                        matchedLogin = chLogin;
+                        matchedDisplayName = chDisplay;
+                        matchedThumbnail = chThumb;
+                        break;
+                    }
+
+                    if (matchedChannelId == null && isNonAscii)
+                    {
+                        matchedChannelId = chId;
+                        matchedLogin = chLogin;
+                        matchedDisplayName = chDisplay;
+                        matchedThumbnail = chThumb;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(matchedChannelId))
+                {
+                    // Fetch full profile by ID to obtain official avatar and user info
+                    using var userByIdReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?id={Uri.EscapeDataString(matchedChannelId)}");
+                    AddHelixHeaders(userByIdReq);
+                    using var userByIdResp = await Helix.SendAsync(userByIdReq, cancellationToken).ConfigureAwait(false);
+                    if (userByIdResp.IsSuccessStatusCode)
+                    {
+                        using var userByIdDoc = JsonDocument.Parse(await userByIdResp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                        var uData = userByIdDoc.RootElement.GetProperty("data");
+                        if (uData.GetArrayLength() > 0)
+                        {
+                            var u = uData[0];
+                            var uId = u.GetProperty("id").GetString();
+                            var uLog = u.GetProperty("login").GetString();
+                            var uDisp = u.TryGetProperty("display_name", out var ud) ? ud.GetString() : uLog;
+                            var uAv = u.TryGetProperty("profile_image_url", out var ua) ? ua.GetString() : matchedThumbnail;
+                            return (true, uId, uLog, uDisp, uAv, null);
+                        }
+                    }
+                    return (true, matchedChannelId, matchedLogin, matchedDisplayName, matchedThumbnail, null);
+                }
             }
 
-            var user = data[0];
-            var userId = user.GetProperty("id").GetString();
-            var login = user.GetProperty("login").GetString();
-            var displayName = user.TryGetProperty("display_name", out var dn) ? dn.GetString() : login;
-            var avatarUrl = user.TryGetProperty("profile_image_url", out var av) ? av.GetString() : null;
-
-            return (true, userId, login, displayName, avatarUrl, null);
+            return (false, null, target, null, null, $"TWITCH USER NOT FOUND: {target}");
         }
         catch (Exception ex)
         {
@@ -1163,11 +1233,16 @@ public static class TwitchPrivmsgParser
         }
 
         var effectiveUsername = !string.IsNullOrWhiteSpace(displayName) ? displayName : sender;
+        var cleanSender = !string.IsNullOrWhiteSpace(sender) && !string.Equals(sender, "unknown", StringComparison.OrdinalIgnoreCase)
+            ? sender.ToLowerInvariant()
+            : null;
 
         message = new ChatMessage
         {
             Id = !string.IsNullOrWhiteSpace(messageId) ? messageId : Guid.NewGuid().ToString(),
             Username = effectiveUsername,
+            DisplayName = !string.IsNullOrWhiteSpace(displayName) ? displayName : effectiveUsername,
+            UserLogin = cleanSender,
             UserId = string.IsNullOrWhiteSpace(userId) ? null : userId,
             IsBroadcaster = isBroadcaster,
             IsMod = isMod,
@@ -1180,6 +1255,21 @@ public static class TwitchPrivmsgParser
             CustomRewardId = customRewardId,
         };
         return true;
+    }
+
+    internal static string NormalizeArabic(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        var sb = new System.Text.StringBuilder(text.Length);
+        foreach (var ch in text.Trim())
+        {
+            if (ch is >= '\u064B' and <= '\u065F' or '\u0670' or '\u0640') continue;
+            if (ch is 'أ' or 'إ' or 'آ' or 'ٱ') { sb.Append('ا'); continue; }
+            if (ch is 'ة') { sb.Append('ه'); continue; }
+            if (ch is 'ى') { sb.Append('ي'); continue; }
+            sb.Append(char.ToLowerInvariant(ch));
+        }
+        return sb.ToString();
     }
 
     /// <summary>

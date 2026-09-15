@@ -26,6 +26,7 @@ import { useKeybindStore } from './store/keybindStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useToolStore } from './store/toolStore';
 import { useUpdateStore } from './store/updateStore';
+import { useChatterStore } from './store/chatterStore';
 import { ObsChatView } from './components/tools/chat/ObsChatView';
 import { ReauthPromptModal } from './components/modals/ReauthPromptModal';
 
@@ -88,6 +89,13 @@ export default function App() {
     });
     const offMaximized = rpc.on(Events.WindowMaximizedChanged, (payload) => useConnectionStore.getState().setMaximized(payload.isMaximized));
     const offChat = rpc.on(Events.TwitchChatMessage, (message) => {
+      useChatterStore.getState().recordChatter({
+        userId: message.userId,
+        login: message.userLogin || message.username,
+        displayName: message.displayName || message.username,
+        username: message.username,
+        avatarUrl: message.avatarUrl,
+      });
       useLogStore.getState().addLocal({ kind: 'chat', message: message.message, username: message.username });
       useCounterStore.getState().handleChatMessage(message);
       useAutoReplyStore.getState().handleChatMessage(message);
@@ -100,6 +108,10 @@ export default function App() {
       useSequenceStore.getState().handleChannelPointsRedemption(redemption);
     });
     const offProfile = rpc.on(Events.TwitchUserProfile, (payload) => {
+      useChatterStore.getState().recordChatter({
+        userId: payload.userId,
+        avatarUrl: payload.avatarUrl,
+      });
       useChatOverlayStore.getState().applyProfile(payload.userId, payload.avatarUrl, payload.color);
       useObsChatOverlayStore.getState().applyProfile(payload.userId, payload.avatarUrl, payload.color);
       useObsChatStore.getState().applyProfile(payload.userId, payload.avatarUrl, payload.color);

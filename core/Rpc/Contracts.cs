@@ -222,6 +222,8 @@ public sealed record ChatMessage
 {
     public string Id { get; init; } = string.Empty;
     public string Username { get; init; } = string.Empty;
+    public string? DisplayName { get; init; }
+    public string? UserLogin { get; init; }
     public string? UserId { get; init; }
     public string? AvatarUrl { get; init; }
     public bool IsBroadcaster { get; init; }

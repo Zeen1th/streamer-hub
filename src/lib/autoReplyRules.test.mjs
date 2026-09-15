@@ -203,6 +203,34 @@ test('evaluateAiConditions evaluates username, role, and keyword IF statements',
   assert.equal(viewerResult.matchedCondition, undefined);
 });
 
+test('evaluateAiConditions matches Arabic display name, English login, and numeric ID interchangeably', () => {
+  const defaultInstructions = 'Default instruction';
+
+  // Rule 1: Configured with Arabic display name (with hamza)
+  const condArabic = [
+    { id: 'c1', ifType: 'username', ifValue: 'أحمد', thenType: 'static_reply', thenValue: 'مرحبا يا أحمد' },
+  ];
+  // Chat message arrives with bare alef 'احمد' or 'أحمد'
+  const msg1 = { id: 'm1', username: 'احمد', message: '!hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
+  assert.equal(evaluateAiConditions(condArabic, msg1, defaultInstructions).action, 'static_reply');
+
+  // Rule 2: Configured with English username
+  const condEnglish = [
+    { id: 'c2', ifType: 'username', ifValue: 'ahmed_gamer', thenType: 'static_reply', thenValue: 'Hello Gamer!' },
+  ];
+  // Chat message arrives where username is Arabic display name 'أحمد', but userLogin is 'ahmed_gamer'
+  const msg2 = { id: 'm2', username: 'أحمد', displayName: 'أحمد', userLogin: 'ahmed_gamer', userId: '12345678', message: '!hello', isBroadcaster: false, isMod: false, isVip: false, isSubscriber: false };
+  assert.equal(evaluateAiConditions(condEnglish, msg2, defaultInstructions).action, 'static_reply');
+
+  // Rule 3: Configured with numeric Twitch ID
+  const condId = [
+    { id: 'c3', ifType: 'username', ifValue: '12345678', thenType: 'static_reply', thenValue: 'VIP by ID' },
+  ];
+  // Chat message arrives from user with userId '12345678'
+  assert.equal(evaluateAiConditions(condId, msg2, defaultInstructions).action, 'static_reply');
+});
+
+
 test('selectBestMatchingAutoReply prioritizes specific user-targeted rules over general broadcast rules', () => {
   const generalRule = {
     id: 'rule-general',

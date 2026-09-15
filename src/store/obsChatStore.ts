@@ -140,6 +140,38 @@ export function createObsChatStore(deps: ObsChatStoreDeps = defaultDeps) {
         if (state.messages.some((m) => m.id === item.id)) {
           return state;
         }
+
+        const isSelfItem = Boolean(item.isSelf || item.id.startsWith('self-'));
+        let recentDuplicateIndex = -1;
+        for (let i = state.messages.length - 1; i >= 0; i--) {
+          const m = state.messages[i];
+          const isSelfM = Boolean(m.isSelf || m.id.startsWith('self-'));
+          if (!isSelfItem && !isSelfM) continue;
+          const sameUser =
+            (m.userId && item.userId && m.userId.toLowerCase() === item.userId.toLowerCase()) ||
+            m.username.toLowerCase() === item.username.toLowerCase();
+          const sameText = m.message.trim() === item.message.trim();
+          if (!sameUser || !sameText) continue;
+          const mTime = new Date(m.timestamp).getTime();
+          const itemTime = new Date(item.timestamp).getTime();
+          const withinWindow = Number.isFinite(mTime) && Number.isFinite(itemTime) ? Math.abs(itemTime - mTime) < 15000 : true;
+          if (withinWindow) {
+            recentDuplicateIndex = i;
+            break;
+          }
+        }
+
+        if (recentDuplicateIndex >= 0) {
+          const existing = state.messages[recentDuplicateIndex];
+          const existingIsSelf = Boolean(existing.isSelf || existing.id.startsWith('self-'));
+          if (existingIsSelf && !isSelfItem) {
+            const updated = [...state.messages];
+            updated[recentDuplicateIndex] = { ...existing, ...item, isSelf: true };
+            return { messages: updated };
+          }
+          return state;
+        }
+
         const next = [...state.messages, item];
         if (next.length > state.maxMessages) {
           next.splice(0, next.length - state.maxMessages);

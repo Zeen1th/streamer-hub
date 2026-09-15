@@ -1,12 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
+  Check,
+  ClipboardPaste,
+  Copy,
   Plus,
+  Trash2,
   UserCheck,
   VolumeX,
   X,
 } from 'lucide-react';
 import type { AiConditionRule, AiConditionThenType, AutoReply } from '../../rpc/contracts';
-import { normalizeUsername } from '../../lib/autoReplyRules';
+import { normalizeChatterIdentifier, parseChatterList } from '../../lib/chatterNormalization';
+import { useChatterStore } from '../../store/chatterStore';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -18,8 +23,70 @@ interface ChatterOverridesSectionProps {
   lang: 'en' | 'ar';
 }
 
+function ChatterChip({
+  user,
+  onRemove,
+}: {
+  user: string;
+  onRemove: () => void;
+}) {
+  const known = useChatterStore((s) => s.findKnownChatter(user));
+
+  let primaryName = user;
+  let secondaryName: string | null = null;
+  const userId = known?.userId;
+
+  if (known) {
+    if (user === known.userId) {
+      primaryName = known.displayName || known.login || user;
+      secondaryName = `ID: ${user}`;
+    } else if (
+      known.displayName &&
+      known.login &&
+      known.displayName.toLowerCase() !== known.login.toLowerCase()
+    ) {
+      if (user.toLowerCase() === known.login.toLowerCase()) {
+        primaryName = known.displayName;
+        secondaryName = `@${known.login}`;
+      } else {
+        primaryName = known.displayName;
+        secondaryName = `@${known.login}`;
+      }
+    }
+  }
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-mono text-[11.5px] font-semibold text-emerald-300 shadow-xs"
+      title={userId ? `Twitch User ID: ${userId}` : undefined}
+    >
+      <span>@{primaryName}</span>
+      {secondaryName && (
+        <span className="font-sans text-[10px] text-emerald-400/70 font-normal">
+          ({secondaryName})
+        </span>
+      )}
+      {userId && !secondaryName?.includes('ID:') && (
+        <span className="rounded bg-emerald-500/20 px-1 py-0.2 font-mono text-[8.5px] text-emerald-300/80">
+          #{userId}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="text-emerald-400/70 hover:text-red-400 transition-colors ms-0.5"
+        title={`Remove @${user}`}
+      >
+        <X size={11} />
+      </button>
+    </span>
+  );
+}
+
 export function ChatterOverridesSection({ rule, update, lang }: ChatterOverridesSectionProps) {
   const [tagInput, setTagInput] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const isAi = rule.responseMode === 'ai';
 
   // Extract the single chatter override condition
@@ -28,11 +95,15 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
     conditions.find((c) => c.ifType === 'username') ?? conditions[0];
 
   const targetUsers: string[] = existingCond
-    ? existingCond.ifValue
-        .split(/[,;\s]+/)
-        .map(normalizeUsername)
-        .filter(Boolean)
+    ? parseChatterList(existingCond.ifValue)
     : [];
+
+  // Automatically trigger background profile resolution for chatters
+  useEffect(() => {
+    for (const user of targetUsers) {
+      void useChatterStore.getState().resolveChatter(user);
+    }
+  }, [targetUsers.join(',')]);
 
   // If command is AI, only 'instructions' or 'ignore' are permitted (NO normal text)
   // If command is Prepared, only 'static_reply' or 'ignore' are permitted (NO AI reply)
@@ -70,19 +141,85 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
     });
   };
 
-  const handleAddUser = () => {
-    const clean = normalizeUsername(tagInput);
-    if (!clean) return;
-    if (!targetUsers.includes(clean)) {
-      const nextUsers = [...targetUsers, clean];
-      saveCondition(nextUsers, overrideMode, overrideValue);
+  const handleBulkAdd = (rawText: string) => {
+    const list = parseChatterList(rawText);
+    if (list.length === 0) return;
+
+    const currentNormalized = new Set(targetUsers.map(normalizeChatterIdentifier));
+    const toAdd: string[] = [];
+
+    for (const item of list) {
+      const norm = normalizeChatterIdentifier(item);
+      if (!currentNormalized.has(norm)) {
+        currentNormalized.add(norm);
+        toAdd.push(item);
+        void useChatterStore.getState().resolveChatter(item);
+      }
     }
-    setTagInput('');
+
+    if (toAdd.length > 0) {
+      const nextUsers = [...targetUsers, ...toAdd];
+      saveCondition(nextUsers, overrideMode, overrideValue);
+      setTagInput('');
+      setFeedbackMsg(
+        lang === 'ar'
+          ? `تمت إضافة ${toAdd.length} متابع`
+          : `Added ${toAdd.length} chatter${toAdd.length === 1 ? '' : 's'}`,
+      );
+      setTimeout(() => setFeedbackMsg(null), 2500);
+    }
+  };
+
+  const handleAddUser = () => {
+    if (!tagInput.trim()) return;
+    handleBulkAdd(tagInput);
   };
 
   const handleRemoveUser = (userToRemove: string) => {
     const nextUsers = targetUsers.filter((u) => u !== userToRemove);
     saveCondition(nextUsers, overrideMode, overrideValue);
+  };
+
+  const handleCopyList = async () => {
+    if (targetUsers.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(targetUsers.join(', '));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      try {
+        const temp = document.createElement('textarea');
+        temp.value = targetUsers.join(', ');
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {}
+    }
+  };
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      if (navigator.clipboard?.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          handleBulkAdd(text);
+        }
+      }
+    } catch {
+      setFeedbackMsg(
+        lang === 'ar'
+          ? 'الصق في المربع بالأسفل (Ctrl+V)'
+          : 'Paste into input box below (Ctrl+V)',
+      );
+      setTimeout(() => setFeedbackMsg(null), 2500);
+    }
+  };
+
+  const handleClearAll = () => {
+    saveCondition([], overrideMode, overrideValue);
   };
 
   const handleModeChange = (newMode: AiConditionThenType) => {
@@ -124,6 +261,54 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
                 : 'Add viewers to receive a custom normal text message or be silenced. Matches execute first; all others receive the default reply.'}
           </p>
         </div>
+
+        {/* Action Toolbar: Copy, Paste, Clear */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleCopyList}
+            disabled={targetUsers.length === 0}
+            title={lang === 'ar' ? 'نسخ قائمة المتابعين' : 'Copy chatters list'}
+            className="h-7 px-2 text-[11px]"
+          >
+            {copied ? (
+              <>
+                <Check size={12} className="me-1 text-emerald-400" />
+                <span className="text-emerald-400">{lang === 'ar' ? 'تم النسخ!' : 'Copied!'}</span>
+              </>
+            ) : (
+              <>
+                <Copy size={12} className="me-1" />
+                <span>{lang === 'ar' ? 'نسخ' : 'Copy'}</span>
+              </>
+            )}
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handlePasteFromClipboard}
+            title={lang === 'ar' ? 'لصق من الحافظة' : 'Paste from clipboard'}
+            className="h-7 px-2 text-[11px]"
+          >
+            <ClipboardPaste size={12} className="me-1" />
+            <span>{lang === 'ar' ? 'لصق' : 'Paste'}</span>
+          </Button>
+
+          {targetUsers.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleClearAll}
+              title={lang === 'ar' ? 'مسح الكل' : 'Clear all chatters'}
+              className="h-7 px-2 text-[11px] text-muted hover:text-red-400"
+            >
+              <Trash2 size={12} className="me-1" />
+              <span>{lang === 'ar' ? 'مسح' : 'Clear'}</span>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Viewers List Input */}
@@ -146,10 +331,17 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
                   handleAddUser();
                 }
               }}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData('text');
+                if (pasted && /[,;\r\n\t\s]/.test(pasted.trim())) {
+                  e.preventDefault();
+                  handleBulkAdd(pasted);
+                }
+              }}
               placeholder={
                 lang === 'ar'
-                  ? 'اكتب اسم المشاهد واضغط Enter للإضافة...'
-                  : 'Type viewer username and press Enter to add...'
+                  ? 'اكتب أو الصق أسماء/معرفات (عربي، إنجليزي، أو ID) واضغط Enter...'
+                  : 'Type or paste names/IDs (Arabic, English, or Twitch ID) and press Enter...'
               }
               className="h-8 ps-6 text-[11.5px] font-mono"
             />
@@ -161,6 +353,12 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
           </Button>
         </div>
 
+        {feedbackMsg && (
+          <div className="text-[11px] text-emerald-400 font-medium">
+            {feedbackMsg}
+          </div>
+        )}
+
         {/* Tags / Chips */}
         <div className="flex flex-wrap items-center gap-1.5 min-h-[32px] pt-0.5">
           {targetUsers.length === 0 ? (
@@ -171,20 +369,11 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
             </span>
           ) : (
             targetUsers.map((user) => (
-              <span
+              <ChatterChip
                 key={user}
-                className="flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-mono text-[11.5px] font-semibold text-emerald-300 shadow-xs"
-              >
-                <span>@{user}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveUser(user)}
-                  className="text-emerald-400/70 hover:text-red-400 transition-colors"
-                  title={`Remove @${user}`}
-                >
-                  <X size={11} />
-                </button>
-              </span>
+                user={user}
+                onRemove={() => handleRemoveUser(user)}
+              />
             ))
           )}
         </div>

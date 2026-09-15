@@ -155,7 +155,9 @@ public sealed class HostController : IDisposable
     private readonly HashSet<string> _seenRedemptionIds = new(StringComparer.Ordinal);
     private readonly object _seenRedemptionsLock = new();
     private readonly TwitchUserProfileCache _twitchUserProfiles = new();
+    private readonly HostMessageEchoTracker _echoTracker = new();
     private readonly EmoteRegistry _emotes = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string UserId, string Login, string DisplayName, string? AvatarUrl)> _knownChatters = new(StringComparer.OrdinalIgnoreCase);
     private const int ProfileBatchSize = 100;
     private const int ProfileFlushDelayMs = 200;
     private readonly object _profileQueueLock = new();
@@ -613,17 +615,43 @@ public sealed class HostController : IDisposable
         _dispatcher.Register(Channels.TwitchCheckAvatar, async (payload, ct) =>
         {
             var request = Json.Deserialize<CheckAvatarPayload>(payload ?? default);
-            var target = request?.Username ?? request?.UserId;
+            var target = (request?.Username ?? request?.UserId)?.Trim().TrimStart('@');
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                return new { ok = false, error = "NO TARGET SPECIFIED" };
+            }
+
+            // 1. Check known chatters cache first
+            if (_knownChatters.TryGetValue(target, out var known))
+            {
+                var av = known.AvatarUrl ?? (_twitchUserProfiles.TryGet(known.UserId, out var cachedAv) ? cachedAv : null);
+                return new
+                {
+                    ok = true,
+                    userId = known.UserId,
+                    username = known.Login,
+                    displayName = known.DisplayName,
+                    avatarUrl = av,
+                };
+            }
+
             if (_twitch.State != TwitchState.Connected)
             {
                 return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
             }
             var result = await _twitch.CheckUserProfileAsync(target, ct).ConfigureAwait(false);
-            if (result.Ok && !string.IsNullOrWhiteSpace(result.UserId) && !string.IsNullOrWhiteSpace(result.AvatarUrl))
+            if (result.Ok && !string.IsNullOrWhiteSpace(result.UserId))
             {
-                _twitchUserProfiles.Set(result.UserId, result.AvatarUrl);
-                PostEvent(Events.TwitchUserProfile, new { userId = result.UserId, avatarUrl = result.AvatarUrl });
-                await _chatOverlay.PublishProfileAsync(result.UserId, result.AvatarUrl, null, ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(result.AvatarUrl))
+                {
+                    _twitchUserProfiles.Set(result.UserId, result.AvatarUrl);
+                    PostEvent(Events.TwitchUserProfile, new { userId = result.UserId, avatarUrl = result.AvatarUrl });
+                    await _chatOverlay.PublishProfileAsync(result.UserId, result.AvatarUrl, null, ct).ConfigureAwait(false);
+                }
+                var info = (result.UserId, result.Login ?? target, result.DisplayName ?? target, result.AvatarUrl);
+                _knownChatters[result.UserId] = info;
+                if (!string.IsNullOrWhiteSpace(result.Login)) _knownChatters[result.Login] = info;
+                if (!string.IsNullOrWhiteSpace(result.DisplayName)) _knownChatters[result.DisplayName] = info;
             }
             return new
             {
@@ -988,7 +1016,41 @@ public sealed class HostController : IDisposable
                 publishedMessage = message with { AvatarUrl = avatarUrl };
             }
 
+            var senderLogin = (message.UserLogin ?? message.Username ?? string.Empty).ToLowerInvariant();
+            var isHostCandidate = message.IsBroadcaster ||
+                string.Equals(senderLogin, _twitchChannel?.ToLowerInvariant(), StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(_botLogin) && string.Equals(senderLogin, _botLogin.ToLowerInvariant(), StringComparison.OrdinalIgnoreCase));
+
+            if (isHostCandidate && _echoTracker.IsEchoAndConsume(senderLogin, message.Message ?? string.Empty, _twitchChannel, _botLogin))
+            {
+                if (!string.IsNullOrWhiteSpace(publishedMessage.UserId))
+                {
+                    var login = publishedMessage.UserLogin ?? publishedMessage.Username.ToLowerInvariant();
+                    var displayName = publishedMessage.DisplayName ?? publishedMessage.Username;
+                    var info = (publishedMessage.UserId, login, displayName, publishedMessage.AvatarUrl);
+                    _knownChatters[publishedMessage.UserId] = info;
+                    _knownChatters[login] = info;
+                    _knownChatters[displayName] = info;
+                }
+
+                if (!string.IsNullOrWhiteSpace(message.UserId) && !_twitchUserProfiles.TryGet(message.UserId, out _))
+                {
+                    QueueTwitchUserProfile(message.UserId, message.Username ?? senderLogin);
+                }
+
+                return;
+            }
+
             Log("system", CoreStrings.L(Lang, "chat-relayed") + $"{publishedMessage.Username}: {publishedMessage.Message}");
+            if (!string.IsNullOrWhiteSpace(publishedMessage.UserId))
+            {
+                var login = publishedMessage.UserLogin ?? publishedMessage.Username.ToLowerInvariant();
+                var displayName = publishedMessage.DisplayName ?? publishedMessage.Username;
+                var info = (publishedMessage.UserId, login, displayName, publishedMessage.AvatarUrl);
+                _knownChatters[publishedMessage.UserId] = info;
+                _knownChatters[login] = info;
+                _knownChatters[displayName] = info;
+            }
             PostEvent(Events.TwitchChatMessage, publishedMessage);
             _ = PublishChatOverlayMessageAsync(publishedMessage);
             if (!string.IsNullOrWhiteSpace(publishedMessage.CustomRewardId))
@@ -1018,7 +1080,7 @@ public sealed class HostController : IDisposable
             }
             if (!string.IsNullOrWhiteSpace(message.UserId) && !_twitchUserProfiles.TryGet(message.UserId, out _))
             {
-                QueueTwitchUserProfile(message.UserId, message.Username);
+                QueueTwitchUserProfile(message.UserId, message.Username ?? senderLogin);
             }
         };
         _twitch.ChatCleared += clear => _ = PublishChatClearAsync(clear);
@@ -1165,6 +1227,7 @@ public sealed class HostController : IDisposable
         try
         {
             var username = !string.IsNullOrWhiteSpace(senderLogin) ? senderLogin : (!string.IsNullOrWhiteSpace(_twitchChannel) ? _twitchChannel : "Streamer");
+            _echoTracker.TrackSent(username, text);
             var isBroadcaster = senderRole == "broadcaster" || string.Equals(username, _twitchChannel, StringComparison.OrdinalIgnoreCase);
             var isMod = !isBroadcaster;
             string? avatarUrl = null;

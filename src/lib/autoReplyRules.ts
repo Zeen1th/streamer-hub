@@ -1,4 +1,5 @@
 import { extractBaseTitle, hasCounterPattern, stripCounterFromTitle } from './counterRules.ts';
+import { chatterIdentifiersMatch } from './chatterNormalization.ts';
 import type { AiConditionRule, AiUserRestriction, ChatMessage } from '../rpc/contracts';
 
 export interface AutoReplyRule {
@@ -146,20 +147,69 @@ export function normalizeUsername(username: string): string {
   return username.trim().replace(/^@+/, '').toLowerCase();
 }
 
+export type ChatterResolver = (query: string) => { userId?: string; login?: string; displayName?: string } | undefined;
+
+let activeChatterResolver: ChatterResolver | null = null;
+
+export function setChatterResolver(resolver: ChatterResolver | null): void {
+  activeChatterResolver = resolver;
+}
+
+export function messageMatchesChatterTarget(
+  target: string,
+  messageOrUser: ChatMessage | string,
+  knownAliases?: { userId?: string; login?: string; displayName?: string } | null,
+): boolean {
+  if (!target) return false;
+
+  if (typeof messageOrUser === 'string') {
+    if (chatterIdentifiersMatch(target, messageOrUser)) return true;
+    const aliases = knownAliases ?? (activeChatterResolver ? activeChatterResolver(messageOrUser) : undefined);
+    if (aliases) {
+      if (aliases.userId && chatterIdentifiersMatch(target, aliases.userId)) return true;
+      if (aliases.login && chatterIdentifiersMatch(target, aliases.login)) return true;
+      if (aliases.displayName && chatterIdentifiersMatch(target, aliases.displayName)) return true;
+    }
+    return false;
+  }
+
+  const message = messageOrUser;
+
+  // 1. Direct match against any field on the message
+  if (message.username && chatterIdentifiersMatch(target, message.username)) return true;
+  if (message.displayName && chatterIdentifiersMatch(target, message.displayName)) return true;
+  if (message.userLogin && chatterIdentifiersMatch(target, message.userLogin)) return true;
+  if (message.userId && chatterIdentifiersMatch(target, message.userId)) return true;
+
+  // 2. Check known aliases (from parameter or active resolver)
+  const aliases = knownAliases ?? (activeChatterResolver ? activeChatterResolver(message.userId || message.username) : undefined);
+
+  if (aliases) {
+    if (aliases.userId && chatterIdentifiersMatch(target, aliases.userId)) return true;
+    if (aliases.login && chatterIdentifiersMatch(target, aliases.login)) return true;
+    if (aliases.displayName && chatterIdentifiersMatch(target, aliases.displayName)) return true;
+  }
+
+  return false;
+}
+
 export function checkUserRestriction(
   restriction: AiUserRestriction | undefined,
   targetUsers: readonly string[] | undefined,
-  username: string,
+  usernameOrMessage: string | ChatMessage,
 ): boolean {
   if (!restriction || restriction === 'none') return true;
-  const cleanUser = normalizeUsername(username);
-  if (!cleanUser) return false;
-  const set = new Set((targetUsers ?? []).map(normalizeUsername).filter(Boolean));
+  if (!targetUsers || targetUsers.length === 0) {
+    return restriction === 'blocklist';
+  }
+
+  const isMatched = targetUsers.some((target) => messageMatchesChatterTarget(target, usernameOrMessage));
+
   if (restriction === 'allowlist') {
-    return set.has(cleanUser);
+    return isMatched;
   }
   if (restriction === 'blocklist') {
-    return !set.has(cleanUser);
+    return !isMatched;
   }
   return true;
 }
@@ -180,7 +230,6 @@ export function evaluateAiConditions(
     return { action: 'proceed', instructions: defaultInstructions };
   }
 
-  const cleanUser = normalizeUsername(message.username);
   const text = message.message.toLowerCase();
 
   for (const condition of conditions) {
@@ -189,9 +238,9 @@ export function evaluateAiConditions(
     if (condition.ifType === 'username') {
       const targets = condition.ifValue
         .split(/[,;\s]+/)
-        .map(normalizeUsername)
+        .map((t) => t.trim())
         .filter(Boolean);
-      matched = targets.includes(cleanUser);
+      matched = targets.some((target) => messageMatchesChatterTarget(target, message));
     } else if (condition.ifType === 'role') {
       const role = condition.ifValue.trim().toLowerCase();
       if (role === 'broadcaster') matched = message.isBroadcaster;
@@ -271,14 +320,14 @@ export function selectBestMatchingAutoReply<T extends {
   if (!candidates.length) return null;
   if (candidates.length === 1) return candidates[0];
 
-  const cleanUser = username ? normalizeUsername(username) : '';
+  const targetIdentifier = message ?? username ?? '';
 
   // Priority 1: Check for candidate that has an explicit match for THIS specific user
-  if (cleanUser) {
+  if (targetIdentifier) {
     // 1a. Rule with allowlist containing this user
     const allowlistMatch = candidates.find(
       (r) => r.aiUserRestriction === 'allowlist' &&
-             (r.aiTargetUsers ?? []).map(normalizeUsername).includes(cleanUser),
+             (r.aiTargetUsers ?? []).some((t) => messageMatchesChatterTarget(t, targetIdentifier)),
     );
     if (allowlistMatch) return allowlistMatch;
 
@@ -296,7 +345,7 @@ export function selectBestMatchingAutoReply<T extends {
   // Priority 2: Candidates that are not restricted to someone else
   const nonRestricted = candidates.filter((r) => {
     if (r.aiUserRestriction === 'allowlist') {
-      return cleanUser && (r.aiTargetUsers ?? []).map(normalizeUsername).includes(cleanUser);
+      return targetIdentifier && (r.aiTargetUsers ?? []).some((t) => messageMatchesChatterTarget(t, targetIdentifier));
     }
     return true;
   });

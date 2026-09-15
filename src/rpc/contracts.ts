@@ -385,6 +385,8 @@ export interface EmoteRange {
 export interface ChatMessage {
   id: string;
   username: string;
+  displayName?: string;
+  userLogin?: string;
   userId?: string;
   avatarUrl?: string;
   isBroadcaster: boolean;
