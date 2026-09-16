@@ -107,7 +107,18 @@ export function projectCommands({
 
   const sequenceRows: CommandRow[] = (sequences ?? []).map((seq) => {
     let triggerLabel = '🪙 Channel Points';
-    if (seq.triggerType === 'channel_points') {
+    if (Array.isArray(seq.triggers)) {
+      if (seq.triggers.length === 0) {
+        triggerLabel = '(No Triggers)';
+      } else {
+        const labels = seq.triggers.map((t) => {
+          if (t.type === 'twitch_raid') return `🔥 Raid (≥${t.minViewers ?? 1})`;
+          if (t.type === 'twitch_chat') return t.chatCommand || 'Chat';
+          return t.rewardTitle ? `🪙 ${t.rewardTitle}` : '🪙 Reward';
+        });
+        triggerLabel = labels.join(', ');
+      }
+    } else if (seq.triggerType === 'channel_points') {
       triggerLabel = seq.rewardTitle ? `🪙 ${seq.rewardTitle}` : '🪙 Channel Points';
     } else if (seq.triggerType === 'chat') {
       triggerLabel = seq.chatTrigger || 'Chat';

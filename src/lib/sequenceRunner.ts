@@ -4,8 +4,10 @@ export interface SequenceExecutionContext {
   username: string;
   userLogin?: string;
   userId?: string;
-  source: 'channel_points' | 'chat' | 'test';
+  source: 'channel_points' | 'chat' | 'raid' | 'test';
   userInput?: string;
+  raider?: string;
+  viewers?: number;
 }
 
 export interface SequenceExecutionSinks {
@@ -50,7 +52,12 @@ export function replaceSequenceTokens(template: string, ctx: SequenceExecutionCo
   const username = ctx.username || 'viewer';
   const mention = `@${username}`;
   const input = ctx.userInput || '';
-  const target = extractTargetUsername(input);
+  const raider = ctx.raider || ctx.username || 'raider';
+  const viewers = ctx.viewers != null ? String(ctx.viewers) : '0';
+  let target = extractTargetUsername(input);
+  if (!target && ctx.source === 'raid') {
+    target = extractTargetUsername(raider);
+  }
 
   return template
     .replace(/\{username\}/gi, username)
@@ -58,7 +65,9 @@ export function replaceSequenceTokens(template: string, ctx: SequenceExecutionCo
     .replace(/\{mention\}/gi, mention)
     .replace(/\{input\}/gi, input)
     .replace(/\{target\}/gi, target)
-    .replace(/\{target_user\}/gi, target);
+    .replace(/\{target_user\}/gi, target)
+    .replace(/\{raider\}/gi, raider)
+    .replace(/\{viewers\}/gi, viewers);
 }
 
 export function calculateWaitMs(duration?: number, unit?: 'seconds' | 'minutes'): number {
@@ -80,11 +89,54 @@ export interface SequenceTriggerQuery {
   customRewardId?: string;
   rewardTitle?: string;
   chatMessage?: string;
+  raid?: {
+    fromUserName: string;
+    fromUserLogin: string;
+    viewers: number;
+  };
 }
 
 export function matchesSequenceTrigger(sequence: CommandSequence, query: SequenceTriggerQuery): boolean {
   if (!sequence.enabled) return false;
 
+  // If triggers array is defined (including empty array), evaluate triggers
+  if (Array.isArray(sequence.triggers)) {
+    for (const trigger of sequence.triggers) {
+      if (!trigger.enabled) continue;
+
+      if (trigger.type === 'twitch_raid' && query.raid) {
+        const min = trigger.minViewers ?? 1;
+        if (query.raid.viewers >= min) {
+          return true;
+        }
+      }
+
+      if (trigger.type === 'twitch_channel_points') {
+        if (query.customRewardId && trigger.rewardId) {
+          if (query.customRewardId.trim().toLowerCase() === trigger.rewardId.trim().toLowerCase()) {
+            return true;
+          }
+        }
+        if (query.rewardTitle && trigger.rewardTitle) {
+          if (query.rewardTitle.trim().toLowerCase() === trigger.rewardTitle.trim().toLowerCase()) {
+            return true;
+          }
+        }
+      }
+
+      if (trigger.type === 'twitch_chat' && query.chatMessage && trigger.chatCommand) {
+        const cmd = trigger.chatCommand.trim().toLowerCase();
+        const rawMsg = query.chatMessage.trim().toLowerCase();
+        const mode = trigger.matchMode || 'startsWith';
+        if (mode === 'exact' && rawMsg === cmd) return true;
+        if (mode === 'startsWith' && (rawMsg === cmd || rawMsg.startsWith(`${cmd} `))) return true;
+        if (mode === 'contains' && rawMsg.includes(cmd)) return true;
+      }
+    }
+    return false;
+  }
+
+  // Fallback for legacy sequences:
   // Channel points matching
   if (sequence.triggerType === 'channel_points' || sequence.triggerType === 'both') {
     if (query.customRewardId && sequence.rewardId) {
@@ -133,6 +185,11 @@ export async function executeSequence(
 
     try {
       switch (step.type) {
+        case 'comment': {
+          log('system', `[Sequence ${sequence.name}] Step ${i + 1}: // ${step.commentText || ''}`);
+          break;
+        }
+
         case 'chat': {
           if (step.chatMessage?.trim()) {
             const formatted = replaceSequenceTokens(step.chatMessage, ctx);

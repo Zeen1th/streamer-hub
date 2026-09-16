@@ -107,6 +107,9 @@ export default function App() {
     const offRedemption = rpc.on(Events.TwitchChannelPointsRedeemed, (redemption) => {
       useSequenceStore.getState().handleChannelPointsRedemption(redemption);
     });
+    const offRaid = rpc.on(Events.TwitchRaid, (raid) => {
+      useSequenceStore.getState().handleRaid(raid);
+    });
     const offProfile = rpc.on(Events.TwitchUserProfile, (payload) => {
       useChatterStore.getState().recordChatter({
         userId: payload.userId,
@@ -185,7 +188,7 @@ export default function App() {
 
     return () => {
       disposed = true;
-      offStatus(); offMaximized(); offChat(); offRedemption(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offTitle();
+      offStatus(); offMaximized(); offChat(); offRedemption(); offRaid(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offTitle();
       window.clearInterval(poll);
     };
   }, []);

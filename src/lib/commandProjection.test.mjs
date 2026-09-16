@@ -107,3 +107,27 @@ test('clamps inspector width within static and dynamic limits', () => {
   assert.equal(clampInspectorWidth(300, 400), MIN_INSPECTOR_WIDTH);
 });
 
+test('projects sequence with empty triggers array as (No Triggers)', () => {
+  const seq = {
+    id: 'seq-empty',
+    enabled: true,
+    name: 'Manual Sub-Action',
+    triggers: [],
+    steps: [],
+  };
+
+  const rows = projectCommands({
+    counters: [],
+    replies: [],
+    sequences: [seq],
+    counterLastTriggeredAt: {},
+    replyLastTriggeredAt: {},
+    sequenceLastTriggeredAt: {},
+    obsErrors: {},
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].command, '(No Triggers)');
+});
+
+

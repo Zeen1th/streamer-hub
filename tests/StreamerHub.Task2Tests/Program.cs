@@ -15,6 +15,11 @@ await RunAsync("echo_tracker_detects_and_consumes_host_echoes", EchoTrackerDetec
 await RunAsync("echo_tracker_ignores_non_host_or_untracked_messages", EchoTrackerIgnoresNonHostOrUntrackedMessagesAsync);
 await RunAsync("echo_tracker_expires_stale_entries", EchoTrackerExpiresStaleEntriesAsync);
 await RunAsync("echo_tracker_handles_multiple_identical_messages", EchoTrackerHandlesMultipleIdenticalMessagesAsync);
+await RunAsync("parse_usernotice_raid_extracts_raider_and_viewers", ParseUsernoticeRaidExtractsRaiderAndViewersAsync);
+await RunAsync("single_instance_coordinator_enforces_single_instance_and_notifies_primary", SingleInstanceCoordinatorEnforcesSingleInstanceAndNotifiesPrimaryAsync);
+await RunAsync("pending_remod_manager_persists_and_restores_queue", PendingRemodManagerPersistsAndRestoresQueueAsync);
+await RunAsync("pending_remod_manager_calculates_backoff_and_records_retries", PendingRemodManagerCalculatesBackoffAndRecordsRetriesAsync);
+await RunAsync("parse_privmsg_extracts_lead_moderator_badge", ParsePrivmsgExtractsLeadModeratorBadgeAsync);
 
 if (failures.Count > 0)
 {
@@ -27,7 +32,7 @@ if (failures.Count > 0)
     return;
 }
 
-Console.WriteLine("PASS 11/11");
+Console.WriteLine("PASS 15/15");
 
 async Task RunAsync(string name, Func<Task> test)
 {
@@ -280,6 +285,174 @@ Task EchoTrackerHandlesMultipleIdenticalMessagesAsync()
 
     var echo3 = tracker.IsEchoAndConsume("streamer", "Check out my discord: https://discord.gg", channelLogin: "streamer");
     AssertFalse(echo3, "third echo not consumed");
+
+    return Task.CompletedTask;
+}
+
+Task ParseUsernoticeRaidExtractsRaiderAndViewersAsync()
+{
+    const string raidLine = "@badge-info=;badges=crowd-chant/1;color=#FF69B4;display-name=SuperRaider;emotes=;flags=;id=12345-abc;login=superraider;mod=0;msg-id=raid;msg-param-displayName=SuperRaider;msg-param-login=superraider;msg-param-viewerCount=42;room-id=999;subscriber=0;system-msg=42\\sraiders\\sfrom\\sSuperRaider\\shave\\sjoined!;tmi-sent-ts=1724716800000;user-id=987654;user-type= :tmi.twitch.tv USERNOTICE #room";
+
+    if (!TwitchUsernoticeParser.TryParseRaid(raidLine, out var raid))
+    {
+        throw new InvalidOperationException("expected TwitchUsernoticeParser to parse raid");
+    }
+
+    AssertEqual("987654", raid.FromUserId, "FromUserId");
+    AssertEqual("SuperRaider", raid.FromUserName, "FromUserName");
+    AssertEqual("superraider", raid.FromUserLogin, "FromUserLogin");
+    AssertEqual(42, raid.Viewers, "Viewers");
+
+    // Non-raid USERNOTICE should return false
+    const string subLine = "@badge-info=;badges=subscriber/1;color=#00FF00;display-name=Viewer;msg-id=sub :tmi.twitch.tv USERNOTICE #room";
+    AssertFalse(TwitchUsernoticeParser.TryParseRaid(subLine, out _), "non-raid msg-id should return false");
+
+    return Task.CompletedTask;
+}
+
+async Task SingleInstanceCoordinatorEnforcesSingleInstanceAndNotifiesPrimaryAsync()
+{
+    var testMutexName = $"StreamerHub_Test_Mutex_{Guid.NewGuid():N}";
+    var testEventName = $"StreamerHub_Test_Event_{Guid.NewGuid():N}";
+
+    var showInvokedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    using (var primary = new SingleInstanceCoordinator(testMutexName, testEventName))
+    {
+        AssertTrue(primary.IsPrimary, "primary coordinator must acquire mutex and be primary");
+
+        primary.RegisterShowHandler(() =>
+        {
+            showInvokedTcs.TrySetResult(true);
+        });
+
+        // Launch secondary instance with same mutex/event
+        using (var secondary = new SingleInstanceCoordinator(testMutexName, testEventName))
+        {
+            AssertFalse(secondary.IsPrimary, "secondary coordinator must detect running instance and not be primary");
+
+            var notified = SingleInstanceCoordinator.NotifyPrimary(testEventName);
+            AssertTrue(notified, "secondary must successfully signal primary via named event");
+
+            var completedTask = await Task.WhenAny(showInvokedTcs.Task, Task.Delay(3000)).ConfigureAwait(false);
+            AssertTrue(completedTask == showInvokedTcs.Task && await showInvokedTcs.Task.ConfigureAwait(false), "primary show handler must be triggered by secondary notification");
+        }
+    }
+
+    // Now that primary is disposed, another instance should be able to become primary
+    using (var nextPrimary = new SingleInstanceCoordinator(testMutexName, testEventName))
+    {
+        AssertTrue(nextPrimary.IsPrimary, "subsequent instance must become primary after prior primary is disposed");
+    }
+}
+
+Task PendingRemodManagerPersistsAndRestoresQueueAsync()
+{
+    var tempFile = Path.Combine(Path.GetTempPath(), $"streamerhub_remod_test_{Guid.NewGuid():N}.json");
+    try
+    {
+        var manager1 = new PendingRemodManager(tempFile);
+        AssertEqual(0, manager1.Count, "initial count");
+
+        var targetTime1 = DateTime.UtcNow.AddMinutes(5);
+        var targetTime2 = DateTime.UtcNow.AddMinutes(10);
+
+        manager1.Enqueue("broadcaster1", "mod_user_1", "regular_mod", targetTime1, wasLeadMod: false);
+        manager1.Enqueue("broadcaster1", "lead_mod_user", "head_mod", targetTime2, wasLeadMod: true);
+        AssertEqual(2, manager1.Count, "count after enqueue");
+
+        // Simulate application restart by creating a new manager with the same storage file
+        var manager2 = new PendingRemodManager(tempFile);
+        AssertEqual(2, manager2.Count, "restored count after restart");
+
+        var entries = manager2.GetAllEntries();
+        var modEntry = entries.FirstOrDefault(e => e.TargetUserId == "mod_user_1");
+        var leadModEntry = entries.FirstOrDefault(e => e.TargetUserId == "lead_mod_user");
+
+        AssertTrue(modEntry != null, "mod entry restored");
+        AssertFalse(modEntry!.WasLeadMod, "regular mod was not lead mod");
+        AssertEqual("regular_mod", modEntry.TargetLogin, "regular mod login");
+
+        AssertTrue(leadModEntry != null, "lead mod entry restored");
+        AssertTrue(leadModEntry!.WasLeadMod, "lead mod flagged correctly");
+        AssertEqual("head_mod", leadModEntry.TargetLogin, "lead mod login");
+
+        // Remove one
+        AssertTrue(manager2.Remove(modEntry.Id), "remove entry");
+        AssertEqual(1, manager2.Count, "count after remove");
+
+        // Verify removal persisted
+        var manager3 = new PendingRemodManager(tempFile);
+        AssertEqual(1, manager3.Count, "persisted count after remove");
+    }
+    finally
+    {
+        try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+    }
+
+    return Task.CompletedTask;
+}
+
+Task PendingRemodManagerCalculatesBackoffAndRecordsRetriesAsync()
+{
+    var tempFile = Path.Combine(Path.GetTempPath(), $"streamerhub_retry_test_{Guid.NewGuid():N}.json");
+    try
+    {
+        var manager = new PendingRemodManager(tempFile);
+
+        // Verify backoff progression
+        AssertEqual(TimeSpan.FromSeconds(3), manager.CalculateNextBackoff(1), "backoff attempt 1");
+        AssertEqual(TimeSpan.FromSeconds(6), manager.CalculateNextBackoff(2), "backoff attempt 2");
+        AssertEqual(TimeSpan.FromSeconds(12), manager.CalculateNextBackoff(3), "backoff attempt 3");
+        AssertEqual(TimeSpan.FromSeconds(20), manager.CalculateNextBackoff(4), "backoff attempt 4");
+        AssertEqual(TimeSpan.FromSeconds(30), manager.CalculateNextBackoff(5), "backoff attempt 5");
+
+        manager.Enqueue("b1", "u1", "chatter", DateTime.UtcNow.AddSeconds(10));
+        var entry = manager.GetAllEntries().Single();
+
+        // Simulate retries
+        for (var i = 1; i < PendingRemodManager.MaxAttempts; i++)
+        {
+            var stillActive = manager.RecordRetry(entry.Id, "400 Banned or timed out");
+            AssertTrue(stillActive, $"retry attempt {i} should remain active");
+        }
+
+        // Next attempt hits max attempts and is abandoned
+        var finalRetry = manager.RecordRetry(entry.Id, "400 Banned or timed out");
+        AssertFalse(finalRetry, "exceeding max attempts must abandon item");
+        AssertEqual(0, manager.Count, "abandoned item removed from queue");
+    }
+    finally
+    {
+        try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+    }
+
+    return Task.CompletedTask;
+}
+
+Task ParsePrivmsgExtractsLeadModeratorBadgeAsync()
+{
+    const string line1 = "@badge-info=;badges=lead_moderator/1,subscriber/12;color=#00FF00;display-name=LeadModUser;emotes=;first-msg=0;flags=;id=abc;mod=0;room-id=999;subscriber=1;tmi-sent-ts=1724716800000;turbo=0;user-id=777;user-type= :leadmoduser!leadmoduser@leadmoduser.tmi.twitch.tv PRIVMSG #room :checking in as lead mod";
+
+    if (!TwitchPrivmsgParser.TryParse(line1, DateTime.UtcNow, out var message1))
+    {
+        throw new InvalidOperationException("expected TwitchPrivmsgParser to parse line with lead_moderator badge");
+    }
+
+    AssertTrue(message1.IsMod, "lead_moderator badge must set IsMod to true");
+    AssertTrue(message1.IsLeadMod, "lead_moderator badge must set IsLeadMod to true");
+    AssertEqual("LeadModUser", message1.Username, "username");
+    AssertEqual("777", message1.UserId, "user-id");
+
+    const string line2 = "@badge-info=;badges=lead-moderator/1;color=#00FF00;display-name=LeadModDash;emotes=;id=def;user-id=888 :leadmoddash!leadmoddash@leadmoddash.tmi.twitch.tv PRIVMSG #room :dash variant";
+
+    if (!TwitchPrivmsgParser.TryParse(line2, DateTime.UtcNow, out var message2))
+    {
+        throw new InvalidOperationException("expected TwitchPrivmsgParser to parse line with lead-moderator badge");
+    }
+
+    AssertTrue(message2.IsMod, "lead-moderator badge must set IsMod to true");
+    AssertTrue(message2.IsLeadMod, "lead-moderator badge must set IsLeadMod to true");
 
     return Task.CompletedTask;
 }

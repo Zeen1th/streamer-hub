@@ -148,9 +148,29 @@ export type ModerationAction =
   | 'clear_chat'
   | 'shoutout';
 
-export type SequenceStepType = 'chat' | 'counter' | 'command' | 'wait' | 'moderation';
+export type SequenceStepType = 'chat' | 'counter' | 'command' | 'wait' | 'moderation' | 'comment';
 export type SequenceWaitUnit = 'seconds' | 'minutes';
 export type SequenceTriggerType = 'channel_points' | 'chat' | 'both';
+
+export type ActionTriggerType = 'twitch_raid' | 'twitch_chat' | 'twitch_channel_points';
+
+export interface ActionTrigger {
+  id: string;
+  type: ActionTriggerType;
+  enabled: boolean;
+  minViewers?: number;
+  chatCommand?: string;
+  matchMode?: 'exact' | 'startsWith' | 'contains';
+  rewardId?: string;
+  rewardTitle?: string;
+}
+
+export interface TwitchRaidEvent {
+  fromUserId: string;
+  fromUserName: string;
+  fromUserLogin: string;
+  viewers: number;
+}
 
 export interface SequenceStep {
   id: string;
@@ -165,18 +185,20 @@ export interface SequenceStep {
   targetUser?: string;
   durationSeconds?: number;
   reason?: string;
+  commentText?: string;
 }
 
 export interface CommandSequence {
   id: string;
   enabled: boolean;
   name: string;
-  triggerType: SequenceTriggerType;
+  triggerType?: SequenceTriggerType;
   rewardTitle?: string;
   rewardId?: string;
   chatTrigger?: string;
   cooldownSeconds: number;
   steps: SequenceStep[];
+  triggers?: ActionTrigger[];
 }
 
 export interface ChannelPointsRedemption {
@@ -391,6 +413,7 @@ export interface ChatMessage {
   avatarUrl?: string;
   isBroadcaster: boolean;
   isMod: boolean;
+  isLeadMod?: boolean;
   isVip: boolean;
   isSubscriber: boolean;
   message: string;
@@ -528,6 +551,7 @@ export const Events = {
   WindowMaximizedChanged: 'window/maximized-changed',
   CoreLog: 'core/log',
   KeybindTriggered: 'keybind/triggered',
+  TwitchRaid: 'twitch/raid',
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events];
@@ -671,5 +695,6 @@ export interface EventMap {
   [Events.WindowMaximizedChanged]: { isMaximized: boolean };
   [Events.CoreLog]: { message: string };
   [Events.KeybindTriggered]: { bindingId: string };
+  [Events.TwitchRaid]: TwitchRaidEvent;
 }
 

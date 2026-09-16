@@ -112,5 +112,6 @@ public static class Events
     public const string WindowMaximizedChanged = "window/maximized-changed";
     public const string CoreLog = "core/log";
     public const string KeybindTriggered = "keybind/triggered";
+    public const string TwitchRaid = "twitch/raid";
 }
 

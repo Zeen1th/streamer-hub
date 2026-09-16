@@ -156,3 +156,98 @@ test('executeSequence runs steps in stack order and invokes sinks', async () => 
   assert.equal(startedSteps[2].id, 's3');
   assert.equal(startedSteps[3].id, 's4');
 });
+
+test('replaceSequenceTokens replaces {raider} and {viewers} and falls back target to raider on raid', () => {
+  const ctx = {
+    username: 'BigStreamer',
+    source: 'raid',
+    raider: 'BigStreamer',
+    viewers: 55,
+  };
+
+  const text = 'Thanks @{raider} for raiding with {viewers} viewers! Shoutout {target}!';
+  const result = replaceSequenceTokens(text, ctx);
+
+  assert.equal(result, 'Thanks @BigStreamer for raiding with 55 viewers! Shoutout BigStreamer!');
+});
+
+test('matchesSequenceTrigger evaluates ActionTrigger array including raids', () => {
+  const seq = {
+    id: 'seq-raid',
+    enabled: true,
+    name: 'Raid Welcome',
+    cooldownSeconds: 0,
+    triggers: [
+      {
+        id: 't-raid',
+        type: 'twitch_raid',
+        enabled: true,
+        minViewers: 10,
+      },
+      {
+        id: 't-chat',
+        type: 'twitch_chat',
+        enabled: true,
+        chatCommand: '!shoutout',
+        matchMode: 'startsWith',
+      },
+    ],
+    steps: [],
+  };
+
+  // Raid with 15 viewers matches
+  assert.equal(matchesSequenceTrigger(seq, { raid: { fromUserName: 'Friend', fromUserLogin: 'friend', viewers: 15 } }), true);
+  // Raid with 5 viewers does not match (min is 10)
+  assert.equal(matchesSequenceTrigger(seq, { raid: { fromUserName: 'Friend', fromUserLogin: 'friend', viewers: 5 } }), false);
+  // Chat command !shoutout matches
+  assert.equal(matchesSequenceTrigger(seq, { chatMessage: '!shoutout @raider' }), true);
+  // Unrelated chat command does not match
+  assert.equal(matchesSequenceTrigger(seq, { chatMessage: '!hello' }), false);
+});
+
+test('executeSequence seamlessly executes comment steps as non-failing annotations', async () => {
+  const sequence = {
+    id: 'seq-comment',
+    name: 'With Comment',
+    enabled: true,
+    steps: [
+      { id: 's1', type: 'comment', commentText: '** Setup Welcome **' },
+      { id: 's2', type: 'chat', chatMessage: 'Hello World!' },
+    ],
+  };
+
+  const sentMessages = [];
+  const res = await executeSequence(
+    sequence,
+    { username: 'Streamer' },
+    {
+      sendChatMessage: async (msg) => {
+        sentMessages.push(msg);
+      },
+    }
+  );
+
+  assert.equal(res.ok, true);
+  assert.equal(res.executedSteps, 2);
+  assert.deepEqual(sentMessages, ['Hello World!']);
+});
+
+test('matchesSequenceTrigger returns false when triggers array is empty', () => {
+  const seqWithEmptyTriggers = {
+    id: 'seq-manual',
+    name: 'Manual Action Only',
+    enabled: true,
+    triggers: [],
+    // Legacy fields should NOT accidentally match when triggers is explicitly empty array
+    triggerType: 'chat',
+    chatTrigger: '!run',
+    steps: [],
+  };
+
+  assert.equal(matchesSequenceTrigger(seqWithEmptyTriggers, { chatMessage: '!run' }), false);
+  assert.equal(matchesSequenceTrigger(seqWithEmptyTriggers, { customRewardId: 'r1', rewardTitle: 'Reward' }), false);
+  assert.equal(matchesSequenceTrigger(seqWithEmptyTriggers, { raid: { fromUserName: 'R', fromUserLogin: 'r', viewers: 10 } }), false);
+});
+
+
+

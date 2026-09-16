@@ -12,11 +12,19 @@ namespace StreamerHub.Core;
 
 internal static class Native
 {
+    internal const int SwRestore = 9;
+
     [DllImport("user32.dll")]
     internal static extern bool ReleaseCapture();
 
     [DllImport("user32.dll")]
     internal static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 }
 
 internal sealed class TransparentResizeGrip : Control
@@ -270,14 +278,28 @@ public sealed class MainForm : Form
         });
     }
 
-    private void RestoreFromTray()
+    internal void RestoreAndActivate()
     {
         if (IsDisposed) return;
-        ShowInTaskbar = true;
-        Show();
-        WindowState = FormWindowState.Normal;
+        if (!Visible || !ShowInTaskbar)
+        {
+            ShowInTaskbar = true;
+            Show();
+        }
+        if (WindowState == FormWindowState.Minimized)
+        {
+            WindowState = FormWindowState.Normal;
+        }
+        if (IsHandleCreated)
+        {
+            Native.ShowWindow(Handle, Native.SwRestore);
+            Native.SetForegroundWindow(Handle);
+        }
         Activate();
+        Focus();
     }
+
+    private void RestoreFromTray() => RestoreAndActivate();
 
     private void HideToTray()
     {

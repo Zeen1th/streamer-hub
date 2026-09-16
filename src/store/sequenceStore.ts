@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import type {
+  ActionTrigger,
+  ActionTriggerType,
   ChannelPointsRedemption,
   ChatMessage,
   CommandSequence,
   CounterAction,
   SequenceStep,
   SequenceStepType,
+  TwitchRaidEvent,
   TwitchRewardInfo,
 } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
@@ -30,34 +33,107 @@ interface SequenceState {
 
   hydrate(sequences: CommandSequence[]): void;
   fetchAvailableRewards(): Promise<void>;
-  add(): string;
+  add(name?: string, options?: Partial<CommandSequence>): string;
   addSmartModTimeoutPreset(): string;
+  addRaidShoutoutPreset(): string;
   update(id: string, patch: Partial<CommandSequence>): void;
   remove(id: string): void;
-  addStep(sequenceId: string, type: SequenceStepType): void;
+  addTrigger(sequenceId: string, type: ActionTriggerType, options?: Partial<ActionTrigger>): ActionTrigger;
+  updateTrigger(sequenceId: string, triggerId: string, patch: Partial<ActionTrigger>): void;
+  removeTrigger(sequenceId: string, triggerId: string): void;
+  addStep(sequenceId: string, type: SequenceStepType, options?: Partial<SequenceStep>): SequenceStep;
   updateStep(sequenceId: string, stepId: string, patch: Partial<SequenceStep>): void;
   removeStep(sequenceId: string, stepId: string): void;
   moveStep(sequenceId: string, stepIndex: number, direction: 'up' | 'down'): void;
   runSequence(id: string, customContext?: Partial<SequenceExecutionContext>): Promise<boolean>;
   handleChannelPointsRedemption(redemption: ChannelPointsRedemption): Promise<boolean>;
   handleChatMessage(message: ChatMessage): Promise<boolean>;
+  handleRaid(raid: TwitchRaidEvent): Promise<boolean>;
 }
 
 const persist = (sequence: CommandSequence) => {
   rpc.invoke(Channels.SequencesSave, { sequence }).catch(() => undefined);
 };
 
-const defaultStepForType = (type: SequenceStepType): SequenceStep => {
+export const defaultTriggerForType = (type: ActionTriggerType, options?: Partial<ActionTrigger>): ActionTrigger => {
   const id = crypto.randomUUID();
   switch (type) {
+    case 'twitch_raid':
+      return {
+        id,
+        type: 'twitch_raid',
+        enabled: true,
+        minViewers: options?.minViewers ?? 1,
+        ...options,
+      };
+    case 'twitch_chat':
+      return {
+        id,
+        type: 'twitch_chat',
+        enabled: true,
+        chatCommand: options?.chatCommand ?? '!command',
+        matchMode: options?.matchMode ?? 'startsWith',
+        ...options,
+      };
+    case 'twitch_channel_points':
+      return {
+        id,
+        type: 'twitch_channel_points',
+        enabled: true,
+        rewardId: options?.rewardId ?? '',
+        rewardTitle: options?.rewardTitle ?? 'Custom Reward',
+        ...options,
+      };
+  }
+};
+
+export const normalizeTriggers = (seq: CommandSequence): ActionTrigger[] => {
+  if (Array.isArray(seq.triggers)) {
+    return seq.triggers;
+  }
+  const result: ActionTrigger[] = [];
+  const triggerType = seq.triggerType;
+
+  if (triggerType === 'channel_points' || triggerType === 'both') {
+    if (seq.rewardTitle || seq.rewardId) {
+      result.push({
+        id: crypto.randomUUID(),
+        type: 'twitch_channel_points',
+        enabled: true,
+        rewardId: seq.rewardId || '',
+        rewardTitle: seq.rewardTitle || 'Reward',
+      });
+    }
+  }
+
+  if (triggerType === 'chat' || triggerType === 'both') {
+    if (seq.chatTrigger) {
+      result.push({
+        id: crypto.randomUUID(),
+        type: 'twitch_chat',
+        enabled: true,
+        chatCommand: seq.chatTrigger,
+        matchMode: 'startsWith',
+      });
+    }
+  }
+
+  return result;
+};
+
+const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceStep>): SequenceStep => {
+  const id = crypto.randomUUID();
+  switch (type) {
+    case 'comment':
+      return { id, type: 'comment', commentText: options?.commentText ?? '** This is a comment! **', ...options };
     case 'wait':
-      return { id, type: 'wait', waitDuration: 3, waitUnit: 'seconds' };
+      return { id, type: 'wait', waitDuration: 3, waitUnit: 'seconds', ...options };
     case 'chat':
-      return { id, type: 'chat', chatMessage: 'Drinking water! Thanks {username} 🥤' };
+      return { id, type: 'chat', chatMessage: 'Drinking water! Thanks {username} 🥤', ...options };
     case 'counter':
-      return { id, type: 'counter', counterAction: 'increase' };
+      return { id, type: 'counter', counterAction: 'increase', ...options };
     case 'command':
-      return { id, type: 'command', commandTrigger: '!sound' };
+      return { id, type: 'command', commandTrigger: '!sound', ...options };
     case 'moderation':
       return {
         id,
@@ -66,6 +142,7 @@ const defaultStepForType = (type: SequenceStepType): SequenceStep => {
         targetUser: '{input}',
         durationSeconds: 60,
         reason: 'Channel Points Timeout',
+        ...options,
       };
   }
 };
@@ -90,6 +167,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
         chatTrigger: seq.chatTrigger ?? '',
         cooldownSeconds: seq.cooldownSeconds ?? 0,
         steps: Array.isArray(seq.steps) ? seq.steps : [],
+        triggers: normalizeTriggers(seq),
       })),
     });
   },
@@ -108,35 +186,20 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     }
   },
 
-  add: () => {
+  add: (name?: string, options?: Partial<CommandSequence>) => {
     const id = crypto.randomUUID();
     const newSequence: CommandSequence = {
       id,
       enabled: true,
-      name: 'Hydrate Stack',
-      triggerType: 'channel_points',
-      rewardTitle: 'Hydrate',
+      name: name || 'New Action',
+      triggerType: 'chat',
+      rewardTitle: '',
       rewardId: '',
-      chatTrigger: '!hydrate',
-      cooldownSeconds: 15,
-      steps: [
-        {
-          id: crypto.randomUUID(),
-          type: 'chat',
-          chatMessage: '🥤 Hydrate alert! Drink some water, {username}!',
-        },
-        {
-          id: crypto.randomUUID(),
-          type: 'wait',
-          waitDuration: 2,
-          waitUnit: 'seconds',
-        },
-        {
-          id: crypto.randomUUID(),
-          type: 'chat',
-          chatMessage: '💧 Refreshed and ready to go!',
-        },
-      ],
+      chatTrigger: '',
+      cooldownSeconds: 0,
+      triggers: options?.triggers ?? [],
+      steps: options?.steps ?? [],
+      ...options,
     };
 
     set((state) => ({ sequences: [...state.sequences, newSequence] }));
@@ -155,6 +218,22 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
       rewardId: '',
       chatTrigger: '!timeoutmod',
       cooldownSeconds: 30,
+      triggers: [
+        {
+          id: crypto.randomUUID(),
+          type: 'twitch_chat',
+          enabled: true,
+          chatCommand: '!timeoutmod',
+          matchMode: 'startsWith',
+        },
+        {
+          id: crypto.randomUUID(),
+          type: 'twitch_channel_points',
+          enabled: true,
+          rewardId: '',
+          rewardTitle: 'Timeout A Mod',
+        },
+      ],
       steps: [
         {
           id: crypto.randomUUID(),
@@ -173,6 +252,48 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
           id: crypto.randomUUID(),
           type: 'chat',
           chatMessage: '✅ @{target} has been timed out! (Will be safely re-modded if they are a mod).',
+        },
+      ],
+    };
+
+    set((state) => ({ sequences: [...state.sequences, newSequence] }));
+    persist(newSequence);
+    return id;
+  },
+
+  addRaidShoutoutPreset: () => {
+    const id = crypto.randomUUID();
+    const newSequence: CommandSequence = {
+      id,
+      enabled: true,
+      name: '🎉 Twitch Raid Shoutout & Welcome',
+      triggerType: 'chat',
+      cooldownSeconds: 10,
+      triggers: [
+        {
+          id: crypto.randomUUID(),
+          type: 'twitch_raid',
+          enabled: true,
+          minViewers: 1,
+        },
+      ],
+      steps: [
+        {
+          id: crypto.randomUUID(),
+          type: 'moderation',
+          moderationAction: 'shoutout',
+          targetUser: '{raider}',
+        },
+        {
+          id: crypto.randomUUID(),
+          type: 'wait',
+          waitDuration: 1,
+          waitUnit: 'seconds',
+        },
+        {
+          id: crypto.randomUUID(),
+          type: 'chat',
+          chatMessage: '🎉 Welcome raiders from @{raider}! Thank you for the raid with {viewers} viewers! Check them out at twitch.tv/{raider} 💜',
         },
       ],
     };
@@ -201,8 +322,51 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     rpc.invoke(Channels.SequencesDelete, { sequenceId: id }).catch(() => undefined);
   },
 
-  addStep: (sequenceId, type) => {
-    const step = defaultStepForType(type);
+  addTrigger: (sequenceId, type, options) => {
+    const trigger = defaultTriggerForType(type, options);
+    set((state) => {
+      const next = state.sequences.map((s) => {
+        if (s.id !== sequenceId) return s;
+        const currentTriggers = s.triggers ?? [];
+        const updated = { ...s, triggers: [...currentTriggers, trigger] };
+        persist(updated);
+        return updated;
+      });
+      return { sequences: next };
+    });
+    return trigger;
+  },
+
+  updateTrigger: (sequenceId, triggerId, patch) => {
+    set((state) => {
+      const next = state.sequences.map((s) => {
+        if (s.id !== sequenceId) return s;
+        const currentTriggers = s.triggers ?? [];
+        const updatedTriggers = currentTriggers.map((t) => (t.id === triggerId ? { ...t, ...patch } : t));
+        const updated = { ...s, triggers: updatedTriggers };
+        persist(updated);
+        return updated;
+      });
+      return { sequences: next };
+    });
+  },
+
+  removeTrigger: (sequenceId, triggerId) => {
+    set((state) => {
+      const next = state.sequences.map((s) => {
+        if (s.id !== sequenceId) return s;
+        const currentTriggers = s.triggers ?? [];
+        const updatedTriggers = currentTriggers.filter((t) => t.id !== triggerId);
+        const updated = { ...s, triggers: updatedTriggers };
+        persist(updated);
+        return updated;
+      });
+      return { sequences: next };
+    });
+  },
+
+  addStep: (sequenceId, type, options) => {
+    const step = defaultStepForType(type, options);
     set((state) => {
       const next = state.sequences.map((s) => {
         if (s.id !== sequenceId) return s;
@@ -212,6 +376,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
       });
       return { sequences: next };
     });
+    return step;
   },
 
   updateStep: (sequenceId, stepId, patch) => {
@@ -280,8 +445,11 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     const context: SequenceExecutionContext = {
       username: customContext?.username || 'Streamer',
       userLogin: customContext?.userLogin || 'streamer',
+      userId: customContext?.userId,
       source: customContext?.source || 'test',
       userInput: customContext?.userInput ?? '',
+      raider: customContext?.raider,
+      viewers: customContext?.viewers,
     };
 
     try {
@@ -420,6 +588,31 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
           userId: message.userId,
           source: message.customRewardId ? 'channel_points' : 'chat',
           userInput,
+        });
+      }
+    }
+
+    return handled;
+  },
+
+  handleRaid: async (raid) => {
+    const sequences = get().sequences;
+    let handled = false;
+
+    for (const seq of sequences) {
+      if (!seq.enabled) continue;
+      const matches = matchesSequenceTrigger(seq, { raid });
+
+      if (matches) {
+        handled = true;
+        await get().runSequence(seq.id, {
+          username: raid.fromUserName || raid.fromUserLogin,
+          userLogin: raid.fromUserLogin,
+          userId: raid.fromUserId,
+          source: 'raid',
+          raider: raid.fromUserName || raid.fromUserLogin,
+          viewers: raid.viewers,
+          userInput: `@${raid.fromUserName || raid.fromUserLogin}`,
         });
       }
     }

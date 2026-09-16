@@ -1,3 +1,5 @@
+using StreamerHub.Core.Host;
+
 namespace StreamerHub.Core;
 
 internal static class Program
@@ -13,7 +15,40 @@ internal static class Program
         // explicitly so any native/runtime lookup uses the installed app folder.
         Environment.CurrentDirectory = AppContext.BaseDirectory;
 
+        using var singleInstance = new SingleInstanceCoordinator();
+        if (!singleInstance.IsPrimary)
+        {
+            SingleInstanceCoordinator.NotifyPrimary();
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm());
+        using var mainForm = new MainForm();
+        singleInstance.RegisterShowHandler(() =>
+        {
+            try
+            {
+                if (mainForm.IsDisposed) return;
+                if (mainForm.IsHandleCreated)
+                {
+                    mainForm.BeginInvoke(new Action(mainForm.RestoreAndActivate));
+                }
+                else
+                {
+                    EventHandler onHandleCreated = null!;
+                    onHandleCreated = (_, _) =>
+                    {
+                        mainForm.HandleCreated -= onHandleCreated;
+                        mainForm.BeginInvoke(new Action(mainForm.RestoreAndActivate));
+                    };
+                    mainForm.HandleCreated += onHandleCreated;
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        });
+
+        Application.Run(mainForm);
     }
 }

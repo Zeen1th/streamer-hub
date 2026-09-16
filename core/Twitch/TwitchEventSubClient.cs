@@ -25,6 +25,7 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
 
     public event Action<ChannelPointsRedemption>? ChannelPointsRedeemed;
     public event Action<string>? ChannelTitleUpdated;
+    public event Action<TwitchRaidEvent>? RaidReceived;
     public event Action<string>? LogMessage;
 
     public void Connect(string accessToken, string broadcasterUserId)
@@ -150,6 +151,7 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
                         Log($"Twitch EventSub session welcome received. SessionId: {sessionId}");
                         await SubscribeRedemptionsAsync(sessionId, ct).ConfigureAwait(false);
                         await SubscribeChannelUpdateAsync(sessionId, ct).ConfigureAwait(false);
+                        await SubscribeRaidAsync(sessionId, ct).ConfigureAwait(false);
                     }
                 }
             }
@@ -162,7 +164,18 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
                 if (root.TryGetProperty("payload", out var payload) &&
                     payload.TryGetProperty("event", out var ev))
                 {
-                    if (string.Equals(subType, "channel.update", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(subType, "channel.raid", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var fromUserId = ev.TryGetProperty("from_broadcaster_user_id", out var fId) ? fId.GetString() ?? string.Empty : string.Empty;
+                        var fromUserName = ev.TryGetProperty("from_broadcaster_user_name", out var fName) ? fName.GetString() ?? string.Empty : string.Empty;
+                        var fromUserLogin = ev.TryGetProperty("from_broadcaster_user_login", out var fLogin) ? fLogin.GetString() ?? string.Empty : string.Empty;
+                        var viewers = ev.TryGetProperty("viewers", out var v) && v.TryGetInt32(out var count) ? count : 0;
+
+                        var raid = new TwitchRaidEvent(fromUserId, fromUserName, fromUserLogin, viewers);
+                        Log($"Twitch EventSub Raid: {fromUserName} raided with {viewers} viewers!");
+                        RaidReceived?.Invoke(raid);
+                    }
+                    else if (string.Equals(subType, "channel.update", StringComparison.OrdinalIgnoreCase))
                     {
                         if (ev.TryGetProperty("title", out var titleProp))
                         {
@@ -297,6 +310,51 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
         catch (Exception ex)
         {
             Log($"Error subscribing to channel update events: {ex.Message}");
+        }
+    }
+
+    private async Task SubscribeRaidAsync(string sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_accessToken) || string.IsNullOrWhiteSpace(_broadcasterUserId)) return;
+
+        try
+        {
+            var body = new
+            {
+                type = "channel.raid",
+                version = "1",
+                condition = new
+                {
+                    to_broadcaster_user_id = _broadcasterUserId,
+                },
+                transport = new
+                {
+                    method = "websocket",
+                    session_id = sessionId,
+                }
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.twitch.tv/helix/eventsub/subscriptions")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+            };
+            request.Headers.TryAddWithoutValidation("Client-Id", TwitchConstants.ClientId);
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {_accessToken}");
+
+            using var response = await Http.SendAsync(request, ct).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+            {
+                Log("Subscribed to Twitch channel raid events successfully.");
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                Log($"Failed to subscribe to channel raid events: {response.StatusCode} - {error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Error subscribing to channel raid events: {ex.Message}");
         }
     }
 

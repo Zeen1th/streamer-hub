@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Security;
@@ -23,6 +24,7 @@ public sealed class TwitchIrcClient : ITwitchClient
     private static readonly HttpClient Helix = new();
     public event Action<ChatMessage>? ChatMessageReceived;
     public event Action<ChatClear>? ChatCleared;
+    public event Action<TwitchRaidEvent>? RaidReceived;
     public event Action<TwitchState>? StateChanged;
     public event Action<TwitchInfo>? Info;
 
@@ -43,9 +45,17 @@ public sealed class TwitchIrcClient : ITwitchClient
     private string? _cachedModeratorId;
     private string? _lastKnownTitle;
 
-    private readonly List<PendingRemodItem> _pendingRemods = new();
-    private readonly object _pendingRemodsLock = new();
+    private readonly PendingRemodManager _remodManager;
+    private readonly ConcurrentDictionary<string, (bool IsMod, bool IsLeadMod)> _chatterRoles = new(StringComparer.OrdinalIgnoreCase);
     private System.Threading.Timer? _remodTimer;
+    private int _processingRemods;
+
+    public PendingRemodManager RemodManager => _remodManager;
+
+    public TwitchIrcClient(string? pendingRemodsPath = null)
+    {
+        _remodManager = new PendingRemodManager(pendingRemodsPath);
+    }
 
     public TwitchState State => _state;
 
@@ -435,55 +445,48 @@ public sealed class TwitchIrcClient : ITwitchClient
     private void EnsureRemodTimerStarted()
     {
         if (_remodTimer is not null) return;
-        _remodTimer = new System.Threading.Timer(_ => ProcessPendingRemods(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        _remodTimer = new System.Threading.Timer(_ => _ = ProcessPendingRemodsAsync(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
 
-    private void RegisterPendingRemod(string broadcasterId, string targetUserId, string targetLogin, DateTime remodAtUtc)
+    private async Task ProcessPendingRemodsAsync()
     {
-        EnsureRemodTimerStarted();
-        lock (_pendingRemodsLock)
-        {
-            _pendingRemods.Add(new PendingRemodItem(broadcasterId, targetUserId, targetLogin, remodAtUtc));
-        }
-    }
+        if (_state != TwitchState.Connected || string.IsNullOrWhiteSpace(_accessToken)) return;
+        if (Interlocked.CompareExchange(ref _processingRemods, 1, 0) != 0) return;
 
-    private void ProcessPendingRemods()
-    {
-        List<PendingRemodItem> due;
-        lock (_pendingRemodsLock)
+        try
         {
-            if (_pendingRemods.Count == 0) return;
-            var now = DateTime.UtcNow;
-            due = _pendingRemods.Where(item => now >= item.RemodAtUtc).ToList();
-            if (due.Count > 0)
-            {
-                _pendingRemods.RemoveAll(item => now >= item.RemodAtUtc);
-            }
-        }
-
-        foreach (var item in due)
-        {
-            _ = Task.Run(async () =>
-            {
-                try
+            await _remodManager.ProcessDueRemodsAsync(
+                async (targetUserId, ct) => await CheckIsModeratorAsync(targetUserId, ct).ConfigureAwait(false),
+                async (targetUserId, ct) => await ModUserAsync(targetUserId, ct).ConfigureAwait(false),
+                async (entry, success, error) =>
                 {
-                    var result = await ModUserAsync(item.TargetUserId).ConfigureAwait(false);
-                    if (result.Ok)
+                    if (success)
                     {
-                        Info?.Invoke(new TwitchInfo("remod-success", item.TargetLogin));
-                        await SendChatMessageAsync($"[Moderation] Restored moderator privileges for @{item.TargetLogin}.").ConfigureAwait(false);
+                        Info?.Invoke(new TwitchInfo("remod-success", entry.TargetLogin));
+                        if (entry.WasLeadMod)
+                        {
+                            Info?.Invoke(new TwitchInfo("remod-lead-mod-notice", $"{entry.TargetLogin}: Moderator privileges restored. (Lead Moderator: check Twitch Roles Manager if badge re-grant is needed)"));
+                            await SendChatMessageAsync($"[Moderation] Restored moderator privileges for @{entry.TargetLogin}. (Lead Moderator)").ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await SendChatMessageAsync($"[Moderation] Restored moderator privileges for @{entry.TargetLogin}.").ConfigureAwait(false);
+                        }
                     }
                     else
                     {
-                        Info?.Invoke(new TwitchInfo("remod-failed", $"{item.TargetLogin}: {result.Error}"));
-                        await SendChatMessageAsync($"/mod {item.TargetLogin}").ConfigureAwait(false);
+                        Info?.Invoke(new TwitchInfo("remod-status", $"{entry.TargetLogin}: {error}"));
                     }
-                }
-                catch (Exception ex)
-                {
-                    Info?.Invoke(new TwitchInfo("remod-error", $"{item.TargetLogin}: {ex.Message}"));
-                }
-            });
+                },
+                _cts.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Info?.Invoke(new TwitchInfo("remod-error", ex.Message));
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _processingRemods, 0);
         }
     }
 
@@ -543,17 +546,43 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUsernameOrId);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
 
+        var (ok, error) = await TimeoutUserDirectAsync(cleanTarget, durationSeconds, reason, cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (ok) return (true, null);
+
+        if (error != null && error.Contains("moderator", StringComparison.OrdinalIgnoreCase))
+        {
+            var smartResult = await SmartModTimeoutAsync(cleanTarget, durationSeconds, reason, cancellationToken).ConfigureAwait(false);
+            return (smartResult.Ok, smartResult.Error);
+        }
+
+        return (false, error);
+    }
+
+    private async Task<(bool Ok, string? Error)> TimeoutUserDirectAsync(string targetUserIdOrLogin, int durationSeconds, string? reason, string fallbackLogin, CancellationToken cancellationToken)
+    {
+        var cleanTarget = CleanUsername(targetUserIdOrLogin);
+        if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
+
         var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
         var (moderatorId, mErr) = await GetModeratorIdAsync().ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(moderatorId)) return (false, mErr ?? "MODERATOR_ID_NOT_FOUND");
 
-        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
+        string targetUserId;
+        if (cleanTarget.All(char.IsDigit))
+        {
+            targetUserId = cleanTarget;
+        }
+        else
+        {
+            var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+            if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
+            targetUserId = profile.UserId;
+        }
 
-        if (string.Equals(profile.UserId, broadcasterId, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(profile.Login, _channel, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(targetUserId, broadcasterId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(cleanTarget, _channel, StringComparison.OrdinalIgnoreCase))
         {
             return (false, "CANNOT_TIMEOUT_BROADCASTER");
         }
@@ -570,7 +599,7 @@ public sealed class TwitchIrcClient : ITwitchClient
                 {
                     data = new
                     {
-                        user_id = profile.UserId,
+                        user_id = targetUserId,
                         duration = duration,
                         reason = safeReason,
                     }
@@ -580,7 +609,7 @@ public sealed class TwitchIrcClient : ITwitchClient
             using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode)
             {
-                ChatCleared?.Invoke(new ChatClear(ChatClearScope.User, cleanTarget));
+                ChatCleared?.Invoke(new ChatClear(ChatClearScope.User, fallbackLogin));
                 return (true, null);
             }
 
@@ -890,51 +919,99 @@ public sealed class TwitchIrcClient : ITwitchClient
             ? "Timed out via Streamer Hub"
             : reason.Trim();
 
+        // Check if user is known as a Lead Mod or standard Mod from recent chat messages or badge cache
+        var isLeadMod = false;
+        if (_chatterRoles.TryGetValue(targetLogin, out var cachedRole) ||
+            _chatterRoles.TryGetValue(targetUserId, out cachedRole))
+        {
+            isLeadMod = cachedRole.IsLeadMod;
+        }
+
         var (checkOk, isMod, _) = await CheckIsModeratorAsync(targetUserId, cancellationToken).ConfigureAwait(false);
 
-        if (checkOk && isMod)
+        if ((checkOk && isMod) || isLeadMod)
         {
             var (unmodOk, unmodErr) = await UnmodUserAsync(targetUserId, cancellationToken).ConfigureAwait(false);
             if (!unmodOk)
             {
-                return (false, true, targetLogin, $"FAILED_TO_UNMOD_FOR_TIMEOUT: {unmodErr}");
+                if (unmodErr == null || !unmodErr.Contains("not a moderator", StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, true, targetLogin, $"FAILED_TO_UNMOD_FOR_TIMEOUT: {unmodErr}");
+                }
             }
 
-            try
+            // Unmod propagation loop: Twitch distributed clusters can take 1-3 seconds to propagate the unmod
+            bool timeoutOk = false;
+            string? timeoutErr = null;
+            for (var attempt = 0; attempt < 3; attempt++)
             {
-                await Task.Delay(1200, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
+                var delayMs = attempt == 0 ? 1200 : 1500;
+                try
+                {
+                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                (timeoutOk, timeoutErr) = await TimeoutUserDirectAsync(targetUserId, duration, timeoutReason, targetLogin, cancellationToken).ConfigureAwait(false);
+                if (timeoutOk) break;
+
+                // If the error is not about being a moderator, do not keep retrying propagation
+                if (timeoutErr == null || !timeoutErr.Contains("moderator", StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
             }
 
-            RegisterPendingRemod(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(duration));
-
-            var (timeoutOk, timeoutErr) = await TimeoutUserAsync(targetUserId, duration, timeoutReason, cancellationToken).ConfigureAwait(false);
             if (!timeoutOk)
             {
-                _ = ModUserAsync(targetUserId, CancellationToken.None);
+                // Rollback: try to restore mod status immediately so user is not left unmodded
+                var (rollbackOk, _) = await ModUserAsync(targetUserId, CancellationToken.None).ConfigureAwait(false);
+                if (!rollbackOk)
+                {
+                    // If immediate rollback failed, enqueue to persistent manager so background retry loop handles it
+                    EnsureRemodTimerStarted();
+                    _remodManager.Enqueue(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(2), wasLeadMod: isLeadMod);
+                }
                 return (false, true, targetLogin, $"FAILED_TO_TIMEOUT_MOD: {timeoutErr}");
             }
+
+            // Enqueue remod with a 2-second safety buffer beyond duration to allow Twitch ban table to clear
+            EnsureRemodTimerStarted();
+            _remodManager.Enqueue(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(duration).AddSeconds(2), wasLeadMod: isLeadMod);
 
             return (true, true, targetLogin, null);
         }
         else
         {
-            var (timeoutOk, timeoutErr) = await TimeoutUserAsync(targetUserId, duration, timeoutReason, cancellationToken).ConfigureAwait(false);
+            var (timeoutOk, timeoutErr) = await TimeoutUserDirectAsync(targetUserId, duration, timeoutReason, targetLogin, cancellationToken).ConfigureAwait(false);
             if (!timeoutOk && timeoutErr != null && timeoutErr.Contains("moderator", StringComparison.OrdinalIgnoreCase))
             {
                 var (unmodOk, _) = await UnmodUserAsync(targetUserId, cancellationToken).ConfigureAwait(false);
                 if (unmodOk)
                 {
-                    try { await Task.Delay(1200, cancellationToken).ConfigureAwait(false); } catch { }
-                    RegisterPendingRemod(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(duration));
-                    var (retryOk, retryErr) = await TimeoutUserAsync(targetUserId, duration, timeoutReason, cancellationToken).ConfigureAwait(false);
+                    bool retryOk = false;
+                    string? retryErr = null;
+                    for (var attempt = 0; attempt < 3; attempt++)
+                    {
+                        var delayMs = attempt == 0 ? 1200 : 1500;
+                        try { await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false); } catch { break; }
+
+                        (retryOk, retryErr) = await TimeoutUserDirectAsync(targetUserId, duration, timeoutReason, targetLogin, cancellationToken).ConfigureAwait(false);
+                        if (retryOk) break;
+                        if (retryErr == null || !retryErr.Contains("moderator", StringComparison.OrdinalIgnoreCase)) break;
+                    }
+
                     if (!retryOk)
                     {
                         _ = ModUserAsync(targetUserId, CancellationToken.None);
                         return (false, true, targetLogin, retryErr);
                     }
+
+                    EnsureRemodTimerStarted();
+                    _remodManager.Enqueue(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(duration).AddSeconds(2), wasLeadMod: isLeadMod);
                     return (true, true, targetLogin, null);
                 }
             }
@@ -1062,6 +1139,14 @@ public sealed class TwitchIrcClient : ITwitchClient
             }
             return;
         }
+        if (line.Contains(" USERNOTICE ", StringComparison.Ordinal))
+        {
+            if (TwitchUsernoticeParser.TryParseRaid(line, out var raid))
+            {
+                RaidReceived?.Invoke(raid);
+            }
+            return;
+        }
         if (line.Contains(" PRIVMSG ", StringComparison.Ordinal))
         {
             if (!_sawMessage)
@@ -1077,6 +1162,15 @@ public sealed class TwitchIrcClient : ITwitchClient
     {
         if (TwitchPrivmsgParser.TryParse(line, DateTime.UtcNow, out var message))
         {
+            if (!string.IsNullOrWhiteSpace(message.UserLogin))
+            {
+                _chatterRoles[message.UserLogin] = (message.IsMod, message.IsLeadMod);
+            }
+            if (!string.IsNullOrWhiteSpace(message.UserId))
+            {
+                _chatterRoles[message.UserId] = (message.IsMod, message.IsLeadMod);
+            }
+
             ChatMessageReceived?.Invoke(message);
         }
     }
@@ -1157,6 +1251,7 @@ public static class TwitchPrivmsgParser
         IReadOnlyList<EmoteRange> emotes = Array.Empty<EmoteRange>();
         var isBroadcaster = false;
         var isMod = false;
+        var isLeadMod = false;
         var isVip = false;
         var isSubscriber = false;
 
@@ -1214,9 +1309,12 @@ public static class TwitchPrivmsgParser
                             case "broadcaster":
                                 isBroadcaster = true;
                                 break;
-                            case "moderator":
                             case "lead_moderator":
                             case "lead-moderator":
+                                isLeadMod = true;
+                                isMod = true;
+                                break;
+                            case "moderator":
                                 isMod = true;
                                 break;
                             case "vip":
@@ -1246,6 +1344,7 @@ public static class TwitchPrivmsgParser
             UserId = string.IsNullOrWhiteSpace(userId) ? null : userId,
             IsBroadcaster = isBroadcaster,
             IsMod = isMod,
+            IsLeadMod = isLeadMod,
             IsVip = isVip,
             IsSubscriber = isSubscriber,
             Message = messageText,
@@ -1363,4 +1462,64 @@ public static class TwitchClearParser
     }
 }
 
-public sealed record PendingRemodItem(string BroadcasterId, string TargetUserId, string TargetLogin, DateTime RemodAtUtc);
+public static class TwitchUsernoticeParser
+{
+    public static bool TryParseRaid(string line, [NotNullWhen(true)] out TwitchRaidEvent? raid)
+    {
+        raid = null;
+        if (string.IsNullOrEmpty(line)) return false;
+        if (!line.Contains(" USERNOTICE ", StringComparison.Ordinal)) return false;
+
+        var tags = ParseTags(line);
+        if (!tags.TryGetValue("msg-id", out var msgId) || !string.Equals(msgId, "raid", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        tags.TryGetValue("user-id", out var userId);
+        tags.TryGetValue("msg-param-login", out var login);
+        if (string.IsNullOrWhiteSpace(login))
+        {
+            tags.TryGetValue("login", out login);
+        }
+        tags.TryGetValue("msg-param-displayName", out var displayName);
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            tags.TryGetValue("display-name", out displayName);
+        }
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            displayName = login ?? "Raider";
+        }
+        if (string.IsNullOrWhiteSpace(login))
+        {
+            login = displayName.ToLowerInvariant();
+        }
+
+        var viewers = 0;
+        if (tags.TryGetValue("msg-param-viewerCount", out var viewerStr) && int.TryParse(viewerStr, out var vCount))
+        {
+            viewers = vCount;
+        }
+
+        raid = new TwitchRaidEvent(userId ?? string.Empty, displayName, login, viewers);
+        return true;
+    }
+
+    private static Dictionary<string, string> ParseTags(string line)
+    {
+        var tags = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!line.StartsWith('@')) return tags;
+
+        var space = line.IndexOf(' ');
+        if (space <= 1) return tags;
+
+        foreach (var tag in line[1..space].Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = tag.IndexOf('=');
+            if (eq <= 0) continue;
+            tags[tag[..eq]] = tag[(eq + 1)..];
+        }
+        return tags;
+    }
+}

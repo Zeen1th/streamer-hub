@@ -154,6 +154,8 @@ public sealed class HostController : IDisposable
     private readonly TwitchEventSubClient _eventSub = new();
     private readonly HashSet<string> _seenRedemptionIds = new(StringComparer.Ordinal);
     private readonly object _seenRedemptionsLock = new();
+    private readonly Dictionary<string, DateTime> _seenRaids = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _seenRaidsLock = new();
     private readonly TwitchUserProfileCache _twitchUserProfiles = new();
     private readonly HostMessageEchoTracker _echoTracker = new();
     private readonly EmoteRegistry _emotes = new();
@@ -1084,6 +1086,8 @@ public sealed class HostController : IDisposable
             }
         };
         _twitch.ChatCleared += clear => _ = PublishChatClearAsync(clear);
+        _twitch.RaidReceived += HandleRaid;
+        _eventSub.RaidReceived += HandleRaid;
         _eventSub.ChannelPointsRedeemed += redemption =>
         {
             bool isNew;
@@ -1131,6 +1135,26 @@ public sealed class HostController : IDisposable
             _ = SetChatOverlayConnectedAsync(state == TwitchState.Connected);
             EmitStatus();
         };
+    }
+
+    private void HandleRaid(TwitchRaidEvent raid)
+    {
+        var key = $"{raid.FromUserId}:{raid.FromUserLogin}:{raid.Viewers}".ToLowerInvariant();
+        var now = DateTime.UtcNow;
+        lock (_seenRaidsLock)
+        {
+            var expired = _seenRaids.Where(kv => (now - kv.Value).TotalSeconds > 60).Select(kv => kv.Key).ToList();
+            foreach (var k in expired) _seenRaids.Remove(k);
+
+            if (_seenRaids.TryGetValue(key, out var lastTime) && (now - lastTime).TotalSeconds < 30)
+            {
+                return;
+            }
+            _seenRaids[key] = now;
+        }
+
+        PostEvent(Events.TwitchRaid, raid);
+        Log("trigger", $"RAID RECEIVED · @{raid.FromUserName} raided with {raid.Viewers} viewers!");
     }
 
     private async Task WriteTitleFileAsync(string title)

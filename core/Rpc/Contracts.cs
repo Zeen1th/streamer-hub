@@ -135,6 +135,7 @@ public sealed record SequenceStep
     public string? TargetUser { get; init; }
     public int? DurationSeconds { get; init; }
     public string? Reason { get; init; }
+    public string? CommentText { get; init; }
 }
 
 public sealed record ModerationTargetPayload(string? Target);
@@ -143,6 +144,20 @@ public sealed record ModerationSmartTimeoutPayload(string? Target, int? Duration
 public sealed record ModerationBanPayload(string? Target, string? Reason = null);
 public sealed record ModerationDeleteMessagePayload(string? MessageId);
 
+
+public sealed record ActionTrigger
+{
+    public string Id { get; init; } = string.Empty;
+    public string Type { get; init; } = "twitch_chat"; // "twitch_raid" | "twitch_chat" | "twitch_channel_points"
+    public bool Enabled { get; init; } = true;
+    public int? MinViewers { get; init; }
+    public string? ChatCommand { get; init; }
+    public string? MatchMode { get; init; } // "exact" | "startsWith" | "contains"
+    public string? RewardId { get; init; }
+    public string? RewardTitle { get; init; }
+}
+
+public sealed record TwitchRaidEvent(string FromUserId, string FromUserName, string FromUserLogin, int Viewers);
 
 public sealed record CommandSequence
 {
@@ -155,6 +170,7 @@ public sealed record CommandSequence
     public string? ChatTrigger { get; init; }
     public int CooldownSeconds { get; init; }
     public List<SequenceStep> Steps { get; init; } = new();
+    public List<ActionTrigger> Triggers { get; init; } = new();
 }
 
 public sealed record ChannelPointsRedemption
@@ -228,6 +244,7 @@ public sealed record ChatMessage
     public string? AvatarUrl { get; init; }
     public bool IsBroadcaster { get; init; }
     public bool IsMod { get; init; }
+    public bool IsLeadMod { get; init; }
     public bool IsVip { get; init; }
     public bool IsSubscriber { get; init; }
     public string Message { get; init; } = string.Empty;
