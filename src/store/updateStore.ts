@@ -48,7 +48,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     if (!state.downloadUrl) return false;
     set({ installing: true });
     try {
-      const result = await rpc.invoke(Channels.UpdateInstall, { downloadUrl: state.downloadUrl });
+      const result = await rpc.invoke(Channels.UpdateInstall, { downloadUrl: state.downloadUrl }, 300_000);
       if (!result.ok) set({ installing: false });
       return result.ok;
     } catch {

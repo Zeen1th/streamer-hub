@@ -123,7 +123,7 @@ public sealed class HostController : IDisposable
     private sealed record SaveAutoReplyPayload(AutoReply? Rule);
     private sealed record SaveAutoReplySettingsPayload(AutoReplySettings? Settings);
     private sealed record DeleteAutoReplyPayload(string RuleId);
-    private sealed record SendChatMessagePayload(string Message);
+    private sealed record SendChatMessagePayload(string Message, string? SenderRole = null);
     private sealed record UpdateTitlePayload(string Title);
     private sealed record CheckAvatarPayload(string? Username, string? UserId);
     private sealed record SaveOpenRouterPayload(string Provider, string? ApiKey);
@@ -175,11 +175,16 @@ public sealed class HostController : IDisposable
     private int _botAuthorizeInProgress;
     private string _twitchChannel = string.Empty;
     private string _botLogin = string.Empty;
+    private bool _botSimulated;
     private int _chatBurst;
     private DateTime _chatWindow = DateTime.UtcNow;
     private DateTime _lastChatSentAt = DateTime.MinValue;
     private readonly SemaphoreSlim _chatSendLock = new(1, 1);
     private readonly SemaphoreSlim _aiRequestLock = new(1, 1);
+    private readonly SemaphoreSlim _aiGenerateLock = new(1, 1);
+    private readonly HashSet<string> _recentAiMessageIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _recentAiLock = new();
+    private DateTime _lastAiReplySentAt = DateTime.MinValue;
     private DateTime _aiWindow = DateTime.UtcNow;
     private int _aiRequestsInWindow;
 
@@ -374,11 +379,41 @@ public sealed class HostController : IDisposable
         });
         _dispatcher.Register(Channels.TwitchBotForget, (_, _) =>
         {
+            _botSimulated = false;
             _botTokens.Delete();
             _botTwitch.Disconnect();
             _botLogin = string.Empty;
             EmitStatus();
             return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.TwitchBotSimulate, (payload, _) =>
+        {
+            bool? enable = null;
+            string? login = null;
+            if (payload.HasValue && payload.Value.ValueKind == JsonValueKind.Object)
+            {
+                if (payload.Value.TryGetProperty("enabled", out var enabledProp))
+                    enable = enabledProp.GetBoolean();
+                if (payload.Value.TryGetProperty("login", out var loginProp))
+                    login = loginProp.GetString();
+            }
+
+            _botSimulated = enable ?? !_botSimulated;
+            if (_botSimulated)
+            {
+                _botLogin = !string.IsNullOrWhiteSpace(login) ? login : "ExampleBot";
+                _settings.SetBotAccountEnabled(true);
+            }
+            else
+            {
+                if (_botTwitch.State != TwitchState.Connected)
+                {
+                    _botLogin = string.Empty;
+                }
+            }
+            _settings.Flush();
+            EmitStatus();
+            return Task.FromResult<object?>(new { ok = true, simulated = _botSimulated, botLogin = _botLogin });
         });
         _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
             Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, preferredChatSender = _settings.PreferredChatSender, startupEnabled = _settings.StartupEnabled, closeToTray = _settings.CloseToTray ?? true }));
@@ -578,8 +613,8 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<SendChatMessagePayload>(payload ?? default);
             if (request is null || string.IsNullOrWhiteSpace(request.Message))
                 return new { ok = false, error = "EMPTY MESSAGE" };
-            var (_, senderRole, senderLogin) = ResolveActiveChatSender();
-            var ok = await SendChatMessageCoreAsync(request.Message).ConfigureAwait(false);
+            var (_, senderRole, senderLogin) = ResolveActiveChatSender(request.SenderRole);
+            var ok = await SendChatMessageCoreAsync(request.Message, request.SenderRole).ConfigureAwait(false);
             return new { ok, senderRole, senderLogin, error = ok ? null : "TWITCH CHAT IS NOT CONNECTED" };
         });
         _dispatcher.Register(Channels.TwitchGetTitle, async (_, _) =>
@@ -823,43 +858,96 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<GenerateAutoReplyPayload>(payload ?? default);
             if (request?.Message is null || string.IsNullOrWhiteSpace(request.RuleId))
                 return new GenerateAutoReplyResponse(false, Error: "BAD PAYLOAD");
+
+            // 1. Message ID Deduplication
+            if (!string.IsNullOrWhiteSpace(request.Message.Id))
+            {
+                lock (_recentAiLock)
+                {
+                    if (!_recentAiMessageIds.Add(request.Message.Id))
+                    {
+                        Log("system", $"AI reply rejected: duplicate message ID {request.Message.Id}");
+                        return new GenerateAutoReplyResponse(false, Error: "DUPLICATE MESSAGE ALREADY PROCESSED");
+                    }
+                    if (_recentAiMessageIds.Count > 500)
+                    {
+                        _recentAiMessageIds.Clear();
+                        _recentAiMessageIds.Add(request.Message.Id);
+                    }
+                }
+            }
+
             var rule = _settings.AutoReplies.FirstOrDefault(item => item.Id == request.RuleId);
             if (rule is null) return new GenerateAutoReplyResponse(false, Error: "RULE NOT FOUND");
             if (rule.ResponseMode != "ai" && string.IsNullOrWhiteSpace(request.OverrideInstructions))
                 return new GenerateAutoReplyResponse(false, Error: "AI RULE NOT FOUND");
             var shouldSend = request.Send != false;
-            var provider = rule.AiProvider == "groq" ? "groq" : "openrouter";
-            var key = provider == "groq" ? _groqKey.Load() : _openRouterKey.Load();
-            if (string.IsNullOrWhiteSpace(key)) return new GenerateAutoReplyResponse(false, Error: $"{provider.ToUpperInvariant()} KEY IS NOT CONFIGURED");
-            if (shouldSend && _twitch.State != TwitchState.Connected) return new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED");
-            if (!await AllowAiRequestAsync().ConfigureAwait(false)) return new GenerateAutoReplyResponse(false, Error: "AI LIMIT REACHED");
 
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown);
-            timeout.CancelAfter(TimeSpan.FromSeconds(25));
-            var effectiveInstructions = !string.IsNullOrWhiteSpace(request.OverrideInstructions)
-                ? request.OverrideInstructions
-                : rule.AiInstructions;
-            var model = string.IsNullOrWhiteSpace(rule.AiModel) ? "llama-3.1-8b-instant" : rule.AiModel;
-            var maxTokens = rule.AiMaxTokens > 0 ? rule.AiMaxTokens : 120;
-            var generated = await _openRouter.GenerateAsync(provider, key, model, effectiveInstructions, request.Message, maxTokens, timeout.Token).ConfigureAwait(false);
-            var (_, senderRole, senderLogin) = ResolveActiveChatSender();
-            if (!generated.Ok || string.IsNullOrWhiteSpace(generated.Message))
+            // 2. Minimum cooldown between sent AI chat messages
+            if (shouldSend)
             {
-                Log("system", $"AI reply failed ({provider}) · {generated.Error ?? "EMPTY RESPONSE"}");
-                var fallback = rule.AiFallback.Trim();
-                if (string.IsNullOrWhiteSpace(fallback))
-                    return new GenerateAutoReplyResponse(false, Error: generated.Error ?? "AI DID NOT RETURN A MESSAGE", SenderRole: senderRole, SenderLogin: senderLogin);
-                if (!shouldSend) return new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error, SenderRole: senderRole, SenderLogin: senderLogin);
-                var fallbackOk = await SendChatMessageCoreAsync(fallback).ConfigureAwait(false);
-                return fallbackOk
-                    ? new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error, SenderRole: senderRole, SenderLogin: senderLogin)
+                var elapsedSinceLastSend = DateTime.UtcNow - _lastAiReplySentAt;
+                if (elapsedSinceLastSend < TimeSpan.FromSeconds(2))
+                {
+                    Log("system", "AI reply rejected: minimum AI cooldown active");
+                    return new GenerateAutoReplyResponse(false, Error: "AI COOLDOWN ACTIVE");
+                }
+            }
+
+            // 3. In-flight concurrency lock: ensure only one AI generation runs at a time
+            if (!_aiGenerateLock.Wait(0))
+            {
+                Log("system", "AI reply rejected: another AI generation is currently in progress");
+                return new GenerateAutoReplyResponse(false, Error: "AI GENERATION ALREADY IN PROGRESS");
+            }
+
+            try
+            {
+                var provider = rule.AiProvider == "groq" ? "groq" : "openrouter";
+                var key = provider == "groq" ? _groqKey.Load() : _openRouterKey.Load();
+                if (string.IsNullOrWhiteSpace(key)) return new GenerateAutoReplyResponse(false, Error: $"{provider.ToUpperInvariant()} KEY IS NOT CONFIGURED");
+                if (shouldSend && _twitch.State != TwitchState.Connected) return new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED");
+                if (!await AllowAiRequestAsync().ConfigureAwait(false)) return new GenerateAutoReplyResponse(false, Error: "AI LIMIT REACHED");
+
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown);
+                timeout.CancelAfter(TimeSpan.FromSeconds(25));
+                var effectiveInstructions = !string.IsNullOrWhiteSpace(request.OverrideInstructions)
+                    ? request.OverrideInstructions
+                    : rule.AiInstructions;
+                var model = string.IsNullOrWhiteSpace(rule.AiModel) ? "llama-3.1-8b-instant" : rule.AiModel;
+                var maxTokens = rule.AiMaxTokens > 0 ? rule.AiMaxTokens : 120;
+                var generated = await _openRouter.GenerateAsync(provider, key, model, effectiveInstructions, request.Message, maxTokens, timeout.Token).ConfigureAwait(false);
+                var (_, senderRole, senderLogin) = ResolveActiveChatSender();
+                if (!generated.Ok || string.IsNullOrWhiteSpace(generated.Message))
+                {
+                    Log("system", $"AI reply failed ({provider}) · {generated.Error ?? "EMPTY RESPONSE"}");
+                    var fallback = rule.AiFallback.Trim();
+                    if (string.IsNullOrWhiteSpace(fallback))
+                        return new GenerateAutoReplyResponse(false, Error: generated.Error ?? "AI DID NOT RETURN A MESSAGE", SenderRole: senderRole, SenderLogin: senderLogin);
+                    if (!shouldSend) return new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error, SenderRole: senderRole, SenderLogin: senderLogin);
+                    var fallbackOk = await SendChatMessageCoreAsync(fallback).ConfigureAwait(false);
+                    if (fallbackOk)
+                    {
+                        _lastAiReplySentAt = DateTime.UtcNow;
+                    }
+                    return fallbackOk
+                        ? new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error, SenderRole: senderRole, SenderLogin: senderLogin)
+                        : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED", SenderRole: senderRole, SenderLogin: senderLogin);
+                }
+                if (!shouldSend) return new GenerateAutoReplyResponse(true, generated.Message, SenderRole: senderRole, SenderLogin: senderLogin);
+                var sent = await SendChatMessageCoreAsync(generated.Message).ConfigureAwait(false);
+                if (sent)
+                {
+                    _lastAiReplySentAt = DateTime.UtcNow;
+                }
+                return sent
+                    ? new GenerateAutoReplyResponse(true, generated.Message, SenderRole: senderRole, SenderLogin: senderLogin)
                     : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED", SenderRole: senderRole, SenderLogin: senderLogin);
             }
-            if (!shouldSend) return new GenerateAutoReplyResponse(true, generated.Message, SenderRole: senderRole, SenderLogin: senderLogin);
-            var sent = await SendChatMessageCoreAsync(generated.Message).ConfigureAwait(false);
-            return sent
-                ? new GenerateAutoReplyResponse(true, generated.Message, SenderRole: senderRole, SenderLogin: senderLogin)
-                : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED", SenderRole: senderRole, SenderLogin: senderLogin);
+            finally
+            {
+                _aiGenerateLock.Release();
+            }
         });
     }
 
@@ -1053,6 +1141,11 @@ public sealed class HostController : IDisposable
                 _knownChatters[login] = info;
                 _knownChatters[displayName] = info;
             }
+
+            if (isHostCandidate)
+            {
+                publishedMessage = publishedMessage with { IsSelf = true };
+            }
             PostEvent(Events.TwitchChatMessage, publishedMessage);
             _ = PublishChatOverlayMessageAsync(publishedMessage);
             if (!string.IsNullOrWhiteSpace(publishedMessage.CustomRewardId))
@@ -1211,17 +1304,20 @@ public sealed class HostController : IDisposable
         }
     }
 
-    private (ITwitchClient client, string senderRole, string senderLogin) ResolveActiveChatSender()
+    private (ITwitchClient client, string senderRole, string senderLogin) ResolveActiveChatSender(string? overrideRole = null)
     {
-        var preferBot = _settings.PreferredChatSender != "broadcaster";
-        if (preferBot && _settings.BotAccountEnabled && _botTwitch.State == TwitchState.Connected)
+        var targetRole = !string.IsNullOrWhiteSpace(overrideRole) && overrideRole is "bot" or "broadcaster"
+            ? overrideRole
+            : _settings.PreferredChatSender;
+        var preferBot = targetRole != "broadcaster";
+        if (preferBot && _settings.BotAccountEnabled && (_botTwitch.State == TwitchState.Connected || _botSimulated))
         {
-            return (_botTwitch, "bot", _botLogin);
+            return (_botSimulated ? _twitch : _botTwitch, "bot", !string.IsNullOrWhiteSpace(_botLogin) ? _botLogin : "ExampleBot");
         }
         return (_twitch, "broadcaster", _twitchChannel);
     }
 
-    private async Task<bool> SendChatMessageCoreAsync(string message)
+    private async Task<bool> SendChatMessageCoreAsync(string message, string? overrideRole = null)
     {
         if (string.IsNullOrWhiteSpace(message)) return false;
         await _chatSendLock.WaitAsync().ConfigureAwait(false);
@@ -1230,7 +1326,7 @@ public sealed class HostController : IDisposable
             var elapsed = DateTime.UtcNow - _lastChatSentAt;
             if (elapsed < TimeSpan.FromSeconds(1))
                 await Task.Delay(TimeSpan.FromSeconds(1) - elapsed).ConfigureAwait(false);
-            var (chatClient, senderRole, senderLogin) = ResolveActiveChatSender();
+            var (chatClient, senderRole, senderLogin) = ResolveActiveChatSender(overrideRole);
             var trimmed = message.Trim();
             var ok = await chatClient.SendChatMessageAsync(trimmed).ConfigureAwait(false);
             if (ok)
@@ -1297,7 +1393,7 @@ public sealed class HostController : IDisposable
             TwitchChannel = _twitchChannel,
             AuthRequired = _authRequired,
             BotAccountEnabled = _settings.BotAccountEnabled,
-            BotConnected = _botTwitch.State == TwitchState.Connected,
+            BotConnected = _botTwitch.State == TwitchState.Connected || _botSimulated,
             BotLogin = _botLogin,
             PreferredChatSender = _settings.PreferredChatSender,
             ActiveChatSender = activeRole,
@@ -1396,8 +1492,9 @@ public sealed class HostController : IDisposable
             });
             return new { ok = true };
         }
-        catch
+        catch (Exception ex)
         {
+            Log("system", $"UPDATE INSTALL FAILED: {ex.Message}");
             return new { ok = false, error = "UPDATE INSTALL FAILED" };
         }
     }

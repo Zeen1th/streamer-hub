@@ -27,6 +27,8 @@ import { applyChatFilters } from './lib/chatOverlayFilters';
 import { mergeEmoteProviders, tokenizeMessage, type ThirdPartyEmoteMap } from './lib/chatEmotes';
 import type { ChatMessage, ChatOverlaySettings, EmoteRange } from './rpc/contracts';
 import { DEFAULT_CHAT_OVERLAY_SETTINGS } from './lib/chatOverlay';
+import { resolveFontStack } from './overlay/tokens';
+import { loadSavedDockSettings, type ObsChatDockSettings } from './store/obsChatStore';
 
 type EnvelopeKind =
   | 'hello'
@@ -77,10 +79,12 @@ interface ClearPayload {
 
 interface DockMessageItem extends NormalizedChatOverlayMessage {
   deleted?: boolean;
+  isLeadMod?: boolean;
 }
 
 function ObsChatDockApp() {
   const [settings, setSettings] = useState<ChatOverlaySettings>(DEFAULT_CHAT_OVERLAY_SETTINGS);
+  const [dockSettings, setDockSettings] = useState<ObsChatDockSettings>(() => loadSavedDockSettings());
   const [messages, setMessages] = useState<DockMessageItem[]>([]);
   const [providers, setProviders] = useState<Record<string, ThirdPartyEmoteMap>>({});
   const [connected, setConnected] = useState(false);
@@ -103,13 +107,42 @@ function ObsChatDockApp() {
   const inputRef = useRef<HTMLInputElement>(null);
   const prevMessagesLength = useRef(0);
 
+  // Dynamically inject custom font stylesheet when provided
+  useEffect(() => {
+    const url = dockSettings.customFontUrl?.trim();
+    let link = document.getElementById('obs-chat-custom-font') as HTMLLinkElement | null;
+    if (url) {
+      if (!link) {
+        link = document.createElement('link');
+        link.id = 'obs-chat-custom-font';
+        link.rel = 'stylesheet';
+        document.head.appendChild(link);
+      }
+      link.href = url;
+    } else if (link) {
+      link.remove();
+    }
+  }, [dockSettings.customFontUrl]);
+
+  const fontStack = useMemo(() => {
+    return resolveFontStack({
+      family: dockSettings.fontFamily || 'system',
+      customName: dockSettings.customFontName || '',
+    });
+  }, [dockSettings.fontFamily, dockSettings.customFontName]);
+
   const changeFontSize = (size: number) => {
     setFontSize(size);
-    try {
-      localStorage.setItem('streamer-hub-obs-dock-font-size', String(size));
-    } catch {
-      // ignore
-    }
+    setDockSettings((prev) => {
+      const next = { ...prev, fontSize: size, nameFontSize: size, textFontSize: size };
+      try {
+        localStorage.setItem('streamer-hub-obs-chat-settings', JSON.stringify(next));
+        localStorage.setItem('streamer-hub-obs-dock-font-size', String(size));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
   };
 
   // Auto-scroll handler
@@ -171,12 +204,44 @@ function ObsChatDockApp() {
         switch (envelope.kind) {
           case 'hello': {
             const payload = envelope.payload as HelloPayload;
-            setSettings(normalizeChatOverlaySettings(payload.settings));
+            const norm = normalizeChatOverlaySettings(payload.settings);
+            setSettings(norm);
             if (payload.emotes) setProviders(payload.emotes);
+            const rawDock = (payload.settings as any)?.dockSettings;
+            if (rawDock) {
+              setDockSettings((prev) => ({ ...prev, ...rawDock }));
+            } else {
+              setDockSettings((prev) => ({
+                ...prev,
+                showAvatars: typeof norm.avatar?.show === 'boolean' ? norm.avatar.show : prev.showAvatars,
+                showBadges: typeof norm.badges?.show === 'boolean' ? norm.badges.show : prev.showBadges,
+                nameFontSize: norm.username?.size || prev.nameFontSize,
+                textFontSize: norm.text?.size || prev.textFontSize,
+                fontFamily: (norm.text?.font?.family as any) || prev.fontFamily,
+                customFontName: norm.text?.font?.customName || prev.customFontName,
+                customFontUrl: (payload.settings as any)?.customFontUrl || prev.customFontUrl,
+              }));
+            }
             return;
           }
           case 'settings': {
-            setSettings(normalizeChatOverlaySettings(envelope.payload));
+            const norm = normalizeChatOverlaySettings(envelope.payload);
+            setSettings(norm);
+            const rawDock = (envelope.payload as any)?.dockSettings;
+            if (rawDock) {
+              setDockSettings((prev) => ({ ...prev, ...rawDock }));
+            } else {
+              setDockSettings((prev) => ({
+                ...prev,
+                showAvatars: typeof norm.avatar?.show === 'boolean' ? norm.avatar.show : prev.showAvatars,
+                showBadges: typeof norm.badges?.show === 'boolean' ? norm.badges.show : prev.showBadges,
+                nameFontSize: norm.username?.size || prev.nameFontSize,
+                textFontSize: norm.text?.size || prev.textFontSize,
+                fontFamily: (norm.text?.font?.family as any) || prev.fontFamily,
+                customFontName: norm.text?.font?.customName || prev.customFontName,
+                customFontUrl: (envelope.payload as any)?.customFontUrl || prev.customFontUrl,
+              }));
+            }
             return;
           }
           case 'emotes': {
@@ -411,7 +476,8 @@ function ObsChatDockApp() {
                   <DockMessageRow
                     key={msg.id}
                     message={msg}
-                    fontSize={fontSize}
+                    dockSettings={dockSettings}
+                    fontStack={fontStack}
                     thirdParty={thirdParty}
                     onMention={handleMention}
                     onTimeout={handleTimeout}
@@ -467,7 +533,8 @@ function ObsChatDockApp() {
 
 interface DockMessageRowProps {
   message: DockMessageItem;
-  fontSize: number;
+  dockSettings: ObsChatDockSettings;
+  fontStack: string;
   thirdParty: ThirdPartyEmoteMap;
   onMention: (user: string) => void;
   onTimeout: (user: string) => void;
@@ -477,7 +544,8 @@ interface DockMessageRowProps {
 
 function DockMessageRow({
   message,
-  fontSize,
+  dockSettings,
+  fontStack,
   thirdParty,
   onMention,
   onTimeout,
@@ -488,6 +556,8 @@ function DockMessageRow({
   const isRtl = isRtlText(message.message);
   const timeStr = formatTime(message.timestamp);
   const userColor = ensureReadableColor(message.color);
+  const nameSize = dockSettings.nameFontSize || dockSettings.fontSize || 13;
+  const textSize = dockSettings.textFontSize || dockSettings.fontSize || 13;
 
   return (
     <div
@@ -500,18 +570,18 @@ function DockMessageRow({
           ? 'bg-white/[0.06]'
           : 'hover:bg-white/[0.04]'
       } ${message.isBroadcaster ? 'border-s-2 border-accent/80' : ''}`}
-      style={{ fontSize: `${fontSize}px` }}
+      style={{ fontFamily: fontStack }}
     >
       <div className="flex items-baseline gap-1.5 flex-wrap">
         {/* Timestamp */}
-        {timeStr && (
+        {dockSettings.showTimestamps && timeStr && (
           <span className="font-mono text-[11px] text-[#94a3b8] select-none shrink-0 font-medium">
             {timeStr}
           </span>
         )}
 
-        {/* User Avatar if present */}
-        {message.avatarUrl && (
+        {/* User Avatar if enabled */}
+        {dockSettings.showAvatars && message.avatarUrl && (
           <img
             src={message.avatarUrl}
             alt=""
@@ -522,48 +592,58 @@ function DockMessageRow({
           />
         )}
 
-        {/* Badges */}
-        <span className="inline-flex items-center gap-1 select-none shrink-0">
-          {message.isBroadcaster && (
-            <span
-              className="rounded bg-[#dc2626] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
-              title="Broadcaster"
-            >
-              Host
-            </span>
-          )}
-          {message.isMod && (
-            <span
-              className="rounded bg-[#16a34a] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
-              title="Moderator"
-            >
-              Mod
-            </span>
-          )}
-          {message.isVip && (
-            <span
-              className="rounded bg-[#d946ef] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
-              title="VIP"
-            >
-              VIP
-            </span>
-          )}
-          {message.isSubscriber && !message.isBroadcaster && (
-            <span
-              className="rounded bg-[#9333ea] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
-              title="Subscriber"
-            >
-              Sub
-            </span>
-          )}
-        </span>
+        {/* Badges / Rank if enabled */}
+        {dockSettings.showBadges && (
+          <span className="inline-flex items-center gap-1 select-none shrink-0">
+            {message.isBroadcaster && (
+              <span
+                className="rounded bg-[#dc2626] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
+                title="Broadcaster"
+              >
+                Host
+              </span>
+            )}
+            {message.isMod && (
+              <span
+                className="rounded bg-[#16a34a] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
+                title="Moderator"
+              >
+                Mod
+              </span>
+            )}
+            {message.isLeadMod && (
+              <span
+                className="rounded bg-[#059669] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
+                title="Lead Moderator"
+              >
+                Lead Mod
+              </span>
+            )}
+            {message.isVip && (
+              <span
+                className="rounded bg-[#d946ef] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
+                title="VIP"
+              >
+                VIP
+              </span>
+            )}
+            {message.isSubscriber && !message.isBroadcaster && (
+              <span
+                className="rounded bg-[#9333ea] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight shadow-sm"
+                title="Subscriber"
+              >
+                Sub
+              </span>
+            )}
+          </span>
+        )}
 
         {/* Username */}
         <button
           type="button"
           onClick={() => onMention(message.username)}
           className="font-bold hover:underline cursor-pointer select-text text-start"
-          style={{ color: userColor }}
+          style={{ color: userColor, fontSize: `${nameSize}px`, fontFamily: fontStack }}
           title={`Click to mention @${message.username}`}
         >
           {message.username}
@@ -573,9 +653,8 @@ function DockMessageRow({
         {/* Message Content with Emotes & BiDi */}
         <span
           dir={isRtl ? 'rtl' : 'ltr'}
-          className={`break-words text-[#f8fafc] font-normal leading-relaxed select-text ${
-            isRtl ? 'font-arabic' : 'font-sans'
-          }`}
+          className="break-words text-[#f8fafc] font-normal leading-relaxed select-text"
+          style={{ fontSize: `${textSize}px`, fontFamily: fontStack }}
         >
           {message.deleted ? (
             <em className="text-rose-400 font-mono text-[11.5px] italic select-none">Message deleted by moderator</em>

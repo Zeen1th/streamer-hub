@@ -9,6 +9,8 @@ import {
   HelpCircle,
   Megaphone,
   MessageSquare,
+  Minus,
+  Plus,
   Radio,
   Send,
   Settings2,
@@ -16,14 +18,19 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useObsChatStore, type ObsChatMessage, type ObsChatDockSettings } from '../../../store/obsChatStore';
+import { useObsChatStore, type ObsChatMessage, type ObsChatDockSettings, type ObsChatFontFamily } from '../../../store/obsChatStore';
 import { useConnectionStore } from '../../../store/connectionStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { t } from '../../../i18n/translations';
 import { Button } from '../../ui/Button';
 import { Switch } from '../../ui/Switch';
+import { Input } from '../../ui/Input';
 import { isRtlText, formatBidiText, ensureReadableColor } from '../../../lib/chatOverlay';
 import { tokenizeMessage } from '../../../lib/chatEmotes';
+import { resolveFontStack } from '../../../overlay/tokens';
+import { rpc } from '../../../rpc';
+import { Channels } from '../../../rpc/contracts';
+import { normalizeInstalledFontFamilies } from '../../../lib/fontChoices';
 
 export function ObsChatView() {
   const store = useObsChatStore();
@@ -50,11 +57,51 @@ export function ObsChatView() {
   const channelLogin = (twitchChannel || '').replace(/^#+/, '');
   const activeSender = broadcasterDisplayName || channelLogin || 'Streamer';
 
+  const [installedFonts, setInstalledFonts] = useState<string[]>([]);
+
   // Load dock URL on mount
   useEffect(() => {
     const url = store.dockUrl || `http://127.0.0.1:49178/obs-chat.html`;
     store.setDockUrl(url);
   }, []);
+
+  // Fetch installed system fonts
+  useEffect(() => {
+    let cancelled = false;
+    rpc.invoke(Channels.SystemListFonts).then(({ fonts }) => {
+      if (cancelled) return;
+      setInstalledFonts(normalizeInstalledFontFamilies(fonts));
+    }).catch(() => {
+      // ignore
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Dynamically inject custom font stylesheet when provided
+  useEffect(() => {
+    const url = dockSettings.customFontUrl?.trim();
+    let link = document.getElementById('obs-chat-view-custom-font') as HTMLLinkElement | null;
+    if (url) {
+      if (!link) {
+        link = document.createElement('link');
+        link.id = 'obs-chat-view-custom-font';
+        link.rel = 'stylesheet';
+        document.head.appendChild(link);
+      }
+      link.href = url;
+    } else if (link) {
+      link.remove();
+    }
+  }, [dockSettings.customFontUrl]);
+
+  const fontStack = useMemo(() => {
+    return resolveFontStack({
+      family: dockSettings.fontFamily || 'system',
+      customName: dockSettings.customFontName || '',
+    });
+  }, [dockSettings.fontFamily, dockSettings.customFontName]);
 
   // Handle auto-scrolling
   useEffect(() => {
@@ -316,6 +363,7 @@ export function ObsChatView() {
                       key={msg.id}
                       message={msg}
                       settings={dockSettings}
+                      fontStack={fontStack}
                       lang={lang}
                       onMention={handleMention}
                       onTimeout={(u) => store.timeoutUser(u, 60)}
@@ -375,7 +423,7 @@ export function ObsChatView() {
         {/* Dock Settings Side Panel */}
         {showSettings && (
           <aside
-            className="w-[280px] shrink-0 border-s border-white/[0.12] bg-[#161c22] p-3 overflow-y-auto space-y-4"
+            className="w-[320px] shrink-0 border-s border-white/[0.12] bg-[#161c22] p-3.5 overflow-y-auto space-y-4 custom-scrollbar"
             aria-label={t(lang, 'obsChat.settings')}
           >
             <div className="flex items-center justify-between border-b border-white/[0.12] pb-2">
@@ -393,17 +441,48 @@ export function ObsChatView() {
               </button>
             </div>
 
-            {/* Font Size */}
+            {/* Name Font Size */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-200">{t(lang, 'obsChat.fontSize')}</label>
-              <div className="grid grid-cols-4 gap-1">
-                {([12, 13, 14, 16] as const).map((size) => (
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-slate-200">{t(lang, 'obsChat.nameFontSize')}</label>
+                <div className="flex items-center gap-1">
                   <button
-                    key={size}
                     type="button"
-                    onClick={() => store.updateSettings({ fontSize: size })}
-                    className={`h-7 rounded text-xs font-mono transition-colors ${
-                      dockSettings.fontSize === size
+                    onClick={() =>
+                      store.updateSettings({
+                        nameFontSize: Math.max(9, (dockSettings.nameFontSize ?? 13) - 1),
+                      })
+                    }
+                    className="flex size-6 items-center justify-center rounded bg-white/[0.08] text-xs font-bold text-slate-300 hover:bg-white/[0.14] hover:text-white transition-colors"
+                    title="Decrease"
+                  >
+                    <Minus size={11} />
+                  </button>
+                  <span className="w-11 text-center font-mono text-xs font-bold text-accent-text">
+                    {dockSettings.nameFontSize ?? 13}px
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      store.updateSettings({
+                        nameFontSize: Math.min(36, (dockSettings.nameFontSize ?? 13) + 1),
+                      })
+                    }
+                    className="flex size-6 items-center justify-center rounded bg-white/[0.08] text-xs font-bold text-slate-300 hover:bg-white/[0.14] hover:text-white transition-colors"
+                    title="Increase"
+                  >
+                    <Plus size={11} />
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-5 gap-1">
+                {[11, 13, 15, 18, 22].map((size) => (
+                  <button
+                    key={`name-${size}`}
+                    type="button"
+                    onClick={() => store.updateSettings({ nameFontSize: size })}
+                    className={`h-6 rounded text-[11px] font-mono transition-colors ${
+                      (dockSettings.nameFontSize ?? 13) === size
                         ? 'bg-accent text-accent-contrast font-bold'
                         : 'bg-white/[0.08] text-slate-300 hover:bg-white/[0.14] hover:text-white'
                     }`}
@@ -414,8 +493,174 @@ export function ObsChatView() {
               </div>
             </div>
 
-            {/* Density */}
+            {/* Message Text Font Size */}
             <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-slate-200">{t(lang, 'obsChat.textFontSize')}</label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      store.updateSettings({
+                        textFontSize: Math.max(9, (dockSettings.textFontSize ?? 13) - 1),
+                      })
+                    }
+                    className="flex size-6 items-center justify-center rounded bg-white/[0.08] text-xs font-bold text-slate-300 hover:bg-white/[0.14] hover:text-white transition-colors"
+                    title="Decrease"
+                  >
+                    <Minus size={11} />
+                  </button>
+                  <span className="w-11 text-center font-mono text-xs font-bold text-accent-text">
+                    {dockSettings.textFontSize ?? 13}px
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      store.updateSettings({
+                        textFontSize: Math.min(36, (dockSettings.textFontSize ?? 13) + 1),
+                      })
+                    }
+                    className="flex size-6 items-center justify-center rounded bg-white/[0.08] text-xs font-bold text-slate-300 hover:bg-white/[0.14] hover:text-white transition-colors"
+                    title="Increase"
+                  >
+                    <Plus size={11} />
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-5 gap-1">
+                {[11, 13, 15, 18, 22].map((size) => (
+                  <button
+                    key={`text-${size}`}
+                    type="button"
+                    onClick={() => store.updateSettings({ textFontSize: size })}
+                    className={`h-6 rounded text-[11px] font-mono transition-colors ${
+                      (dockSettings.textFontSize ?? 13) === size
+                        ? 'bg-accent text-accent-contrast font-bold'
+                        : 'bg-white/[0.08] text-slate-300 hover:bg-white/[0.14] hover:text-white'
+                    }`}
+                  >
+                    {size}px
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Font Family */}
+            <div className="space-y-2 border-t border-white/[0.12] pt-3">
+              <label className="text-xs font-medium text-slate-200">{t(lang, 'obsChat.fontFamily')}</label>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    { id: 'system', label: 'System' },
+                    { id: 'cairo', label: 'Cairo' },
+                    { id: 'barlow', label: 'Barlow' },
+                    { id: 'jetbrains-mono', label: 'Mono' },
+                    { id: 'cinzel', label: 'Cinzel' },
+                    { id: 'custom', label: t(lang, 'obsChat.fontCustom') },
+                  ] as const
+                ).map((f) => {
+                  const selected = (dockSettings.fontFamily || 'system') === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => store.updateSettings({ fontFamily: f.id as ObsChatFontFamily })}
+                      className={`h-7 rounded px-1.5 text-xs transition-colors truncate ${
+                        selected
+                          ? 'bg-accent text-accent-contrast font-bold shadow-xs'
+                          : 'bg-white/[0.08] text-slate-300 hover:bg-white/[0.14] hover:text-white'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Custom Font Fields */}
+              {dockSettings.fontFamily === 'custom' && (
+                <div className="space-y-2 rounded-md border border-white/10 bg-black/20 p-2.5">
+                  <div>
+                    <label className="mb-1 block text-[11px] text-slate-300">
+                      {t(lang, 'obsChat.customFontName')}
+                    </label>
+                    <Input
+                      list="obs-chat-view-installed-fonts"
+                      value={dockSettings.customFontName}
+                      placeholder="e.g. Arial, Inter, Roboto"
+                      spellCheck={false}
+                      autoComplete="off"
+                      onChange={(e) => store.updateSettings({ customFontName: e.target.value })}
+                    />
+                    <datalist id="obs-chat-view-installed-fonts">
+                      {installedFonts.map((f) => (
+                        <option key={f} value={f} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[11px] text-slate-300">
+                      {t(lang, 'obsChat.customFontUrl')}
+                    </label>
+                    <Input
+                      value={dockSettings.customFontUrl}
+                      placeholder="https://fonts.googleapis.com/css2?..."
+                      spellCheck={false}
+                      autoComplete="off"
+                      onChange={(e) => store.updateSettings({ customFontUrl: e.target.value })}
+                    />
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 leading-tight">
+                    {t(lang, 'obsChat.customFontHint')}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Live Font & Size Preview */}
+            <div className="space-y-1.5 border-t border-white/[0.12] pt-3">
+              <label className="text-xs font-medium text-slate-200">{t(lang, 'obsChat.fontPreview')}</label>
+              <div
+                className="rounded border border-white/15 bg-black/40 p-2.5 space-y-1"
+                style={{ fontFamily: fontStack }}
+              >
+                <div className="flex items-baseline gap-1.5 flex-wrap">
+                  {dockSettings.showTimestamps && (
+                    <span className="font-mono text-[11px] font-medium text-[#94a3b8] select-none">
+                      12:00
+                    </span>
+                  )}
+                  {dockSettings.showAvatars && (
+                    <div className="size-4 rounded-full bg-accent/40 text-[9px] font-bold flex items-center justify-center text-white select-none inline-block">
+                      S
+                    </div>
+                  )}
+                  {dockSettings.showBadges && (
+                    <span className="rounded bg-[#16a34a] px-1 py-0.2 font-mono text-[9px] font-bold uppercase text-white leading-tight">
+                      Mod
+                    </span>
+                  )}
+                  <span
+                    className="font-bold text-sky-400"
+                    style={{ fontSize: `${dockSettings.nameFontSize ?? 13}px`, fontFamily: fontStack }}
+                  >
+                    Streamer
+                  </span>
+                  <span className="text-white/60 font-bold">:</span>
+                  <span
+                    className="text-[#f8fafc] font-normal"
+                    style={{ fontSize: `${dockSettings.textFontSize ?? 13}px`, fontFamily: fontStack }}
+                  >
+                    Stream chat · أهلاً بالبث 🔥
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Density */}
+            <div className="space-y-1.5 border-t border-white/[0.12] pt-3">
               <label className="text-xs font-medium text-slate-200">{t(lang, 'obsChat.density')}</label>
               <div className="grid grid-cols-2 gap-1">
                 {(['compact', 'comfortable'] as const).map((density) => (
@@ -505,6 +750,7 @@ export function ObsChatView() {
 interface ChatMessageRowProps {
   message: ObsChatMessage;
   settings: ObsChatDockSettings;
+  fontStack: string;
   lang: 'en' | 'ar';
   onMention: (user: string) => void;
   onTimeout: (user: string) => void;
@@ -516,6 +762,7 @@ interface ChatMessageRowProps {
 function ChatMessageRow({
   message,
   settings,
+  fontStack,
   lang,
   onMention,
   onTimeout,
@@ -537,6 +784,8 @@ function ChatMessageRow({
   }, [message.timestamp]);
 
   const userColor = ensureReadableColor(message.color);
+  const nameSize = settings.nameFontSize ?? settings.fontSize ?? 13;
+  const textSize = settings.textFontSize ?? settings.fontSize ?? 13;
 
   return (
     <div
@@ -551,7 +800,7 @@ function ChatMessageRow({
           ? 'bg-white/[0.06]'
           : 'hover:bg-white/[0.04]'
       } ${message.isBroadcaster ? 'border-s-2 border-accent/80' : ''}`}
-      style={{ fontSize: `${settings.fontSize}px` }}
+      style={{ fontFamily: fontStack }}
     >
       <div className="flex items-baseline gap-1.5 flex-wrap">
         {/* Timestamp */}
@@ -604,7 +853,7 @@ function ChatMessageRow({
           type="button"
           onClick={() => onMention(message.username)}
           className="font-bold hover:underline cursor-pointer select-text text-start"
-          style={{ color: userColor }}
+          style={{ color: userColor, fontSize: `${nameSize}px`, fontFamily: fontStack }}
           title={`Click to mention @${message.username}`}
         >
           {message.username}
@@ -617,6 +866,7 @@ function ChatMessageRow({
           className={`break-words text-[#f8fafc] font-normal leading-relaxed select-text ${
             isRtl ? 'font-arabic' : 'font-sans'
           }`}
+          style={{ fontSize: `${textSize}px`, fontFamily: fontStack }}
         >
           {message.deleted ? (
             <em className="text-rose-400 font-mono text-[11.5px] italic select-none">{t(lang, 'obsChat.deleted')}</em>

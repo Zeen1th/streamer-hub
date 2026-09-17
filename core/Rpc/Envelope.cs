@@ -47,6 +47,7 @@ public static class Channels
     public const string TwitchForget = "twitch/forget";
     public const string TwitchBotAuthorize = "twitch/bot-authorize";
     public const string TwitchBotForget = "twitch/bot-forget";
+    public const string TwitchBotSimulate = "twitch/bot-simulate";
     public const string SettingsGetState = "settings/get-state";
     public const string SettingsSave = "settings/save";
     public const string ChatOverlayGetState = "chat-overlay/get-state";

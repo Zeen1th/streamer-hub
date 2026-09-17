@@ -39,6 +39,7 @@ function createMockDeps(overrides = {}) {
       url: 'http://127.0.0.1:49178/chat-overlay.html',
       dockUrl: 'http://127.0.0.1:49178/obs-chat.html',
     }),
+    saveSettings: async () => ({ ok: true }),
     ...overrides,
   };
 
@@ -52,6 +53,11 @@ test('obsChatStore initializes with default settings and empty messages', () => 
 
   assert.equal(state.messages.length, 0);
   assert.equal(state.dockSettings.fontSize, 13);
+  assert.equal(state.dockSettings.nameFontSize, 13);
+  assert.equal(state.dockSettings.textFontSize, 13);
+  assert.equal(state.dockSettings.fontFamily, 'system');
+  assert.equal(state.dockSettings.customFontName, '');
+  assert.equal(state.dockSettings.customFontUrl, '');
   assert.equal(state.dockSettings.density, 'comfortable');
   assert.equal(state.dockSettings.showTimestamps, true);
   assert.equal(state.dockSettings.showBadges, true);
@@ -186,11 +192,29 @@ test('updateSettings updates dock preferences', () => {
   const deps = createMockDeps();
   const store = createObsChatStore(deps);
 
-  store.getState().updateSettings({ fontSize: 16, density: 'compact', showTimestamps: false });
+  store.getState().updateSettings({
+    fontSize: 16,
+    nameFontSize: 18,
+    textFontSize: 15,
+    fontFamily: 'custom',
+    customFontName: 'Comic Sans MS',
+    customFontUrl: 'https://example.com/font.css',
+    density: 'compact',
+    showTimestamps: false,
+    showAvatars: false,
+    showBadges: false,
+  });
   const settings = store.getState().dockSettings;
   assert.equal(settings.fontSize, 16);
+  assert.equal(settings.nameFontSize, 18);
+  assert.equal(settings.textFontSize, 15);
+  assert.equal(settings.fontFamily, 'custom');
+  assert.equal(settings.customFontName, 'Comic Sans MS');
+  assert.equal(settings.customFontUrl, 'https://example.com/font.css');
   assert.equal(settings.density, 'compact');
   assert.equal(settings.showTimestamps, false);
+  assert.equal(settings.showAvatars, false);
+  assert.equal(settings.showBadges, false);
 });
 
 test('addMessage deduplicates and upgrades self-message echoes within 15 seconds', () => {

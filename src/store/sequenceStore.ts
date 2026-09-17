@@ -567,6 +567,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
   },
 
   handleChatMessage: async (message) => {
+    if (message.isSelf || message.id?.startsWith('self-')) return false;
     const sequences = get().sequences;
     let handled = false;
 

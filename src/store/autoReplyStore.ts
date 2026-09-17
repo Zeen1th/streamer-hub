@@ -2,11 +2,25 @@ import { create } from 'zustand';
 import type { AutoReply, AutoReplySettings, ChatMessage, TitleCounter } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
-import { checkUserRestriction, cooldownRemainingSeconds, evaluateRuleExecution, matchesAnyAutoReply, nextTitleCounters, renderAutoReply, renderStreamTitle, selectBestMatchingAutoReply, stripAutoReplyFromTitle, titleActionDirection } from '../lib/autoReplyRules';
+import {
+  checkUserRestriction,
+  cooldownRemainingSeconds,
+  evaluateRuleExecution,
+  isSenderIgnoredForAutoReply,
+  matchesAnyAutoReply,
+  MessageDeduplicator,
+  nextTitleCounters,
+  renderAutoReply,
+  renderStreamTitle,
+  selectBestMatchingAutoReply,
+  stripAutoReplyFromTitle,
+  titleActionDirection,
+} from '../lib/autoReplyRules';
 import { hasPermission } from '../lib/counterRules';
 import { titleUpdateQueue } from '../lib/titleUpdateQueue';
 import { useLogStore } from './logStore';
 import { useSettingsStore } from './settingsStore';
+import { useConnectionStore } from './connectionStore';
 
 interface AutoReplyState {
   rules: AutoReply[];
@@ -14,6 +28,7 @@ interface AutoReplyState {
   lastUserTriggeredAt: Record<string, number>;
   lastAiTriggeredAt: number | null;
   lastAiUserTriggeredAt: Record<string, number>;
+  isAiGenerating: boolean;
   globalSettings: AutoReplySettings;
   hydrateGlobalSettings(settings: AutoReplySettings): void;
   updateGlobalSettings(patch: Partial<AutoReplySettings>): void;
@@ -30,6 +45,7 @@ const persist = (rule: AutoReply) => {
   rpc.invoke(Channels.AutoRepliesSave, { rule }).catch(() => undefined);
 };
 
+const messageDeduplicator = new MessageDeduplicator(500);
 
 export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
   rules: [],
@@ -37,6 +53,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
   lastUserTriggeredAt: {},
   lastAiTriggeredAt: null,
   lastAiUserTriggeredAt: {},
+  isAiGenerating: false,
   globalSettings: { globalAiCooldownSeconds: 0, globalAiUserCooldownSeconds: 60 },
   hydrateGlobalSettings: (settings) => set({ globalSettings: { globalAiCooldownSeconds: settings.globalAiCooldownSeconds ?? 0, globalAiUserCooldownSeconds: settings.globalAiUserCooldownSeconds ?? 60 } }),
   updateGlobalSettings: (patch) => {
@@ -200,7 +217,16 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     }
   },
   handleChatMessage: (message) => {
-    if (message.isSelf || message.id?.startsWith('self-')) return;
+    const connection = useConnectionStore.getState();
+    if (isSenderIgnoredForAutoReply(message, connection.twitchChannel, connection.botLogin)) {
+      return;
+    }
+
+    // Reject message if already processed (duplicate delivery/IRC replay)
+    if (message.id && messageDeduplicator.isDuplicate(message.id)) {
+      return;
+    }
+
     const now = Date.now();
     const candidates = get().rules.filter((item) => {
       if (!item.enabled) return false;
@@ -263,14 +289,27 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     if (plan.type === 'ignore') return;
 
     if (plan.type === 'ai') {
-      const globalRemaining = cooldownRemainingSeconds(now, get().lastAiTriggeredAt, get().globalSettings.globalAiCooldownSeconds);
+      // 1. In-flight guard: prevent concurrent AI requests from firing at the same time
+      if (get().isAiGenerating) {
+        return;
+      }
+
+      // 2. Global AI cooldown check (enforce minimum 3s safety interval to prevent rapid double-bursts)
+      const configuredGlobalCooldown = get().globalSettings.globalAiCooldownSeconds ?? 0;
+      const effectiveGlobalCooldown = Math.max(configuredGlobalCooldown, 3);
+      const globalRemaining = cooldownRemainingSeconds(now, get().lastAiTriggeredAt, effectiveGlobalCooldown);
       if (globalRemaining !== null) return;
-      const userCooldown = get().globalSettings.globalAiUserCooldownSeconds;
+
+      // 3. User AI cooldown check (enforce minimum 5s safety interval per chatter)
+      const configuredUserCooldown = get().globalSettings.globalAiUserCooldownSeconds ?? 60;
+      const effectiveUserCooldown = Math.max(configuredUserCooldown, 5);
       const userKeyId = `ai:${userKey}`;
-      const userRemaining = cooldownRemainingSeconds(now, get().lastUserTriggeredAt[userKeyId] ?? null, userCooldown);
+      const userRemaining = cooldownRemainingSeconds(now, get().lastUserTriggeredAt[userKeyId] ?? null, effectiveUserCooldown);
       if (userRemaining !== null) return;
 
+      // 4. Mark generating in-flight and set timestamps immediately before async dispatch
       set((state) => ({
+        isAiGenerating: true,
         lastAiTriggeredAt: now,
         lastAiUserTriggeredAt: { ...state.lastAiUserTriggeredAt, [userKey]: now },
         lastUserTriggeredAt: { ...state.lastUserTriggeredAt, [userKeyId]: now },
@@ -292,7 +331,12 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
             username: message.username,
           });
         }
-      }).catch(() => undefined);
+      }).catch(() => undefined).finally(() => {
+        set({
+          isAiGenerating: false,
+          lastAiTriggeredAt: Date.now(),
+        });
+      });
       return;
     }
 

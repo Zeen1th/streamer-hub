@@ -485,6 +485,7 @@ export const Channels = {
   TwitchForget: 'twitch/forget',
   TwitchBotAuthorize: 'twitch/bot-authorize',
   TwitchBotForget: 'twitch/bot-forget',
+  TwitchBotSimulate: 'twitch/bot-simulate',
   SettingsGetState: 'settings/get-state',
   SettingsSave: 'settings/save',
   ChatOverlayGetState: 'chat-overlay/get-state',
@@ -581,6 +582,10 @@ export interface HostApi {
   [Channels.TwitchForget]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchBotAuthorize]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchBotForget]: { request: undefined; response: { ok: boolean } };
+  [Channels.TwitchBotSimulate]: {
+    request: { enabled?: boolean; login?: string } | undefined;
+    response: { ok: boolean; simulated: boolean; botLogin: string };
+  };
   [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; preferredChatSender?: ChatSenderRole; startupEnabled?: boolean; closeToTray?: boolean } };
   [Channels.SettingsSave]: {
     request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; preferredChatSender?: ChatSenderRole; startupEnabled?: boolean; closeToTray?: boolean };
@@ -604,7 +609,7 @@ export interface HostApi {
   [Channels.SequencesSave]: { request: { sequence: CommandSequence }; response: { ok: boolean } };
   [Channels.SequencesDelete]: { request: { sequenceId: string }; response: { ok: boolean } };
   [Channels.TwitchChannelPointsGetRewards]: { request: undefined; response: { ok: boolean; rewards: TwitchRewardInfo[]; error?: string } };
-  [Channels.TwitchSendChatMessage]: { request: { message: string }; response: { ok: boolean; senderRole?: ChatSenderRole; senderLogin?: string; error?: string } };
+  [Channels.TwitchSendChatMessage]: { request: { message: string; senderRole?: ChatSenderRole }; response: { ok: boolean; senderRole?: ChatSenderRole; senderLogin?: string; error?: string } };
   [Channels.TwitchGetTitle]: { request: undefined; response: { ok: boolean; title?: string | null; error?: string } };
   [Channels.TwitchUpdateTitle]: { request: { title: string }; response: { ok: boolean; error?: string } };
   [Channels.TwitchGetTitleFilePath]: { request: undefined; response: { path: string } };

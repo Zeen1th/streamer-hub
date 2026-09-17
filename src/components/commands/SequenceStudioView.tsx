@@ -36,8 +36,12 @@ import type {
   SequenceStepType,
   SequenceWaitUnit,
 } from '../../rpc/contracts';
+import { Channels } from '../../rpc/contracts';
+import { rpc } from '../../rpc';
 import { normalizeTriggers, useSequenceStore } from '../../store/sequenceStore';
 import { useCounterStore } from '../../store/counterStore';
+import { useConnectionStore } from '../../store/connectionStore';
+import { useSettingsStore } from '../../store/settingsStore';
 import { t } from '../../i18n/translations';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -650,6 +654,12 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
   const activeRunningStepIndex = useSequenceStore((s) => s.activeRunningStepIndex);
 
   const counters = useCounterStore((s) => s.counters);
+  const botAccountEnabled = useConnectionStore((s) => s.botAccountEnabled);
+  const botConnected = useConnectionStore((s) => s.botConnected);
+  const botLogin = useConnectionStore((s) => s.botLogin);
+  const twitchChannel = useConnectionStore((s) => s.twitchChannel);
+  const preferredChatSender = useSettingsStore((s) => s.preferredChatSender);
+  const setPreferredChatSender = useSettingsStore((s) => s.setPreferredChatSender);
 
   // Search & Autocomplete
   const [searchTriggerQuery, setSearchTriggerQuery] = useState('');
@@ -1142,6 +1152,45 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               <div className="flex items-center gap-2">
                 <Play size={14} className="text-emerald-400" />
                 <h3 className="font-semibold text-[13px] text-white">{t(lang, 'sequence.testBarTitle')}</h3>
+              </div>
+
+              {/* Sender Account Switch & Debug Bot Button */}
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] text-muted">
+                  {t(lang, 'sequence.sender')}:
+                </span>
+                {botAccountEnabled && botConnected ? (
+                  <SegmentedControl<'bot' | 'broadcaster'>
+                    value={preferredChatSender}
+                    onChange={(val) => setPreferredChatSender(val)}
+                    options={[
+                      {
+                        value: 'bot',
+                        label: `@${botLogin || 'Bot'} (Bot)`,
+                      },
+                      {
+                        value: 'broadcaster',
+                        label: `@${twitchChannel || 'Host'} (Host)`,
+                      },
+                    ]}
+                  />
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono text-[11px] text-zinc-300">
+                      @{twitchChannel || 'Broadcaster'} (Host)
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => rpc.invoke(Channels.TwitchBotSimulate).catch(() => undefined)}
+                      className="h-6 gap-1 px-2 text-[10.5px] border-amber-500/30 text-amber-300 hover:bg-amber-500/10"
+                      title="Enable example bot to test account switching"
+                    >
+                      <Sparkles size={11} className="text-amber-400" />
+                      <span>{t(lang, 'sequence.debugBot')}</span>
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <SegmentedControl<'raid' | 'chat' | 'points'>

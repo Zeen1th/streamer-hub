@@ -357,4 +357,41 @@ export function selectBestMatchingAutoReply<T extends {
   return staticRule ?? pool[0];
 }
 
+export function isSenderIgnoredForAutoReply(
+  message: { username?: string; userLogin?: string; isSelf?: boolean; isBroadcaster?: boolean; id?: string },
+  broadcasterChannel?: string | null,
+  botLogin?: string | null,
+): boolean {
+  if (message.isSelf || message.id?.startsWith('self-')) return true;
+  if (message.isBroadcaster) return true;
+  const senderLogin = (message.userLogin || message.username || '').trim().toLowerCase();
+  const cleanBroadcaster = (broadcasterChannel || '').trim().toLowerCase();
+  const cleanBot = (botLogin || '').trim().toLowerCase();
+  if (cleanBroadcaster && senderLogin === cleanBroadcaster) return true;
+  if (cleanBot && senderLogin === cleanBot) return true;
+  return false;
+}
 
+export class MessageDeduplicator {
+  private readonly recentIds = new Set<string>();
+  private readonly maxEntries: number;
+
+  constructor(maxEntries = 500) {
+    this.maxEntries = maxEntries;
+  }
+
+  public isDuplicate(id: string | undefined): boolean {
+    if (!id) return false;
+    if (this.recentIds.has(id)) return true;
+    if (this.recentIds.size >= this.maxEntries) {
+      const first = this.recentIds.values().next().value;
+      if (first) this.recentIds.delete(first);
+    }
+    this.recentIds.add(id);
+    return false;
+  }
+
+  public clear(): void {
+    this.recentIds.clear();
+  }
+}

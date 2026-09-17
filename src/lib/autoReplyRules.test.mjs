@@ -9,8 +9,10 @@ import {
   hasAutoReplyTitlePattern,
   insertReplyToken,
   insertTemplateToken,
+  isSenderIgnoredForAutoReply,
   matchesAnyAutoReply,
   matchesAutoReply,
+  MessageDeduplicator,
   nextTitleCounters,
   renderAutoReply,
   renderStreamTitle,
@@ -392,4 +394,50 @@ test('evaluateRuleExecution enforces mode isolation: Prepared commands reject AI
   assert.equal(staticFanPlan.instructions, 'Default AI persona banter');
 });
 
+test('isSenderIgnoredForAutoReply ignores self, broadcaster, and bot account messages', () => {
+  const broadcasterChannel = 'Ninja';
+  const botLogin = 'NinjaBot';
 
+  // 1. Explicit self message is ignored
+  assert.equal(isSenderIgnoredForAutoReply({ username: 'viewer', isSelf: true }, broadcasterChannel, botLogin), true);
+
+  // 2. ID starting with self- is ignored
+  assert.equal(isSenderIgnoredForAutoReply({ username: 'viewer', id: 'self-123' }, broadcasterChannel, botLogin), true);
+
+  // 3. Broadcaster flag is ignored
+  assert.equal(isSenderIgnoredForAutoReply({ username: 'someone', isBroadcaster: true }, broadcasterChannel, botLogin), true);
+
+  // 4. Broadcaster username/login match is ignored (case-insensitive)
+  assert.equal(isSenderIgnoredForAutoReply({ username: 'ninja' }, broadcasterChannel, botLogin), true);
+  assert.equal(isSenderIgnoredForAutoReply({ userLogin: 'NINJA' }, broadcasterChannel, botLogin), true);
+
+  // 5. Bot username/login match is ignored (case-insensitive)
+  assert.equal(isSenderIgnoredForAutoReply({ username: 'ninjabot' }, broadcasterChannel, botLogin), true);
+  assert.equal(isSenderIgnoredForAutoReply({ userLogin: 'NINJABOT' }, broadcasterChannel, botLogin), true);
+
+  // 6. Normal chatter is NOT ignored
+  assert.equal(isSenderIgnoredForAutoReply({ username: 'chat_enthusiast', userLogin: 'chat_enthusiast' }, broadcasterChannel, botLogin), false);
+});
+
+test('MessageDeduplicator catches and suppresses duplicate message IDs', () => {
+  const dedup = new MessageDeduplicator(5);
+
+  // First receipt returns false (not duplicate)
+  assert.equal(dedup.isDuplicate('msg-1'), false);
+  assert.equal(dedup.isDuplicate('msg-2'), false);
+
+  // Immediate second receipt returns true (duplicate suppressed)
+  assert.equal(dedup.isDuplicate('msg-1'), true);
+  assert.equal(dedup.isDuplicate('msg-2'), true);
+
+  // Empty or undefined ID is not duplicate
+  assert.equal(dedup.isDuplicate(undefined), false);
+  assert.equal(dedup.isDuplicate(''), false);
+
+  // Capacity eviction
+  dedup.isDuplicate('msg-3');
+  dedup.isDuplicate('msg-4');
+  dedup.isDuplicate('msg-5');
+  dedup.isDuplicate('msg-6'); // pushes out msg-1
+  assert.equal(dedup.isDuplicate('msg-1'), false); // evicted, so treated as fresh
+});

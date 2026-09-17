@@ -318,14 +318,40 @@ export function SettingsView() {
                 </p>
 
                 <div className="flex items-center justify-between border-t border-ink/10 pt-3">
-                  <span className="font-sans text-xs font-bold uppercase tracking-[0.08em] text-ink">
-                    {t(lang, 'settings.botAccountUse')}
-                  </span>
-                  <Switch
-                    checked={botAccountEnabled}
-                    onChange={(enabled) => setBotAccountEnabled(enabled)}
-                    label={t(lang, 'settings.botAccountUse')}
-                  />
+                  <div className="space-y-0.5">
+                    <span className="font-sans text-xs font-bold uppercase tracking-[0.08em] text-ink">
+                      {t(lang, 'settings.botAccountUse')}
+                    </span>
+                    <p className="font-sans text-xs text-ink/65">
+                      {t(lang, 'settings.botAccountHint')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (!botAccountEnabled) {
+                          setBotAccountEnabled(true);
+                        }
+                        rpc.invoke(Channels.TwitchBotSimulate).catch(() => undefined);
+                      }}
+                      className="gap-1 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                      title="Toggle simulated example bot for testing features and account switching"
+                    >
+                      <Sparkles size={13} className="text-amber-400" />
+                      <span>
+                        {botConnected && botLogin === 'ExampleBot'
+                          ? t(lang, 'settings.disconnectExampleBot')
+                          : t(lang, 'settings.debugExampleBot')}
+                      </span>
+                    </Button>
+                    <Switch
+                      checked={botAccountEnabled}
+                      onChange={(enabled) => setBotAccountEnabled(enabled)}
+                      label={t(lang, 'settings.botAccountUse')}
+                    />
+                  </div>
                 </div>
 
                 {botAccountEnabled && (
@@ -333,8 +359,8 @@ export function SettingsView() {
                     <div className="flex items-center justify-between border-t border-rule pt-3">
                       <div className="flex items-center gap-2">
                         <span
-                          className={`size-2.5 ${
-                            botConnected ? 'bg-emerald-500' : 'bg-ink/30'
+                          className={`size-2.5 rounded-full ${
+                            botConnected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-ink/30'
                           }`}
                         />
                         <span className="font-sans text-xs font-bold uppercase tracking-[0.1em] text-muted">

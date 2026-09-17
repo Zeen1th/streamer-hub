@@ -438,6 +438,68 @@ test('handles ObsChat channels and keeps settings isolated from ChatOverlay', as
   assert.deepEqual(previewResult, { ok: true });
 });
 
+test('handles TwitchBotSimulate debug bot and sender switching in mock host', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
 
+  // Initially not simulated
+  const simResult = await invoke(host, PROTOCOL_VERSION, Channels.TwitchBotSimulate, { enabled: true });
+  assert.equal(simResult.ok, true);
+  assert.equal(simResult.simulated, true);
+  assert.equal(simResult.botLogin, 'ExampleBot');
 
+  // Chat message defaults to bot
+  const botSend = await invoke(host, PROTOCOL_VERSION, Channels.TwitchSendChatMessage, { message: 'Hello from simulated bot' });
+  assert.equal(botSend.ok, true);
+  assert.equal(botSend.senderRole, 'bot');
+  assert.equal(botSend.senderLogin, 'ExampleBot');
+
+  // Per-message override to broadcaster
+  const hostSend = await invoke(host, PROTOCOL_VERSION, Channels.TwitchSendChatMessage, {
+    message: 'Hello from streamer',
+    senderRole: 'broadcaster',
+  });
+  assert.equal(hostSend.ok, true);
+  assert.equal(hostSend.senderRole, 'broadcaster');
+  assert.equal(hostSend.senderLogin, 'mock_channel');
+
+  // Toggle off
+  const turnOff = await invoke(host, PROTOCOL_VERSION, Channels.TwitchBotSimulate, { enabled: false });
+  assert.equal(turnOff.ok, true);
+  assert.equal(turnOff.simulated, false);
+});
+
+test('handles AutoRepliesGenerate and rejects duplicate message IDs', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const msg = {
+    id: 'msg-unique-1',
+    username: 'viewer123',
+    message: 'What games do you play?',
+    isBroadcaster: false,
+    isMod: false,
+    isVip: false,
+    isSubscriber: false,
+    timestamp: new Date().toISOString(),
+  };
+
+  // First call succeeds
+  const res1 = await invoke(host, PROTOCOL_VERSION, Channels.AutoRepliesGenerate, {
+    ruleId: 'rule-1',
+    message: msg,
+    send: false,
+  });
+  assert.equal(res1.ok, true);
+  assert.match(res1.message, /AI Reply/);
+
+  // Second call with same message ID is rejected as duplicate
+  const res2 = await invoke(host, PROTOCOL_VERSION, Channels.AutoRepliesGenerate, {
+    ruleId: 'rule-1',
+    message: msg,
+    send: false,
+  });
+  assert.equal(res2.ok, false);
+  assert.equal(res2.error, 'DUPLICATE MESSAGE ALREADY PROCESSED');
+});
 

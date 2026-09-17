@@ -68,6 +68,9 @@ export class MockHost {
   private readonly listeners = new Set<(message: RpcEnvelope) => void>();
   private isMaximized = false;
   private twitchConnected = true;
+  private simulatedBot = false;
+  private recentAiMessageIds = new Set<string>();
+  private isMockAiGenerating = false;
   private streamTitle = 'Chill Gaming Stream';
   private readonly timers: number[] = [];
 
@@ -286,15 +289,6 @@ export class MockHost {
         this.respond(request, { ok: true });
         break;
       }
-      case 'auto-replies/generate': {
-        const payload = request.payload as { message?: { username?: string; message?: string } } | undefined;
-        this.respond(request, {
-          ok: true,
-          message: `Mock AI reply for @${payload?.message?.username || 'viewer'}!`,
-          usedFallback: false,
-        });
-        break;
-      }
       case 'twitch/get-title':
         this.respond(request, { ok: true, title: this.streamTitle });
         break;
@@ -332,19 +326,52 @@ export class MockHost {
       case 'twitch/bot-authorize':
         this.respond(request, { ok: true });
         break;
-      case 'twitch/bot-forget':
+      case 'twitch/bot-forget': {
+        this.simulatedBot = false;
+        this.emitStatus();
         this.respond(request, { ok: true });
         break;
+      }
+      case Channels.TwitchBotSimulate: {
+        const payload = request.payload as { enabled?: boolean; login?: string } | undefined;
+        this.simulatedBot = payload?.enabled ?? !this.simulatedBot;
+        const current = this.loadSettings();
+        if (this.simulatedBot) {
+          try {
+            localStorage.setItem(
+              TWITCH_STORAGE_KEY,
+              JSON.stringify({
+                ...current,
+                botAccountEnabled: true,
+              }),
+            );
+          } catch {
+            void 0;
+          }
+        }
+        this.emitStatus();
+        this.respond(request, {
+          ok: true,
+          simulated: this.simulatedBot,
+          botLogin: this.simulatedBot ? (payload?.login || 'ExampleBot') : '',
+        });
+        break;
+      }
       case Channels.TwitchSendChatMessage: {
         const st = this.status();
-        const payload = request.payload as { message?: string } | undefined;
+        const payload = request.payload as { message?: string; senderRole?: 'bot' | 'broadcaster' } | undefined;
+        const effectiveSender = payload?.senderRole && (payload.senderRole === 'bot' || payload.senderRole === 'broadcaster')
+          ? payload.senderRole
+          : st.activeChatSender;
+        const effectiveLogin = effectiveSender === 'bot'
+          ? (st.botLogin || 'ExampleBot')
+          : (st.twitchChannel || 'Streamer');
         if (this.twitchConnected && payload?.message) {
-          const senderLogin = st.activeChatSenderLogin || 'Streamer';
-          const isBroadcaster = st.activeChatSender === 'broadcaster';
+          const isBroadcaster = effectiveSender === 'broadcaster';
           const msg: ChatMessage = {
             id: `self-${crypto.randomUUID()}`,
-            username: senderLogin,
-            userId: senderLogin.toLowerCase(),
+            username: effectiveLogin,
+            userId: effectiveLogin.toLowerCase(),
             isBroadcaster,
             isMod: !isBroadcaster,
             isVip: false,
@@ -358,8 +385,71 @@ export class MockHost {
         }
         this.respond(request, {
           ok: this.twitchConnected,
-          senderRole: st.activeChatSender,
-          senderLogin: st.activeChatSenderLogin,
+          senderRole: effectiveSender,
+          senderLogin: effectiveLogin,
+        });
+        break;
+      }
+      case Channels.AutoRepliesGenerate: {
+        const payload = request.payload as {
+          ruleId?: string;
+          message?: ChatMessage;
+          send?: boolean;
+          overrideInstructions?: string;
+        } | undefined;
+
+        if (!payload?.message || !payload.ruleId) {
+          this.respond(request, { ok: false, error: 'BAD PAYLOAD' });
+          break;
+        }
+
+        const msgId = payload.message.id;
+        if (msgId && this.recentAiMessageIds.has(msgId)) {
+          this.respond(request, { ok: false, error: 'DUPLICATE MESSAGE ALREADY PROCESSED' });
+          break;
+        }
+        if (msgId) {
+          this.recentAiMessageIds.add(msgId);
+          if (this.recentAiMessageIds.size > 500) {
+            const first = this.recentAiMessageIds.values().next().value;
+            if (first) this.recentAiMessageIds.delete(first);
+          }
+        }
+
+        if (this.isMockAiGenerating) {
+          this.respond(request, { ok: false, error: 'AI GENERATION ALREADY IN PROGRESS' });
+          break;
+        }
+
+        const st = this.status();
+        const shouldSend = payload.send !== false;
+        const generatedMessage = `[AI Reply] Response to: ${payload.message.message}`;
+        const senderRole = st.activeChatSender;
+        const senderLogin = st.activeChatSenderLogin || (senderRole === 'bot' ? 'ExampleBot' : 'Streamer');
+
+        if (shouldSend && this.twitchConnected) {
+          const isBroadcaster = senderRole === 'broadcaster';
+          const outMsg: ChatMessage = {
+            id: `self-${crypto.randomUUID()}`,
+            username: senderLogin,
+            userId: senderLogin.toLowerCase(),
+            isBroadcaster,
+            isMod: !isBroadcaster,
+            isVip: false,
+            isSubscriber: isBroadcaster,
+            message: generatedMessage,
+            timestamp: new Date().toISOString(),
+            color: isBroadcaster ? '#e91916' : '#00ad03',
+            isSelf: true,
+          };
+          this.emitEvent(Events.TwitchChatMessage, outMsg);
+        }
+
+        this.respond(request, {
+          ok: true,
+          message: generatedMessage,
+          senderRole,
+          senderLogin,
         });
         break;
       }
@@ -585,7 +675,8 @@ export class MockHost {
   private status(): ConnectionStatus {
     const settings = this.loadSettings();
     const botEnabled = settings.botAccountEnabled ?? false;
-    const botConnected = botEnabled && this.twitchConnected;
+    const botConnected = (botEnabled && this.twitchConnected) || this.simulatedBot;
+    const botLogin = this.simulatedBot ? 'ExampleBot' : (botConnected ? 'mock_bot' : '');
     const preferredSender = settings.preferredChatSender ?? 'bot';
     const activeSender = preferredSender === 'bot' && botConnected ? 'bot' : 'broadcaster';
     return {
@@ -594,12 +685,12 @@ export class MockHost {
       twitchConnected: this.twitchConnected,
       twitchChannel: this.twitchConnected ? 'mock_channel' : '',
       authRequired: false,
-      botAccountEnabled: botEnabled,
+      botAccountEnabled: botEnabled || this.simulatedBot,
       botConnected,
-      botLogin: botConnected ? 'mock_bot' : '',
+      botLogin,
       preferredChatSender: preferredSender,
       activeChatSender: activeSender,
-      activeChatSenderLogin: activeSender === 'bot' ? 'mock_bot' : (this.twitchConnected ? 'mock_channel' : ''),
+      activeChatSenderLogin: activeSender === 'bot' ? (botLogin || 'ExampleBot') : (this.twitchConnected ? 'mock_channel' : 'Streamer'),
     };
   }
 

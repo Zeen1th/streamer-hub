@@ -2,8 +2,15 @@ import { create } from 'zustand';
 import type { ChatClearScope, ChatMessage } from '../rpc/contracts.ts';
 import { Channels } from '../rpc/contracts.ts';
 
+export type ObsChatFontFamily = 'barlow' | 'cairo' | 'cinzel' | 'jetbrains-mono' | 'system' | 'custom';
+
 export interface ObsChatDockSettings {
-  fontSize: 12 | 13 | 14 | 16;
+  fontSize: number;
+  nameFontSize: number;
+  textFontSize: number;
+  fontFamily: ObsChatFontFamily;
+  customFontName: string;
+  customFontUrl: string;
   density: 'compact' | 'comfortable';
   showTimestamps: boolean;
   showBadges: boolean;
@@ -20,6 +27,11 @@ const STORAGE_KEY = 'streamer-hub-obs-chat-settings';
 
 export const DEFAULT_DOCK_SETTINGS: ObsChatDockSettings = {
   fontSize: 13,
+  nameFontSize: 13,
+  textFontSize: 13,
+  fontFamily: 'system',
+  customFontName: '',
+  customFontUrl: '',
   density: 'comfortable',
   showTimestamps: true,
   showBadges: true,
@@ -34,7 +46,21 @@ export function loadSavedDockSettings(): ObsChatDockSettings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_DOCK_SETTINGS;
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_DOCK_SETTINGS, ...parsed };
+    const fallbackSize = typeof parsed.fontSize === 'number' && parsed.fontSize >= 9 && parsed.fontSize <= 48
+      ? parsed.fontSize
+      : 13;
+    return {
+      ...DEFAULT_DOCK_SETTINGS,
+      ...parsed,
+      fontSize: fallbackSize,
+      nameFontSize: typeof parsed.nameFontSize === 'number' ? parsed.nameFontSize : fallbackSize,
+      textFontSize: typeof parsed.textFontSize === 'number' ? parsed.textFontSize : fallbackSize,
+      fontFamily: parsed.fontFamily || 'system',
+      customFontName: typeof parsed.customFontName === 'string' ? parsed.customFontName : '',
+      customFontUrl: typeof parsed.customFontUrl === 'string' ? parsed.customFontUrl : '',
+      showBadges: typeof parsed.showBadges === 'boolean' ? parsed.showBadges : true,
+      showAvatars: typeof parsed.showAvatars === 'boolean' ? parsed.showAvatars : true,
+    };
   } catch {
     return DEFAULT_DOCK_SETTINGS;
   }
@@ -47,6 +73,7 @@ export interface ObsChatStoreDeps {
   deleteMessage: (messageId: string) => Promise<{ ok: boolean; error?: string }>;
   shoutoutUser: (target: string) => Promise<{ ok: boolean; error?: string }>;
   getDockUrl?: () => Promise<{ url: string; dockUrl?: string }>;
+  saveSettings?: (settings: ObsChatDockSettings) => Promise<{ ok: boolean }>;
 }
 
 export const defaultDeps: ObsChatStoreDeps = {
@@ -101,6 +128,45 @@ export const defaultDeps: ObsChatStoreDeps = {
       return await rpc.invoke(Channels.ChatOverlayGetUrl);
     } catch {
       return { url: 'http://127.0.0.1:49178/chat-overlay.html', dockUrl: 'http://127.0.0.1:49178/obs-chat.html' };
+    }
+  },
+  saveSettings: async (settings) => {
+    try {
+      const { rpc } = await import('../rpc');
+      const { DEFAULT_CHAT_OVERLAY_SETTINGS } = await import('../lib/chatOverlay');
+      await rpc.invoke(Channels.ObsChatSaveSettings, {
+        ...DEFAULT_CHAT_OVERLAY_SETTINGS,
+        avatar: {
+          ...DEFAULT_CHAT_OVERLAY_SETTINGS.avatar,
+          show: settings.showAvatars,
+          size: 16,
+        },
+        badges: {
+          ...DEFAULT_CHAT_OVERLAY_SETTINGS.badges,
+          show: settings.showBadges,
+          size: 12,
+        },
+        username: {
+          ...DEFAULT_CHAT_OVERLAY_SETTINGS.username,
+          show: true,
+          size: settings.nameFontSize,
+          font: {
+            family: settings.fontFamily,
+            customName: settings.customFontName,
+          },
+        },
+        text: {
+          ...DEFAULT_CHAT_OVERLAY_SETTINGS.text,
+          size: settings.textFontSize,
+          font: {
+            family: settings.fontFamily,
+            customName: settings.customFontName,
+          },
+        },
+      });
+      return { ok: true };
+    } catch {
+      return { ok: false };
     }
   },
 };
@@ -228,6 +294,7 @@ export function createObsChatStore(deps: ObsChatStoreDeps = defaultDeps) {
         } catch {
           // ignore
         }
+        deps.saveSettings?.(next).catch(() => {});
         return { dockSettings: next };
       });
     },
