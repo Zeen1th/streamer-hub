@@ -26,16 +26,66 @@ export function matchesAutoReply(message: string, trigger: string, mode: AutoRep
   const normalizedTrigger = normalizeTrigger(trigger);
   if (!normalizedTrigger) return false;
   const normalizedMessage = normalizeTrigger(message);
-  if (mode === 'startsWith') return normalizedMessage.startsWith(normalizedTrigger);
-  if (mode === 'contains') return normalizedMessage.includes(normalizedTrigger);
+  if (!normalizedMessage) return false;
+
   if (mode === 'regex') {
     try {
-      return new RegExp(normalizedTrigger, 'u').test(message);
+      return new RegExp(normalizedTrigger, 'iu').test(message);
     } catch {
       return false;
     }
   }
-  return normalizedMessage === normalizedTrigger;
+
+  const lowerMsg = normalizedMessage.toLowerCase();
+  const lowerTrig = normalizedTrigger.toLowerCase();
+
+  const trigWithBang = lowerTrig.startsWith('!') ? lowerTrig : '!' + lowerTrig;
+  const trigNoBang = lowerTrig.startsWith('!') ? lowerTrig.slice(1) : lowerTrig;
+
+  if (mode === 'startsWith') {
+    return (
+      lowerMsg.startsWith(lowerTrig) ||
+      lowerMsg.startsWith(trigWithBang) ||
+      lowerMsg.startsWith(trigNoBang)
+    );
+  }
+
+  if (mode === 'contains') {
+    return (
+      lowerMsg.includes(lowerTrig) ||
+      lowerMsg.includes(trigWithBang) ||
+      lowerMsg.includes(trigNoBang)
+    );
+  }
+
+  // Exact mode
+  // 1. Direct case-insensitive match
+  if (lowerMsg === lowerTrig) return true;
+
+  // 2. Tolerance for optional leading '!' prefix in command triggers
+  if (lowerMsg === trigWithBang || lowerMsg === trigNoBang) return true;
+
+  // 3. Command boundary matching: match if message starts with the command followed by arguments
+  const hasCommandPrefix = lowerTrig.startsWith('!') || lowerMsg.startsWith('!');
+  if (hasCommandPrefix) {
+    if (lowerMsg.startsWith(trigWithBang + ' ') || lowerMsg.startsWith(trigNoBang + ' ')) {
+      return true;
+    }
+  }
+
+  // 4. Counter commands with trailing numeric delta (e.g. '!death+1', '!death+ 1', '!death- 2')
+  if (lowerTrig.endsWith('+') || lowerTrig.endsWith('-')) {
+    if (lowerMsg.startsWith(trigWithBang) || lowerMsg.startsWith(trigNoBang)) {
+      const rest = lowerMsg.startsWith(trigWithBang)
+        ? lowerMsg.slice(trigWithBang.length).trim()
+        : lowerMsg.slice(trigNoBang.length).trim();
+      if (!rest || /^\d+$/.test(rest)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 export function matchesAnyAutoReply(message: string, triggers: string[], mode: AutoReplyMatchMode = 'exact'): boolean {
@@ -363,12 +413,10 @@ export function isSenderIgnoredForAutoReply(
   botLogin?: string | null,
 ): boolean {
   if (message.isSelf || message.id?.startsWith('self-')) return true;
-  if (message.isBroadcaster) return true;
   const senderLogin = (message.userLogin || message.username || '').trim().toLowerCase();
   const cleanBroadcaster = (broadcasterChannel || '').trim().toLowerCase();
   const cleanBot = (botLogin || '').trim().toLowerCase();
-  if (cleanBroadcaster && senderLogin === cleanBroadcaster) return true;
-  if (cleanBot && senderLogin === cleanBot) return true;
+  if (cleanBot && senderLogin === cleanBot && (!cleanBroadcaster || cleanBot !== cleanBroadcaster)) return true;
   return false;
 }
 

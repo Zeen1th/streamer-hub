@@ -94,6 +94,7 @@ public sealed record AutoReply
     public string AiUserRestriction { get; init; } = "none";
     public List<string> AiTargetUsers { get; init; } = new();
     public List<AiConditionRule> AiConditions { get; init; } = new();
+    public string? SenderRole { get; init; } = "default";
 }
 
 public sealed record AiConditionRule

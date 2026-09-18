@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
 
-**Version:** `v0.3.4`  
+**Version:** `v0.3.5`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -131,6 +131,17 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
   - In-flight message tracking in `AutoRepliesGenerate` and frontend stores rejects duplicate trigger events during message bursts.
 - **Bot Account Sender Selection**:
   - Automatic resolution between Broadcaster and Bot account tokens with debug switching support.
+
+### 2.6 Prepared Replies, Commands & Title Changer Execution
+- **Broadcaster Command Support**:
+  - Previously, incoming broadcaster IRC messages were marked `isSelf = true` in `HostController.cs` and ignored by `isSenderIgnoredForAutoReply`. Broadcasters are now permitted to trigger their own commands, auto-replies, and title changer updates directly from Twitch chat.
+- **Robust Command Matching (`matchesAutoReply`)**:
+  - **Case-Insensitive**: Matches regardless of chatter casing (e.g. `!Discord` matches `!discord`).
+  - **Command Prefix Flexibility**: Allows triggers configured with or without leading `!` (e.g., `discord` matches `!discord`, and `!discord` matches `discord`).
+  - **Command Arguments**: Supports trailing parameters and mentions (e.g., `!discord @viewer`).
+  - **Counter Deltas**: Supports trailing values (e.g., `!death+ 1`, `!death+1`, `!death- 2`).
+- **Loop Prevention**:
+  - Only synthetic messages generated locally by the app (`PublishSelfChatMessage`, `id: self-*`, `isSelf: true`) and messages originating from the connected bot account are ignored, preventing echo loops while leaving human chatters and the broadcaster fully operational.
 
 ---
 

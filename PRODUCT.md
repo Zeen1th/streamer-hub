@@ -41,6 +41,8 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
 - **Auto-Replies & AI Reply Studio**:
   - Exact, Prefix, Contains, and Regex matching modes for chat triggers.
   - Prepared response templates with drag-and-drop placeholder tokens (`{username}`, `{mention}`, `{message}`).
+  - **Broadcaster & Viewer Command Execution**: Broadcaster chat messages are recognized and executed without false echo suppression, enabling streamers to test and trigger prepared replies, AI banter, and title changer actions directly from Twitch chat.
+  - **Robust Command Matching**: Case-insensitive matching, tolerance for optional leading `!` prefixes (e.g. `discord` matches `!discord`), command arguments support (`!discord @viewer`), and counter deltas (`!death+ 1`, `!death+1`).
   - **Persona Engine & Identity**: Streamers define custom Agent Names, Roles, and Stream Lore/Knowledge facts that seamlessly feed into the LLM system prompt.
   - **Arrodes (`🪞 أروديس`) Built-in Preset**: Deep, authentic LOTM magic silver mirror persona with rich lore and natural English/Arabic translations.
   - **Custom User Presets**: 1-click preset saving to local persistent storage, instant application, and deletion.

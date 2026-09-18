@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronRight, Copy, FolderOpen, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Trash2, TriangleAlert, Tv, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronRight, Copy, FolderOpen, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Trash2, TriangleAlert, Tv, X } from 'lucide-react';
 import type { CounterAction, PermissionLevel } from '../../rpc/contracts';
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
@@ -1521,6 +1521,10 @@ function ReplyInspector({
   const update = useAutoReplyStore((s) => s.update);
   const globalSettings = useAutoReplyStore((s) => s.globalSettings);
   const updateGlobalSettings = useAutoReplyStore((s) => s.updateGlobalSettings);
+  const twitchChannel = useConnectionStore((s) => s.twitchChannel);
+  const botConnected = useConnectionStore((s) => s.botConnected);
+  const botLogin = useConnectionStore((s) => s.botLogin);
+  const activeChatSender = useConnectionStore((s) => s.activeChatSender);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
 
@@ -1617,6 +1621,40 @@ function ReplyInspector({
                   update(rule.id, { responseMode });
                 }
               }}
+            />
+          </div>
+
+          {/* Who Responds Switcher */}
+          <div className="space-y-1 pt-2 border-t border-hair">
+            <div className="flex items-center justify-between">
+              <span className="ui-label text-[10px] text-muted">{t(lang, 'autoReplies.whoResponds')}</span>
+              {rule.senderRole === 'bot' && !botConnected && (
+                <span className="text-[9.5px] text-amber-400 font-mono flex items-center gap-0.5">
+                  <AlertCircle size={10} />
+                  {t(lang, 'autoReplies.senderBotOfflineShort')}
+                </span>
+              )}
+            </div>
+            <SegmentedControl
+              name={`inspector-sender-${rule.id}`}
+              value={rule.senderRole ?? 'default'}
+              options={[
+                {
+                  value: 'default',
+                  label: t(lang, 'autoReplies.senderDefault', {
+                    sender: activeChatSender === 'bot' ? (botLogin || 'Bot') : (twitchChannel || 'Streamer'),
+                  }),
+                },
+                {
+                  value: 'broadcaster',
+                  label: `👑 ${t(lang, 'autoReplies.senderBroadcaster')}`,
+                },
+                {
+                  value: 'bot',
+                  label: `🤖 ${t(lang, 'autoReplies.senderBot')}`,
+                },
+              ]}
+              onChange={(senderRole) => update(rule.id, { senderRole: senderRole as 'default' | 'bot' | 'broadcaster' })}
             />
           </div>
 

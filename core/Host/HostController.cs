@@ -127,7 +127,7 @@ public sealed class HostController : IDisposable
     private sealed record UpdateTitlePayload(string Title);
     private sealed record CheckAvatarPayload(string? Username, string? UserId);
     private sealed record SaveOpenRouterPayload(string Provider, string? ApiKey);
-    private sealed record GenerateAutoReplyPayload(string RuleId, ChatMessage? Message, bool? Send = null, string? OverrideInstructions = null);
+    private sealed record GenerateAutoReplyPayload(string RuleId, ChatMessage? Message, bool? Send = null, string? OverrideInstructions = null, string? SenderRole = null);
     private sealed record GenerateAutoReplyResponse(bool Ok, string? Message = null, bool UsedFallback = false, string? Error = null, string? SenderRole = null, string? SenderLogin = null);
     private sealed record UpdateCheckResponse(string CurrentVersion, string LatestVersion, bool UpdateAvailable, string ReleaseUrl, string? DownloadUrl = null, string? ReleaseNotes = null);
     private sealed record UpdateInstallPayload(string DownloadUrl);
@@ -578,6 +578,7 @@ public sealed class HostController : IDisposable
                     ThenType = c.ThenType is "instructions" or "static_reply" or "ignore" ? c.ThenType : "instructions",
                     ThenValue = c.ThenValue?.Trim() ?? string.Empty,
                 }).ToList() ?? new(),
+                SenderRole = request.Rule.SenderRole is "bot" or "broadcaster" ? request.Rule.SenderRole : "default",
             });
             _settings.Flush();
             RefreshKeybinds();
@@ -925,7 +926,10 @@ public sealed class HostController : IDisposable
                     : rule.AiInstructions;
                 var model = string.IsNullOrWhiteSpace(rule.AiModel) ? "llama-3.1-8b-instant" : rule.AiModel;
                 var maxTokens = rule.AiMaxTokens > 0 ? rule.AiMaxTokens : 120;
-                var (_, senderRole, senderLogin) = ResolveActiveChatSender();
+                var targetSender = !string.IsNullOrWhiteSpace(request.SenderRole) && request.SenderRole is "bot" or "broadcaster"
+                    ? request.SenderRole
+                    : (!string.IsNullOrWhiteSpace(rule.SenderRole) && rule.SenderRole is "bot" or "broadcaster" ? rule.SenderRole : null);
+                var (_, senderRole, senderLogin) = ResolveActiveChatSender(targetSender);
                 var effectiveAgentName = !string.IsNullOrWhiteSpace(rule.AgentName)
                     ? rule.AgentName
                     : (senderRole == "bot" && !string.IsNullOrWhiteSpace(senderLogin) ? senderLogin : string.Empty);
@@ -948,7 +952,7 @@ public sealed class HostController : IDisposable
                     if (string.IsNullOrWhiteSpace(fallback))
                         return new GenerateAutoReplyResponse(false, Error: generated.Error ?? "AI DID NOT RETURN A MESSAGE", SenderRole: senderRole, SenderLogin: senderLogin);
                     if (!shouldSend) return new GenerateAutoReplyResponse(true, fallback[..Math.Min(fallback.Length, 500)], true, generated.Error, SenderRole: senderRole, SenderLogin: senderLogin);
-                    var fallbackOk = await SendChatMessageCoreAsync(fallback).ConfigureAwait(false);
+                    var fallbackOk = await SendChatMessageCoreAsync(fallback, targetSender).ConfigureAwait(false);
                     if (fallbackOk)
                     {
                         _lastAiReplySentAt = DateTime.UtcNow;
@@ -958,7 +962,7 @@ public sealed class HostController : IDisposable
                         : new GenerateAutoReplyResponse(false, Error: "TWITCH CHAT IS NOT CONNECTED", SenderRole: senderRole, SenderLogin: senderLogin);
                 }
                 if (!shouldSend) return new GenerateAutoReplyResponse(true, generated.Message, SenderRole: senderRole, SenderLogin: senderLogin);
-                var sent = await SendChatMessageCoreAsync(generated.Message).ConfigureAwait(false);
+                var sent = await SendChatMessageCoreAsync(generated.Message, targetSender).ConfigureAwait(false);
                 if (sent)
                 {
                     _lastAiReplySentAt = DateTime.UtcNow;
@@ -1165,10 +1169,6 @@ public sealed class HostController : IDisposable
                 _knownChatters[displayName] = info;
             }
 
-            if (isHostCandidate)
-            {
-                publishedMessage = publishedMessage with { IsSelf = true };
-            }
             PostEvent(Events.TwitchChatMessage, publishedMessage);
             _ = PublishChatOverlayMessageAsync(publishedMessage);
             if (!string.IsNullOrWhiteSpace(publishedMessage.CustomRewardId))

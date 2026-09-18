@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  AlertCircle,
   ArrowLeft,
   ChevronLeft,
   MessageSquare,
@@ -14,6 +15,7 @@ import type { AutoReply, ChatMessage, PermissionLevel } from '../../rpc/contract
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
 import { useAutoReplyStore } from '../../store/autoReplyStore';
+import { useConnectionStore } from '../../store/connectionStore';
 import { useLogStore } from '../../store/logStore';
 import { t } from '../../i18n/translations';
 import { evaluateRuleExecution, renderAutoReply } from '../../lib/autoReplyRules';
@@ -42,6 +44,10 @@ export function ReplyStudioView({
 }: ReplyStudioViewProps) {
   const update = useAutoReplyStore((s) => s.update);
   const remove = useAutoReplyStore((s) => s.remove);
+  const twitchChannel = useConnectionStore((s) => s.twitchChannel);
+  const botConnected = useConnectionStore((s) => s.botConnected);
+  const botLogin = useConnectionStore((s) => s.botLogin);
+  const activeChatSender = useConnectionStore((s) => s.activeChatSender);
   const [newTriggerInput, setNewTriggerInput] = useState('');
   const [testSent, setTestSent] = useState(false);
   const [testUser, setTestUser] = useState('viewer');
@@ -112,11 +118,13 @@ export function ReplyStudioView({
           send: false,
           message: mockMsg,
           overrideInstructions: plan.isOverride ? plan.instructions : undefined,
+          senderRole: rule.senderRole && rule.senderRole !== 'default' ? rule.senderRole : undefined,
         });
         const out = res.ok && res.message ? res.message : `[AI response with instructions: "${plan.instructions}"]`;
+        const via = res.senderLogin ? ` (via @${res.senderLogin})` : '';
         useLogStore.getState().add({
           kind: 'chat',
-          message: `[Simulated AI Reply for @${cleanSimUser}] ${out}`,
+          message: `[Simulated AI Reply for @${cleanSimUser}${via}] ${out}`,
         });
       } catch {
         useLogStore.getState().add({
@@ -486,19 +494,63 @@ export function ReplyStudioView({
           </div>
 
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between rounded border border-rule bg-surface p-3">
-              <div className="flex items-center gap-2.5">
-                <MessageSquare size={15} className="text-sky-500" />
-                <div>
-                  <div className="text-[12px] font-semibold">{t(lang, 'workspace.chatReply')}</div>
-                  <div className="text-[11px] text-muted">Post message directly to Twitch chat</div>
+            <div className="flex flex-col gap-3 rounded border border-rule bg-surface p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <MessageSquare size={15} className="text-sky-500" />
+                  <div>
+                    <div className="text-[12px] font-semibold">{t(lang, 'workspace.chatReply')}</div>
+                    <div className="text-[11px] text-muted">Post message directly to Twitch chat</div>
+                  </div>
                 </div>
+                <Switch
+                  checked={rule.responseEnabled !== false}
+                  onChange={(checked) => update(rule.id, { responseEnabled: checked })}
+                  label={t(lang, 'workspace.chatReply')}
+                />
               </div>
-              <Switch
-                checked={rule.responseEnabled !== false}
-                onChange={(checked) => update(rule.id, { responseEnabled: checked })}
-                label={t(lang, 'workspace.chatReply')}
-              />
+
+              {rule.responseEnabled !== false && (
+                <div className="pt-3 border-t border-rule/70 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11.5px] font-semibold text-foreground">
+                        {t(lang, 'autoReplies.whoResponds')}
+                      </span>
+                      <span className="text-[10.5px] text-muted">
+                        • {t(lang, 'autoReplies.whoRespondsHint')}
+                      </span>
+                    </div>
+                    {rule.senderRole === 'bot' && !botConnected && (
+                      <span className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.5 rounded flex items-center gap-1 font-mono">
+                        <AlertCircle size={11} />
+                        {t(lang, 'autoReplies.senderBotOffline')}
+                      </span>
+                    )}
+                  </div>
+                  <SegmentedControl
+                    name={`reply-sender-role-${rule.id}`}
+                    value={rule.senderRole ?? 'default'}
+                    options={[
+                      {
+                        value: 'default',
+                        label: t(lang, 'autoReplies.senderDefault', {
+                          sender: activeChatSender === 'bot' ? (botLogin || 'Bot') : (twitchChannel || 'Streamer'),
+                        }),
+                      },
+                      {
+                        value: 'broadcaster',
+                        label: `👑 ${t(lang, 'autoReplies.senderBroadcaster')}${twitchChannel ? ` (@${twitchChannel})` : ''}`,
+                      },
+                      {
+                        value: 'bot',
+                        label: `🤖 ${t(lang, 'autoReplies.senderBot')}${botLogin ? ` (@${botLogin})` : ''}`,
+                      },
+                    ]}
+                    onChange={(val) => update(rule.id, { senderRole: val as 'default' | 'bot' | 'broadcaster' })}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col gap-3 rounded border border-rule bg-surface p-3">

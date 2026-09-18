@@ -396,6 +396,7 @@ export class MockHost {
           message?: ChatMessage;
           send?: boolean;
           overrideInstructions?: string;
+          senderRole?: 'bot' | 'broadcaster';
         } | undefined;
 
         if (!payload?.message || !payload.ruleId) {
@@ -421,11 +422,18 @@ export class MockHost {
           break;
         }
 
+        const rule = this.autoReplies.find((r) => r.id === payload.ruleId);
         const st = this.status();
         const shouldSend = payload.send !== false;
         const generatedMessage = `[AI Reply] Response to: ${payload.message.message}`;
-        const senderRole = st.activeChatSender;
-        const senderLogin = st.activeChatSenderLogin || (senderRole === 'bot' ? 'ExampleBot' : 'Streamer');
+        const requestedSender = payload.senderRole ?? (rule?.senderRole && rule.senderRole !== 'default' ? rule.senderRole : undefined);
+        const effectiveSender = requestedSender && (requestedSender === 'bot' || requestedSender === 'broadcaster')
+          ? requestedSender
+          : st.activeChatSender;
+        const senderRole = effectiveSender === 'bot' && !st.botConnected ? 'broadcaster' : effectiveSender;
+        const senderLogin = senderRole === 'bot'
+          ? (st.botLogin || 'ExampleBot')
+          : (st.twitchChannel || 'Streamer');
 
         if (shouldSend && this.twitchConnected) {
           const isBroadcaster = senderRole === 'broadcaster';

@@ -109,6 +109,7 @@ export interface AutoReply {
   aiUserRestriction?: AiUserRestriction;
   aiTargetUsers?: string[];
   aiConditions?: AiConditionRule[];
+  senderRole?: 'default' | 'bot' | 'broadcaster';
 }
 
 export type AiUserRestriction = 'none' | 'allowlist' | 'blocklist';
@@ -607,7 +608,7 @@ export interface HostApi {
   [Channels.AutoRepliesSettingsSave]: { request: AutoReplySettings; response: { ok: boolean } };
   [Channels.AutoRepliesSave]: { request: { rule: AutoReply }; response: { ok: boolean } };
   [Channels.AutoRepliesDelete]: { request: { ruleId: string }; response: { ok: boolean } };
-  [Channels.AutoRepliesGenerate]: { request: { ruleId: string; message: ChatMessage; send?: boolean; overrideInstructions?: string }; response: { ok: boolean; message?: string; usedFallback?: boolean; senderRole?: ChatSenderRole; senderLogin?: string; error?: string } };
+  [Channels.AutoRepliesGenerate]: { request: { ruleId: string; message: ChatMessage; send?: boolean; overrideInstructions?: string; senderRole?: ChatSenderRole }; response: { ok: boolean; message?: string; usedFallback?: boolean; senderRole?: ChatSenderRole; senderLogin?: string; error?: string } };
   [Channels.SequencesGetState]: { request: undefined; response: CommandSequence[] };
   [Channels.SequencesSave]: { request: { sequence: CommandSequence }; response: { ok: boolean } };
   [Channels.SequencesDelete]: { request: { sequenceId: string }; response: { ok: boolean } };

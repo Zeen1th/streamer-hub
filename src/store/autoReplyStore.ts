@@ -377,11 +377,13 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
         lastTriggeredAt: { ...state.lastTriggeredAt, [rule.id]: now },
       }));
 
+      const senderRole = rule.senderRole && rule.senderRole !== 'default' ? rule.senderRole : undefined;
       rpc.invoke(Channels.AutoRepliesGenerate, {
         ruleId: rule.id,
         message,
         send: true,
         overrideInstructions: plan.isOverride ? plan.instructions : undefined,
+        senderRole,
       }).then((result) => {
         if (result.ok && result.message) {
           const via = result.senderLogin ? ` (via @${result.senderLogin})` : '';
@@ -411,7 +413,8 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
 
     const response = renderAutoReply(plan.text.trim(), message);
     if (!response) return;
-    rpc.invoke(Channels.TwitchSendChatMessage, { message: response }).then((result) => {
+    const staticSenderRole = rule.senderRole && rule.senderRole !== 'default' ? rule.senderRole : undefined;
+    rpc.invoke(Channels.TwitchSendChatMessage, { message: response, senderRole: staticSenderRole }).then((result) => {
       if (result.ok) {
         const via = result.senderLogin ? ` (via @${result.senderLogin})` : '';
         const tag = plan.isOverride ? 'USER OVERRIDE' : 'AUTO REPLY';

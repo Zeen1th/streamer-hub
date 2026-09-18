@@ -394,7 +394,7 @@ test('evaluateRuleExecution enforces mode isolation: Prepared commands reject AI
   assert.equal(staticFanPlan.instructions, 'Default AI persona banter');
 });
 
-test('isSenderIgnoredForAutoReply ignores self, broadcaster, and bot account messages', () => {
+test('isSenderIgnoredForAutoReply ignores self and bot account messages but allows broadcaster', () => {
   const broadcasterChannel = 'Ninja';
   const botLogin = 'NinjaBot';
 
@@ -404,12 +404,12 @@ test('isSenderIgnoredForAutoReply ignores self, broadcaster, and bot account mes
   // 2. ID starting with self- is ignored
   assert.equal(isSenderIgnoredForAutoReply({ username: 'viewer', id: 'self-123' }, broadcasterChannel, botLogin), true);
 
-  // 3. Broadcaster flag is ignored
-  assert.equal(isSenderIgnoredForAutoReply({ username: 'someone', isBroadcaster: true }, broadcasterChannel, botLogin), true);
+  // 3. Broadcaster flag is NOT ignored (human streamer can trigger own commands)
+  assert.equal(isSenderIgnoredForAutoReply({ username: 'someone', isBroadcaster: true }, broadcasterChannel, botLogin), false);
 
-  // 4. Broadcaster username/login match is ignored (case-insensitive)
-  assert.equal(isSenderIgnoredForAutoReply({ username: 'ninja' }, broadcasterChannel, botLogin), true);
-  assert.equal(isSenderIgnoredForAutoReply({ userLogin: 'NINJA' }, broadcasterChannel, botLogin), true);
+  // 4. Broadcaster username/login match is NOT ignored
+  assert.equal(isSenderIgnoredForAutoReply({ username: 'ninja' }, broadcasterChannel, botLogin), false);
+  assert.equal(isSenderIgnoredForAutoReply({ userLogin: 'NINJA' }, broadcasterChannel, botLogin), false);
 
   // 5. Bot username/login match is ignored (case-insensitive)
   assert.equal(isSenderIgnoredForAutoReply({ username: 'ninjabot' }, broadcasterChannel, botLogin), true);
@@ -417,6 +417,34 @@ test('isSenderIgnoredForAutoReply ignores self, broadcaster, and bot account mes
 
   // 6. Normal chatter is NOT ignored
   assert.equal(isSenderIgnoredForAutoReply({ username: 'chat_enthusiast', userLogin: 'chat_enthusiast' }, broadcasterChannel, botLogin), false);
+});
+
+test('matchesAutoReply supports case-insensitivity, command prefixes, arguments, and counter deltas', () => {
+  // Case-insensitivity
+  assert.equal(matchesAutoReply('!Discord', '!discord'), true);
+  assert.equal(matchesAutoReply('!DISCORD', '!discord'), true);
+  assert.equal(matchesAutoReply('!discord', '!DISCORD'), true);
+
+  // Tolerance for optional leading '!'
+  assert.equal(matchesAutoReply('!discord', 'discord'), true);
+  assert.equal(matchesAutoReply('discord', '!discord'), true);
+
+  // Command boundary with arguments
+  assert.equal(matchesAutoReply('!discord @chatter', '!discord'), true);
+  assert.equal(matchesAutoReply('!discord check this out', 'discord'), true);
+  assert.equal(matchesAutoReply('!discordsomething', '!discord'), false);
+
+  // Counter delta commands
+  assert.equal(matchesAutoReply('!death+', '!death+'), true);
+  assert.equal(matchesAutoReply('!death+ 1', '!death+'), true);
+  assert.equal(matchesAutoReply('!death+1', '!death+'), true);
+  assert.equal(matchesAutoReply('!death+5', 'death+'), true);
+  assert.equal(matchesAutoReply('!death-', '!death-'), true);
+  assert.equal(matchesAutoReply('!death- 2', '!death-'), true);
+
+  // Arabic command triggers
+  assert.equal(matchesAutoReply('!أروديس', 'أروديس'), true);
+  assert.equal(matchesAutoReply('!أروديس من أنت', 'أروديس'), true);
 });
 
 test('MessageDeduplicator catches and suppresses duplicate message IDs', () => {

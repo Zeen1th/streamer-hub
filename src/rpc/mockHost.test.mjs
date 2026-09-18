@@ -503,3 +503,52 @@ test('handles AutoRepliesGenerate and rejects duplicate message IDs', async () =
   assert.equal(res2.error, 'DUPLICATE MESSAGE ALREADY PROCESSED');
 });
 
+test('handles AutoRepliesGenerate senderRole switching between broadcaster and bot', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  await invoke(host, PROTOCOL_VERSION, Channels.TwitchBotSimulate, { enabled: true, login: 'MySuperBot' });
+
+  const msg1 = {
+    id: 'msg-sender-broadcaster',
+    username: 'viewer123',
+    message: 'test question',
+    isBroadcaster: false,
+    isMod: false,
+    isVip: false,
+    isSubscriber: false,
+    timestamp: new Date().toISOString(),
+  };
+
+  const resBroadcaster = await invoke(host, PROTOCOL_VERSION, Channels.AutoRepliesGenerate, {
+    ruleId: 'rule-1',
+    message: msg1,
+    send: false,
+    senderRole: 'broadcaster',
+  });
+  assert.equal(resBroadcaster.ok, true);
+  assert.equal(resBroadcaster.senderRole, 'broadcaster');
+  assert.equal(resBroadcaster.senderLogin, 'mock_channel');
+
+  const msg2 = {
+    id: 'msg-sender-bot',
+    username: 'viewer123',
+    message: 'test question 2',
+    isBroadcaster: false,
+    isMod: false,
+    isVip: false,
+    isSubscriber: false,
+    timestamp: new Date().toISOString(),
+  };
+
+  const resBot = await invoke(host, PROTOCOL_VERSION, Channels.AutoRepliesGenerate, {
+    ruleId: 'rule-1',
+    message: msg2,
+    send: false,
+    senderRole: 'bot',
+  });
+  assert.equal(resBot.ok, true);
+  assert.equal(resBot.senderRole, 'bot');
+  assert.equal(resBot.senderLogin, 'ExampleBot');
+});
+
