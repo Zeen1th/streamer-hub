@@ -284,7 +284,15 @@ export function CommandsView() {
 
     if (type === 'ai') {
       const id = useAutoReplyStore.getState().add();
-      useAutoReplyStore.getState().update(id, { responseMode: 'ai', responseEnabled: true });
+      const isAr = lang === 'ar';
+      useAutoReplyStore.getState().update(id, {
+        responseMode: 'ai',
+        responseEnabled: true,
+        agentName: isAr ? 'أروديس' : 'Arrodes',
+        agentRole: isAr ? 'مرآة سحرية فضية عليمة بالأسرار من LOTM تملك بحراً من المعلومات وتجيب بذكاء وغموض' : 'All-knowing magic silver mirror from LOTM that holds endless secrets and answers questions with mysterious wit',
+        agentContext: isAr ? 'الهوية: مرآة أروديس السحرية الفضية من رواية سيد الغموض (LOTM). تملك علماً واسعاً بالأسرار والمعلومات، ومخلصة تماماً لسيدها العظيم (الستريمر).' : 'Identity: Arrodes, the mysterious magic silver mirror from Lord of the Mysteries (LOTM). It possesses immense knowledge of the universe, secrets, and stream facts. It is completely devoted to the Supreme Master (the streamer).',
+        aiInstructions: isAr ? 'أنت أروديس (المرآة السحرية العليمة من LOTM). قدّم إجابات دقيقة وغنية بالمعلومات لـ {username} في أقل من 25 كلمة بنبرة مرآة غامضة ومخلصة للستريمر.' : 'You are Arrodes, the omniscient magic mirror. Answer {username} accurately with insightful knowledge in under 25 words. Maintain a respectful, devoted tone to the streamer and a mysterious mirror vibe.',
+      });
       if (group !== 'all' && group !== 'ai') {
         useToolStore.getState().setGroup('all');
       }
@@ -449,31 +457,34 @@ export function CommandsView() {
               lang={lang}
             />
           ) : (
-            <CommandTable
-              rows={visibleRows}
-              allRows={rows}
-              onNewCommand={() => setIsAddModalOpen(true)}
-              onConfigureActions={(counterId) => {
-                closeAllStudios();
-                setActiveCounterDetailId(counterId);
-                setSelected([`counter:${counterId}`]);
-              }}
-              onConfigureReply={(ruleId) => {
-                closeAllStudios();
-                setActiveReplyDetailId(ruleId);
-                setSelected([`reply:${ruleId}`]);
-              }}
-              onConfigureAiReply={(ruleId) => {
-                closeAllStudios();
-                setActiveAiReplyDetailId(ruleId);
-                setSelected([`reply:${ruleId}`]);
-              }}
-              onConfigureSequence={(sequenceId) => {
-                closeAllStudios();
-                setActiveSequenceDetailId(sequenceId);
-                setSelected([`sequence:${sequenceId}`]);
-              }}
-            />
+            <div className="flex min-h-0 flex-1 flex-col">
+              {group === 'ai' && <AiGlobalCooldownBar lang={lang} />}
+              <CommandTable
+                rows={visibleRows}
+                allRows={rows}
+                onNewCommand={() => setIsAddModalOpen(true)}
+                onConfigureActions={(counterId) => {
+                  closeAllStudios();
+                  setActiveCounterDetailId(counterId);
+                  setSelected([`counter:${counterId}`]);
+                }}
+                onConfigureReply={(ruleId) => {
+                  closeAllStudios();
+                  setActiveReplyDetailId(ruleId);
+                  setSelected([`reply:${ruleId}`]);
+                }}
+                onConfigureAiReply={(ruleId) => {
+                  closeAllStudios();
+                  setActiveAiReplyDetailId(ruleId);
+                  setSelected([`reply:${ruleId}`]);
+                }}
+                onConfigureSequence={(sequenceId) => {
+                  closeAllStudios();
+                  setActiveSequenceDetailId(sequenceId);
+                  setSelected([`sequence:${sequenceId}`]);
+                }}
+              />
+            </div>
           )}
           <DockedLog />
         </div>
@@ -513,6 +524,77 @@ export function CommandsView() {
         lang={lang}
       />
     </section>
+  );
+}
+
+function AiGlobalCooldownBar({ lang }: { lang: 'en' | 'ar' }) {
+  const globalSettings = useAutoReplyStore((s) => s.globalSettings);
+  const updateGlobalSettings = useAutoReplyStore((s) => s.updateGlobalSettings);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3b2d54] bg-[#241c30]/90 px-3 py-1.5 backdrop-blur-xs shrink-0">
+      <div className="flex items-center gap-2">
+        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500/20 text-purple-300">
+          <Sparkles size={11} />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11.5px] font-bold text-purple-200">
+            {t(lang, 'commands.aiGlobalCooldownBar')}
+          </span>
+          <span className="hidden sm:inline-block text-[10px] text-muted">
+            • {t(lang, 'commands.aiGlobalCooldownBarHint')}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3.5">
+        {/* Global AI Cooldown Input */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-purple-200/80 font-medium">
+            {t(lang, 'aiStudio.globalAiCooldownShort')}:
+          </span>
+          <div className="flex items-center gap-1">
+            <Input
+              dir="ltr"
+              type="number"
+              min={0}
+              max={3600}
+              value={globalSettings.globalAiCooldownSeconds || 0}
+              onChange={(e) =>
+                updateGlobalSettings({
+                  globalAiCooldownSeconds: Math.max(0, Math.min(3600, Number(e.target.value) || 0)),
+                })
+              }
+              className="h-6 w-14 text-center font-mono text-[11px] bg-surface/80 border-[#4a3b68]"
+            />
+            <span className="font-mono text-[10.5px] text-muted">s</span>
+          </div>
+        </div>
+
+        {/* Global AI User Cooldown Input */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-purple-200/80 font-medium">
+            {t(lang, 'aiStudio.globalAiUserCooldownShort')}:
+          </span>
+          <div className="flex items-center gap-1">
+            <Input
+              dir="ltr"
+              type="number"
+              min={0}
+              max={3600}
+              value={globalSettings.globalAiUserCooldownSeconds ?? 60}
+              onChange={(e) =>
+                updateGlobalSettings({
+                  globalAiUserCooldownSeconds: Math.max(0, Math.min(3600, Number(e.target.value) || 0)),
+                })
+              }
+              className="h-6 w-14 text-center font-mono text-[11px] bg-surface/80 border-[#4a3b68]"
+            />
+            <span className="font-mono text-[10.5px] text-muted">s</span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1437,6 +1519,8 @@ function ReplyInspector({
 }) {
   const rule = useAutoReplyStore((s) => s.rules.find((item) => item.id === row.sourceId));
   const update = useAutoReplyStore((s) => s.update);
+  const globalSettings = useAutoReplyStore((s) => s.globalSettings);
+  const updateGlobalSettings = useAutoReplyStore((s) => s.updateGlobalSettings);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
 
@@ -1519,7 +1603,20 @@ function ReplyInspector({
                 { value: 'static', label: t(lang, 'workspace.prepared') },
                 { value: 'ai', label: t(lang, 'workspace.ai') },
               ]}
-              onChange={(responseMode) => update(rule.id, { responseMode })}
+              onChange={(responseMode) => {
+                if (responseMode === 'ai' && !rule.aiInstructions?.trim()) {
+                  const isAr = lang === 'ar';
+                  update(rule.id, {
+                    responseMode,
+                    agentName: rule.agentName?.trim() ? rule.agentName : (isAr ? 'أروديس' : 'Arrodes'),
+                    agentRole: rule.agentRole?.trim() ? rule.agentRole : (isAr ? 'مرآة سحرية فضية عليمة بالأسرار من LOTM تملك بحراً من المعلومات وتجيب بذكاء وغموض' : 'All-knowing magic silver mirror from LOTM that holds endless secrets and answers questions with mysterious wit'),
+                    agentContext: rule.agentContext?.trim() ? rule.agentContext : (isAr ? 'الهوية: مرآة أروديس السحرية الفضية من رواية سيد الغموض (LOTM). تملك علماً واسعاً بالأسرار والمعلومات، ومخلصة تماماً لسيدها العظيم (الستريمر).' : 'Identity: Arrodes, the mysterious magic silver mirror from Lord of the Mysteries (LOTM). It possesses immense knowledge of the universe, secrets, and stream facts. It is completely devoted to the Supreme Master (the streamer).'),
+                    aiInstructions: isAr ? 'أنت أروديس (المرآة السحرية العليمة من LOTM). قدّم إجابات دقيقة وغنية بالمعلومات لـ {username} في أقل من 25 كلمة بنبرة مرآة غامضة ومخلصة للستريمر.' : 'You are Arrodes, the omniscient magic mirror. Answer {username} accurately with insightful knowledge in under 25 words. Maintain a respectful, devoted tone to the streamer and a mysterious mirror vibe.',
+                  });
+                } else {
+                  update(rule.id, { responseMode });
+                }
+              }}
             />
           </div>
 
@@ -1548,31 +1645,116 @@ function ReplyInspector({
           </div>
         </div>
 
-        {/* Quick Permissions & Cooldowns */}
+        {/* AI Global Protection Limits (When isAi is true) */}
+        {isAi && (
+          <div className="rounded-[5px] border border-purple-500/35 bg-purple-500/10 p-3 space-y-3 shadow-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-bold text-[11px] text-purple-200">
+                <Sparkles size={13} className="text-purple-400" />
+                <span>{t(lang, 'aiStudio.globalLimitsTitle')}</span>
+              </div>
+              <span className="rounded-[3px] border border-purple-500/30 bg-purple-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-purple-300">
+                {t(lang, 'aiStudio.globalLimitsBadge')}
+              </span>
+            </div>
+
+            {/* Global AI Cooldown */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-medium text-foreground">{t(lang, 'aiStudio.globalAiCooldownShort')}</span>
+                <div className="flex items-center gap-1">
+                  <Input
+                    dir="ltr"
+                    type="number"
+                    min={0}
+                    max={3600}
+                    value={globalSettings.globalAiCooldownSeconds || 0}
+                    onChange={(e) =>
+                      updateGlobalSettings({
+                        globalAiCooldownSeconds: Math.max(0, Math.min(3600, Number(e.target.value) || 0)),
+                      })
+                    }
+                    className="h-6 w-16 text-center font-mono text-[11px]"
+                  />
+                  <span className="font-mono text-muted text-[10px]">s</span>
+                </div>
+              </div>
+              <Slider
+                value={globalSettings.globalAiCooldownSeconds || 0}
+                min={0}
+                max={180}
+                step={5}
+                onChange={(val) => updateGlobalSettings({ globalAiCooldownSeconds: val })}
+                ariaLabel={t(lang, 'aiStudio.globalAiCooldownShort')}
+              />
+            </div>
+
+            {/* Global AI User Cooldown */}
+            <div className="space-y-1 pt-2 border-t border-purple-500/20">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-medium text-foreground">{t(lang, 'aiStudio.globalAiUserCooldownShort')}</span>
+                <div className="flex items-center gap-1">
+                  <Input
+                    dir="ltr"
+                    type="number"
+                    min={0}
+                    max={3600}
+                    value={globalSettings.globalAiUserCooldownSeconds ?? 60}
+                    onChange={(e) =>
+                      updateGlobalSettings({
+                        globalAiUserCooldownSeconds: Math.max(0, Math.min(3600, Number(e.target.value) || 0)),
+                      })
+                    }
+                    className="h-6 w-16 text-center font-mono text-[11px]"
+                  />
+                  <span className="font-mono text-muted text-[10px]">s</span>
+                </div>
+              </div>
+              <Slider
+                value={globalSettings.globalAiUserCooldownSeconds ?? 60}
+                min={0}
+                max={300}
+                step={5}
+                onChange={(val) => updateGlobalSettings({ globalAiUserCooldownSeconds: val })}
+                ariaLabel={t(lang, 'aiStudio.globalAiUserCooldownShort')}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Permissions */}
         <PermissionField
           value={rule.minimumRank ?? 'everyone'}
           onChange={(minimumRank) => update(rule.id, { minimumRank })}
         />
 
-        <CooldownField
-          value={rule.cooldownSeconds}
-          onChange={(cooldownSeconds) => update(rule.id, { cooldownSeconds })}
-        />
-
-        <InspectorField label={t(lang, 'autoReplies.userCooldown')}>
-          <Input
-            dir="ltr"
-            type="number"
-            min={0}
-            max={3600}
-            value={rule.userCooldownSeconds ?? 0}
-            onChange={(event) =>
-              update(rule.id, {
-                userCooldownSeconds: Math.max(0, Math.min(3600, Number(event.target.value) || 0)),
-              })
-            }
+        {/* Command Specific Cooldown */}
+        <div className="space-y-2 pt-1 border-t border-hair">
+          {isAi && (
+            <div className="ui-label text-[10px] text-muted font-bold uppercase tracking-wider">
+              {t(lang, 'aiStudio.ruleCooldownTitle')}
+            </div>
+          )}
+          <CooldownField
+            value={rule.cooldownSeconds}
+            onChange={(cooldownSeconds) => update(rule.id, { cooldownSeconds })}
           />
-        </InspectorField>
+
+          <InspectorField label={t(lang, 'autoReplies.userCooldown')}>
+            <Input
+              dir="ltr"
+              type="number"
+              min={0}
+              max={3600}
+              value={rule.userCooldownSeconds ?? 0}
+              onChange={(event) =>
+                update(rule.id, {
+                  userCooldownSeconds: Math.max(0, Math.min(3600, Number(event.target.value) || 0)),
+                })
+              }
+            />
+          </InspectorField>
+        </div>
 
         {/* Quick Chatter Overrides Indicator */}
         {activeOverridesCount > 0 && (

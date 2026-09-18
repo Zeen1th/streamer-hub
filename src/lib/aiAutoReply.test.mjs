@@ -18,3 +18,18 @@ test('uses a non-empty generated response before fallback', () => {
   assert.equal(selectFallback('', 'fallback'), 'fallback');
   assert.equal(selectFallback(null, '  '), null);
 });
+
+test('builds prompt with agent persona, role, channel, and stream lore', () => {
+  const prompt = buildAiPrompt('Keep replies under 20 words', message, {
+    agentName: 'Kiko',
+    agentRole: 'Sarcastic co-host',
+    streamerChannel: 'Zeen1th',
+    agentContext: 'Lore: We love souls games and coffee.',
+  });
+  assert.match(prompt, /Agent Persona: You are Kiko, Sarcastic co-host/);
+  assert.match(prompt, /Stream: Live in Zeen1th's channel/);
+  assert.match(prompt, /Stream Lore & Facts:\nLore: We love souls games and coffee\./);
+  assert.match(prompt, /Keep replies under 20 words/);
+  assert.match(prompt, /Viewer username: viewer/);
+  assert.match(prompt, /Viewer message: عادي العب/);
+});

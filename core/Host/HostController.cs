@@ -529,6 +529,7 @@ public sealed class HostController : IDisposable
                 GlobalAiCooldownSeconds = Math.Clamp(settings.GlobalAiCooldownSeconds, 0, 3600),
                 GlobalAiUserCooldownSeconds = Math.Clamp(settings.GlobalAiUserCooldownSeconds, 0, 3600),
             });
+            _settings.Flush();
             return Task.FromResult<object?>(new { ok = true });
         });
         _dispatcher.Register(Channels.AutoRepliesSave, (payload, _) =>
@@ -537,6 +538,9 @@ public sealed class HostController : IDisposable
             if (request?.Rule is null || string.IsNullOrWhiteSpace(request.Rule.Id))
                 return Task.FromResult<object?>(new { ok = false });
             var aiInstructions = request.Rule.AiInstructions?.Trim() ?? string.Empty;
+            var agentName = request.Rule.AgentName?.Trim() ?? string.Empty;
+            var agentRole = request.Rule.AgentRole?.Trim() ?? string.Empty;
+            var agentContext = request.Rule.AgentContext?.Trim() ?? string.Empty;
             var aiModel = request.Rule.AiModel?.Trim() ?? string.Empty;
             var aiFallback = request.Rule.AiFallback?.Trim() ?? string.Empty;
             var titleIncreaseCommand = request.Rule.TitleIncreaseCommand?.Trim() ?? string.Empty;
@@ -556,7 +560,10 @@ public sealed class HostController : IDisposable
                 MinimumRank = request.Rule.MinimumRank is "subscriber" or "vip" or "mod" or "broadcaster" ? request.Rule.MinimumRank : "everyone",
                 AiUserCooldownSeconds = Math.Clamp(request.Rule.AiUserCooldownSeconds, 0, 3600),
                 ResponseMode = request.Rule.ResponseMode == "ai" ? "ai" : "static",
-                AiInstructions = aiInstructions[..Math.Min(aiInstructions.Length, 2000)],
+                AiInstructions = aiInstructions[..Math.Min(aiInstructions.Length, 8000)],
+                AgentName = agentName[..Math.Min(agentName.Length, 80)],
+                AgentRole = agentRole[..Math.Min(agentRole.Length, 300)],
+                AgentContext = agentContext[..Math.Min(agentContext.Length, 4000)],
                 AiModel = string.IsNullOrWhiteSpace(aiModel) ? (request.Rule.AiProvider == "openrouter" ? "meta-llama/llama-3.2-3b-instruct:free" : "llama-3.1-8b-instant") : aiModel[..Math.Min(aiModel.Length, 120)],
                 AiProvider = request.Rule.AiProvider == "openrouter" ? "openrouter" : "groq",
                 AiMaxTokens = Math.Clamp(request.Rule.AiMaxTokens, 40, 240),
@@ -572,6 +579,7 @@ public sealed class HostController : IDisposable
                     ThenValue = c.ThenValue?.Trim() ?? string.Empty,
                 }).ToList() ?? new(),
             });
+            _settings.Flush();
             RefreshKeybinds();
             return Task.FromResult<object?>(new { ok = true });
         });
@@ -581,6 +589,7 @@ public sealed class HostController : IDisposable
             if (request is null || string.IsNullOrWhiteSpace(request.RuleId))
                 return Task.FromResult<object?>(new { ok = false });
             _settings.DeleteAutoReply(request.RuleId);
+            _settings.Flush();
             RefreshKeybinds();
             return Task.FromResult<object?>(new { ok = true });
         });
@@ -916,8 +925,22 @@ public sealed class HostController : IDisposable
                     : rule.AiInstructions;
                 var model = string.IsNullOrWhiteSpace(rule.AiModel) ? "llama-3.1-8b-instant" : rule.AiModel;
                 var maxTokens = rule.AiMaxTokens > 0 ? rule.AiMaxTokens : 120;
-                var generated = await _openRouter.GenerateAsync(provider, key, model, effectiveInstructions, request.Message, maxTokens, timeout.Token).ConfigureAwait(false);
                 var (_, senderRole, senderLogin) = ResolveActiveChatSender();
+                var effectiveAgentName = !string.IsNullOrWhiteSpace(rule.AgentName)
+                    ? rule.AgentName
+                    : (senderRole == "bot" && !string.IsNullOrWhiteSpace(senderLogin) ? senderLogin : string.Empty);
+                var generated = await _openRouter.GenerateAsync(
+                    provider,
+                    key,
+                    model,
+                    effectiveInstructions,
+                    request.Message,
+                    maxTokens,
+                    timeout.Token,
+                    effectiveAgentName,
+                    rule.AgentRole,
+                    rule.AgentContext,
+                    _twitchChannel).ConfigureAwait(false);
                 if (!generated.Ok || string.IsNullOrWhiteSpace(generated.Message))
                 {
                     Log("system", $"AI reply failed ({provider}) · {generated.Error ?? "EMPTY RESPONSE"}");

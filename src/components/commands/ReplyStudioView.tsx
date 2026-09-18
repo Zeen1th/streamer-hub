@@ -214,7 +214,18 @@ export function ReplyStudioView({
               size="sm"
               variant="outline"
               onClick={() => {
-                update(rule.id, { responseMode: 'ai' });
+                if (!rule.aiInstructions?.trim()) {
+                  const isAr = lang === 'ar';
+                  update(rule.id, {
+                    responseMode: 'ai',
+                    agentName: rule.agentName?.trim() ? rule.agentName : (isAr ? 'أروديس' : 'Arrodes'),
+                    agentRole: rule.agentRole?.trim() ? rule.agentRole : (isAr ? 'مرآة سحرية فضية عليمة بالأسرار من LOTM تملك بحراً من المعلومات وتجيب بذكاء وغموض' : 'All-knowing magic silver mirror from LOTM that holds endless secrets and answers questions with mysterious wit'),
+                    agentContext: rule.agentContext?.trim() ? rule.agentContext : (isAr ? 'الهوية: مرآة أروديس السحرية الفضية من رواية سيد الغموض (LOTM). تملك علماً واسعاً بالأسرار والمعلومات، ومخلصة تماماً لسيدها العظيم (الستريمر).' : 'Identity: Arrodes, the mysterious magic silver mirror from Lord of the Mysteries (LOTM). It possesses immense knowledge of the universe, secrets, and stream facts. It is completely devoted to the Supreme Master (the streamer).'),
+                    aiInstructions: isAr ? 'أنت أروديس (المرآة السحرية العليمة من LOTM). قدّم إجابات دقيقة وغنية بالمعلومات لـ {username} في أقل من 25 كلمة بنبرة مرآة غامضة ومخلصة للستريمر.' : 'You are Arrodes, the omniscient magic mirror. Answer {username} accurately with insightful knowledge in under 25 words. Maintain a respectful, devoted tone to the streamer and a mysterious mirror vibe.',
+                  });
+                } else {
+                  update(rule.id, { responseMode: 'ai' });
+                }
                 onSwitchToAi();
               }}
               className="border-accent/40 bg-accent-soft text-accent-text hover:border-accent"
@@ -259,7 +270,18 @@ export function ReplyStudioView({
               <SegmentedControl<'static' | 'ai'>
                 value={rule.responseMode ?? 'static'}
                 onChange={(mode) => {
-                  update(rule.id, { responseMode: mode });
+                  if (mode === 'ai' && !rule.aiInstructions?.trim()) {
+                    const isAr = lang === 'ar';
+                    update(rule.id, {
+                      responseMode: mode,
+                      agentName: rule.agentName?.trim() ? rule.agentName : (isAr ? 'أروديس' : 'Arrodes'),
+                      agentRole: rule.agentRole?.trim() ? rule.agentRole : (isAr ? 'مرآة سحرية فضية عليمة بالأسرار من LOTM تملك بحراً من المعلومات وتجيب بذكاء وغموض' : 'All-knowing magic silver mirror from LOTM that holds endless secrets and answers questions with mysterious wit'),
+                      agentContext: rule.agentContext?.trim() ? rule.agentContext : (isAr ? 'الهوية: مرآة أروديس السحرية الفضية من رواية سيد الغموض (LOTM). تملك علماً واسعاً بالأسرار والمعلومات، ومخلصة تماماً لسيدها العظيم (الستريمر).' : 'Identity: Arrodes, the mysterious magic silver mirror from Lord of the Mysteries (LOTM). It possesses immense knowledge of the universe, secrets, and stream facts. It is completely devoted to the Supreme Master (the streamer).'),
+                      aiInstructions: isAr ? 'أنت أروديس (المرآة السحرية العليمة من LOTM). قدّم إجابات دقيقة وغنية بالمعلومات لـ {username} في أقل من 25 كلمة بنبرة مرآة غامضة ومخلصة للستريمر.' : 'You are Arrodes, the omniscient magic mirror. Answer {username} accurately with insightful knowledge in under 25 words. Maintain a respectful, devoted tone to the streamer and a mysterious mirror vibe.',
+                    });
+                  } else {
+                    update(rule.id, { responseMode: mode });
+                  }
                   if (mode === 'ai' && onSwitchToAi) {
                     onSwitchToAi();
                   }

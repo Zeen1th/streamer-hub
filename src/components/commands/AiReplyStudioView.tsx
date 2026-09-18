@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
+  BookOpen,
+  Bot,
+  Check,
   ChevronLeft,
+  Clock,
   MessageSquare,
   Play,
   Plus,
+  Shield,
   Sparkles,
   Trash2,
   Tv,
@@ -34,6 +39,51 @@ interface AiReplyStudioViewProps {
 
 const RANKS: PermissionLevel[] = ['everyone', 'subscriber', 'vip', 'mod', 'broadcaster'];
 
+export interface CustomPersonaPreset {
+  id: string;
+  name: string;
+  agentName: string;
+  agentRole: string;
+  agentContext: string;
+  aiInstructions: string;
+}
+
+const CUSTOM_PRESETS_STORAGE_KEY = 'streamer-hub-ai-custom-presets';
+
+function loadCustomPresets(): CustomPersonaPreset[] {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(CUSTOM_PRESETS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomPresets(presets: CustomPersonaPreset[]) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(CUSTOM_PRESETS_STORAGE_KEY, JSON.stringify(presets));
+  } catch {
+    // Ignore storage write error
+  }
+}
+
+const PERSONA_PRESETS = [
+  {
+    key: 'arrodes',
+    labelKey: 'aiStudio.presetArrodes',
+    name: 'Arrodes',
+    nameAr: 'أروديس',
+    roleEn: 'All-knowing magic silver mirror from LOTM that holds endless secrets and answers questions with mysterious wit',
+    roleAr: 'مرآة سحرية فضية عليمة بالأسرار من LOTM تملك بحراً من المعلومات وتجيب بذكاء وغموض',
+    contextEn: 'Identity: Arrodes, the mysterious magic silver mirror from Lord of the Mysteries (LOTM). It possesses immense knowledge of the universe, secrets, and stream facts. It is completely devoted to the Supreme Master (the streamer).',
+    contextAr: 'الهوية: مرآة أروديس السحرية الفضية من رواية سيد الغموض (LOTM). تملك علماً واسعاً بالأسرار والمعلومات، ومخلصة تماماً لسيدها العظيم (الستريمر).',
+    instructionsEn: 'You are Arrodes, the omniscient magic mirror. Answer {username} accurately with insightful knowledge in under 25 words. Maintain a respectful, devoted tone to the streamer and a mysterious mirror vibe.',
+    instructionsAr: 'أنت أروديس (المرآة السحرية العليمة من LOTM). قدّم إجابات دقيقة وغنية بالمعلومات لـ {username} في أقل من 25 كلمة بنبرة مرآة غامضة ومخلصة للستريمر.',
+  },
+];
+
 const MODEL_PRESETS = [
   { label: 'Llama 3.1 8B (Groq · Recommended)', value: 'llama-3.1-8b-instant', provider: 'groq' as const },
   { label: 'Llama 3.3 70B (Groq · Powerful)', value: 'llama-3.3-70b-versatile', provider: 'groq' as const },
@@ -49,6 +99,8 @@ export function AiReplyStudioView({
 }: AiReplyStudioViewProps) {
   const update = useAutoReplyStore((s) => s.update);
   const remove = useAutoReplyStore((s) => s.remove);
+  const globalSettings = useAutoReplyStore((s) => s.globalSettings);
+  const updateGlobalSettings = useAutoReplyStore((s) => s.updateGlobalSettings);
   const provider = rule.aiProvider ?? 'groq';
 
   const [newTriggerInput, setNewTriggerInput] = useState('');
@@ -57,14 +109,67 @@ export function AiReplyStudioView({
   const [lastTestOutput, setLastTestOutput] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
 
-  // Escape key to navigate back
+  // Custom User Presets
+  const [customPresets, setCustomPresets] = useState<CustomPersonaPreset[]>(() => loadCustomPresets());
+  const [isSavingPreset, setIsSavingPreset] = useState(false);
+  const [presetTitleInput, setPresetTitleInput] = useState('');
+  const [presetFeedback, setPresetFeedback] = useState<string | null>(null);
+
+  const handleConfirmSavePreset = () => {
+    const fallbackTitle = rule.agentName?.trim() || (lang === 'ar' ? 'قالب مخصص' : 'Custom Preset');
+    const title = presetTitleInput.trim() || fallbackTitle;
+    const newPreset: CustomPersonaPreset = {
+      id: 'custom-' + Date.now(),
+      name: title,
+      agentName: rule.agentName ?? '',
+      agentRole: rule.agentRole ?? '',
+      agentContext: rule.agentContext ?? '',
+      aiInstructions: rule.aiInstructions ?? '',
+    };
+    const next = [newPreset, ...customPresets.filter((p) => p.name !== title)];
+    setCustomPresets(next);
+    saveCustomPresets(next);
+    setIsSavingPreset(false);
+    setPresetTitleInput('');
+    setPresetFeedback(t(lang, 'aiStudio.presetSaved'));
+    setTimeout(() => setPresetFeedback(null), 3000);
+  };
+
+  // Escape key to navigate back with instant flush
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onBack();
+      if (e.key === 'Escape') {
+        useAutoReplyStore.getState().flush(rule.id);
+        onBack();
+      }
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onBack]);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      useAutoReplyStore.getState().flush(rule.id);
+    };
+  }, [onBack, rule.id]);
+
+  // Auto-initialize default persona & instructions matching current language if empty
+  useEffect(() => {
+    if (!rule.aiInstructions?.trim()) {
+      if (lang === 'ar') {
+        update(rule.id, {
+          agentName: rule.agentName?.trim() ? rule.agentName : 'أروديس',
+          agentRole: rule.agentRole?.trim() ? rule.agentRole : 'مرآة سحرية فضية عليمة بالأسرار من LOTM تملك بحراً من المعلومات وتجيب بذكاء وغموض',
+          agentContext: rule.agentContext?.trim() ? rule.agentContext : 'الهوية: مرآة أروديس السحرية الفضية من رواية سيد الغموض (LOTM). تملك علماً واسعاً بالأسرار والمعلومات، ومخلصة تماماً لسيدها العظيم (الستريمر).',
+          aiInstructions: 'أنت أروديس (المرآة السحرية العليمة من LOTM). قدّم إجابات دقيقة وغنية بالمعلومات لـ {username} في أقل من 25 كلمة بنبرة مرآة غامضة ومخلصة للستريمر.',
+        });
+      } else {
+        update(rule.id, {
+          agentName: rule.agentName?.trim() ? rule.agentName : 'Arrodes',
+          agentRole: rule.agentRole?.trim() ? rule.agentRole : 'All-knowing magic silver mirror from LOTM that holds endless secrets and answers questions with mysterious wit',
+          agentContext: rule.agentContext?.trim() ? rule.agentContext : 'Identity: Arrodes, the mysterious magic silver mirror from Lord of the Mysteries (LOTM). It possesses immense knowledge of the universe, secrets, and stream facts. It is completely devoted to the Supreme Master (the streamer).',
+          aiInstructions: 'You are Arrodes, the omniscient magic mirror. Answer {username} accurately with insightful knowledge in under 25 words. Maintain a respectful, devoted tone to the streamer and a mysterious mirror vibe.',
+        });
+      }
+    }
+  }, [lang, rule.id]);
 
   const BackIcon = lang === 'ar' ? ChevronLeft : ArrowLeft;
 
@@ -92,6 +197,7 @@ export function AiReplyStudioView({
   };
 
   const handleTestSimulate = async () => {
+    useAutoReplyStore.getState().flush(rule.id);
     setIsTesting(true);
     const cleanSimUser = testUser.trim().replace(/^@+/, '') || 'viewer';
     const mockMsg: ChatMessage = {
@@ -170,7 +276,7 @@ export function AiReplyStudioView({
       {/* Sticky Sub-Header Banner */}
       <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-rule bg-surface/95 px-4 py-2.5 backdrop-blur-sm">
         <div className="flex items-center gap-3">
-          <Button size="sm" variant="outline" onClick={onBack} title={t(lang, 'sequence.back')}>
+          <Button size="sm" variant="outline" onClick={() => { useAutoReplyStore.getState().flush(rule.id); onBack(); }} title={t(lang, 'sequence.back')}>
             <BackIcon size={13} />
             <span>{t(lang, 'sequence.back')}</span>
           </Button>
@@ -361,26 +467,55 @@ export function AiReplyStudioView({
           </div>
         </section>
 
-        {/* Section 2: AI Persona & Prompt Instructions */}
-        <section className="flex flex-col gap-3 rounded-lg border border-rule bg-surface-3 p-4">
-          <div className="flex items-center justify-between border-b border-rule pb-2">
+        {/* Section 2: Agent Persona, Identity & Instructions */}
+        <section className="flex flex-col gap-4 rounded-lg border border-rule bg-surface-3 p-4">
+          <div className="flex items-start justify-between border-b border-rule pb-3">
             <div>
               <h2 className="font-semibold text-[13px] tracking-tight flex items-center gap-2">
-                <Sparkles size={14} className="text-accent-text" />
-                <span>{t(lang, 'aiStudio.generalInstructions')}</span>
+                <Bot size={15} className="text-purple-400" />
+                <span>{t(lang, 'aiStudio.agentPersonaTitle')}</span>
+                <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 border border-emerald-500/20">
+                  <Check size={10} />
+                  <span>{t(lang, 'aiStudio.instructionsSaved')}</span>
+                </span>
               </h2>
               <p className="text-[11px] text-muted mt-0.5">
-                {t(lang, 'aiStudio.generalInstructionsHint')}
+                {t(lang, 'aiStudio.agentPersonaSubtitle')}
               </p>
             </div>
+
             <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const isAr = lang === 'ar';
+                  const matched = PERSONA_PRESETS.find(
+                    (p) =>
+                      p.name.toLowerCase() === (rule.agentName || '').toLowerCase() ||
+                      p.nameAr === rule.agentName
+                  ) || PERSONA_PRESETS[0];
+                  update(rule.id, {
+                    agentName: isAr ? (matched.nameAr || matched.name) : matched.name,
+                    agentRole: isAr ? matched.roleAr : matched.roleEn,
+                    aiInstructions: isAr ? matched.instructionsAr : matched.instructionsEn,
+                    agentContext: isAr ? matched.contextAr : matched.contextEn,
+                  });
+                }}
+                className="h-6 px-2 text-[10.5px] border-purple-500/40 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 me-1"
+                title={t(lang, lang === 'ar' ? 'aiStudio.localizeArabic' : 'aiStudio.localizeEnglish')}
+              >
+                <Sparkles size={10} className="me-1 text-purple-300" />
+                <span>{t(lang, lang === 'ar' ? 'aiStudio.localizeArabic' : 'aiStudio.localizeEnglish')}</span>
+              </Button>
+
               <span className="text-[10px] text-muted">Insert:</span>
               {['{username}', '{mention}', '{message}'].map((token) => (
                 <button
                   key={token}
                   type="button"
                   onClick={() => handleInsertToken(token)}
-                  className="rounded border border-rule bg-surface px-1.5 py-0.5 font-mono text-[10px] hover:border-accent hover:text-accent"
+                  className="rounded border border-rule bg-surface px-1.5 py-0.5 font-mono text-[10px] hover:border-accent hover:text-accent transition-colors"
                 >
                   {token}
                 </button>
@@ -388,50 +523,291 @@ export function AiReplyStudioView({
             </div>
           </div>
 
+          {/* Persona Quick Presets */}
+          <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-rule/80 bg-surface/50 p-2.5">
+            <span className="font-mono text-[10.5px] text-muted me-1 flex items-center gap-1">
+              <Sparkles size={11} className="text-accent-text" />
+              <span>{t(lang, 'aiStudio.presetTitle')}:</span>
+            </span>
+
+            {/* Arrodes Built-in Preset */}
+            {PERSONA_PRESETS.map((preset) => (
+              <button
+                key={preset.key}
+                type="button"
+                onClick={() => {
+                  const nameText = lang === 'ar' ? (preset.nameAr || preset.name) : preset.name;
+                  const roleText = lang === 'ar' ? preset.roleAr : preset.roleEn;
+                  const instText = lang === 'ar' ? preset.instructionsAr : preset.instructionsEn;
+                  const ctxText = lang === 'ar' ? preset.contextAr : preset.contextEn;
+                  update(rule.id, {
+                    agentName: nameText,
+                    agentRole: roleText,
+                    aiInstructions: instText,
+                    agentContext: ctxText || '',
+                  });
+                  useAutoReplyStore.getState().flush(rule.id);
+                }}
+                className="rounded-md border border-rule bg-surface-2/80 px-2.5 py-1 text-[11px] font-medium text-foreground hover:border-purple-500/60 hover:bg-purple-500/10 hover:text-purple-300 transition-colors cursor-pointer"
+              >
+                {t(lang, preset.labelKey)}
+              </button>
+            ))}
+
+            {/* Custom User Presets */}
+            {customPresets.map((cp) => (
+              <div
+                key={cp.id}
+                className="inline-flex items-center rounded-md border border-purple-500/40 bg-purple-500/10 text-purple-200 text-[11px] font-medium transition-colors hover:border-purple-500/70 shadow-xs"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    update(rule.id, {
+                      agentName: cp.agentName,
+                      agentRole: cp.agentRole,
+                      agentContext: cp.agentContext,
+                      aiInstructions: cp.aiInstructions,
+                    });
+                    useAutoReplyStore.getState().flush(rule.id);
+                  }}
+                  className="px-2 py-1 hover:text-white cursor-pointer"
+                  title={cp.agentRole ? `${cp.name}: ${cp.agentRole}` : cp.name}
+                >
+                  <span>✨ {cp.name}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const next = customPresets.filter((p) => p.id !== cp.id);
+                    setCustomPresets(next);
+                    saveCustomPresets(next);
+                  }}
+                  className="pe-1.5 ps-0.5 text-muted hover:text-red-400 transition-colors cursor-pointer"
+                  title={t(lang, 'aiStudio.deletePreset')}
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+
+            <div className="h-4 w-px bg-rule/70 mx-0.5" />
+
+            {/* Save Current as Preset Button / Inline Input */}
+            {isSavingPreset ? (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  autoFocus
+                  dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                  value={presetTitleInput}
+                  onChange={(e) => setPresetTitleInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleConfirmSavePreset();
+                    } else if (e.key === 'Escape') {
+                      setIsSavingPreset(false);
+                    }
+                  }}
+                  placeholder={t(lang, 'aiStudio.presetNamePlaceholder')}
+                  className="h-7 w-36 text-[11px]"
+                />
+                <Button
+                  size="sm"
+                  onClick={handleConfirmSavePreset}
+                  className="h-7 px-2 text-[11px] bg-purple-600 hover:bg-purple-500 text-white"
+                >
+                  <Check size={11} className="me-1" />
+                  <span>{lang === 'ar' ? 'حفظ' : 'Save'}</span>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setIsSavingPreset(false)}
+                  className="h-7 px-1.5 text-[11px] text-muted hover:text-foreground"
+                >
+                  <X size={11} />
+                </Button>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setPresetTitleInput(rule.agentName || (lang === 'ar' ? 'قالب مخصص' : 'Custom Preset'));
+                  setIsSavingPreset(true);
+                }}
+                className="h-7 px-2 text-[10.5px] border-dashed border-purple-500/50 bg-purple-500/5 text-purple-300 hover:bg-purple-500/15"
+                title={t(lang, 'aiStudio.savePresetTitle')}
+              >
+                <Plus size={11} className="me-1" />
+                <span>{t(lang, 'aiStudio.savePreset')}</span>
+              </Button>
+            )}
+
+            {presetFeedback && (
+              <span className="text-[11px] text-emerald-400 font-medium ms-1">
+                {presetFeedback}
+              </span>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <textarea
-                rows={5}
-                value={rule.aiInstructions ?? ''}
-                onChange={(e) => update(rule.id, { aiInstructions: e.target.value })}
-                placeholder="e.g. Respond as a witty, playful AI assistant in under 25 words. Acknowledge {username} and give helpful advice..."
-                className="w-full rounded border border-rule bg-surface p-3 text-[12px] text-foreground placeholder:text-muted/60 focus:outline-none focus:ring-1 focus:ring-accent font-sans"
-              />
+            {/* Left Column: Form inputs */}
+            <div className="flex flex-col gap-3.5">
+              {/* Agent Name */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-medium text-[12px] text-foreground flex items-center gap-1.5">
+                    <Bot size={13} className="text-purple-400" />
+                    <span>{t(lang, 'aiStudio.agentName')}</span>
+                  </label>
+                  {rule.agentName && (
+                    <span className="font-mono text-[10px] text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20">
+                      @{rule.agentName}
+                    </span>
+                  )}
+                </div>
+                <Input
+                  dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                  value={rule.agentName ?? ''}
+                  onChange={(e) => update(rule.id, { agentName: e.target.value })}
+                  onBlur={() => useAutoReplyStore.getState().flush(rule.id)}
+                  placeholder={t(lang, 'aiStudio.agentNamePlaceholder')}
+                  className="h-8 text-[12px]"
+                />
+                <span className="text-[10px] text-muted">
+                  {t(lang, 'aiStudio.agentNameHint')}
+                </span>
+              </div>
+
+              {/* Agent Role & Persona */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-[12px] text-foreground">
+                  {t(lang, 'aiStudio.agentRole')}
+                </label>
+                <textarea
+                  dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                  rows={2}
+                  value={rule.agentRole ?? ''}
+                  onChange={(e) => update(rule.id, { agentRole: e.target.value })}
+                  onBlur={() => useAutoReplyStore.getState().flush(rule.id)}
+                  placeholder={t(lang, 'aiStudio.agentRolePlaceholder')}
+                  className="w-full rounded border border-rule bg-surface p-2 text-[11.5px] text-foreground placeholder:text-muted/60 focus:outline-none focus:ring-1 focus:ring-accent font-sans resize-none"
+                />
+                <span className="text-[10px] text-muted">
+                  {t(lang, 'aiStudio.agentRoleHint')}
+                </span>
+              </div>
+
+              {/* Stream Lore & Context Facts */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-[12px] text-foreground flex items-center gap-1.5">
+                  <BookOpen size={13} className="text-sky-400" />
+                  <span>{t(lang, 'aiStudio.agentContext')}</span>
+                </label>
+                <textarea
+                  dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                  rows={3}
+                  value={rule.agentContext ?? ''}
+                  onChange={(e) => update(rule.id, { agentContext: e.target.value })}
+                  onBlur={() => useAutoReplyStore.getState().flush(rule.id)}
+                  placeholder={t(lang, 'aiStudio.agentContextPlaceholder')}
+                  className="w-full rounded border border-rule bg-surface p-2 text-[11.5px] text-foreground placeholder:text-muted/60 focus:outline-none focus:ring-1 focus:ring-accent font-sans"
+                />
+                <span className="text-[10px] text-muted">
+                  {t(lang, 'aiStudio.agentContextHint')}
+                </span>
+              </div>
+
+              {/* Rules & Custom Instructions */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-[12px] text-foreground">
+                  {t(lang, 'aiStudio.instructionsLabel')}
+                </label>
+                <textarea
+                  dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                  rows={4}
+                  value={rule.aiInstructions ?? ''}
+                  onChange={(e) => update(rule.id, { aiInstructions: e.target.value })}
+                  onBlur={() => useAutoReplyStore.getState().flush(rule.id)}
+                  placeholder={t(lang, 'aiStudio.instructionsPlaceholder')}
+                  className="w-full rounded border border-rule bg-surface p-2.5 text-[11.5px] text-foreground placeholder:text-muted/60 focus:outline-none focus:ring-1 focus:ring-accent font-sans"
+                />
+              </div>
             </div>
 
-            {/* Live AI Preview Bubble */}
-            <div className="flex flex-col justify-between rounded border border-purple-500/30 bg-purple-500/5 p-3">
-              <div className="flex items-center justify-between border-b border-purple-500/20 pb-2 text-[11px] font-semibold text-[#c4b5fd]">
-                <div className="flex items-center gap-1.5">
-                  <Sparkles size={13} />
-                  <span>Live AI Preview</span>
+            {/* Right Column: Live Agent Card & Simulation Output */}
+            <div className="flex flex-col justify-between rounded-lg border border-purple-500/30 bg-purple-500/5 p-4 shadow-sm">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between border-b border-purple-500/20 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-purple-500/20 text-purple-300 font-bold text-xs border border-purple-500/30">
+                      {rule.agentName ? rule.agentName[0]?.toUpperCase() : '🤖'}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-[13px] text-purple-200">
+                        {rule.agentName || (lang === 'ar' ? 'مساعد الذكاء الاصطناعي' : 'AI Assistant')}
+                      </div>
+                      <div className="text-[10px] text-muted truncate max-w-[200px]">
+                        {rule.agentRole || (lang === 'ar' ? 'مساعد البث' : 'Twitch Stream Co-Host')}
+                      </div>
+                    </div>
+                  </div>
+                  {lastTestOutput && (
+                    <span className="text-[9.5px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                      Simulated Output
+                    </span>
+                  )}
                 </div>
-                {lastTestOutput && (
-                  <span className="text-[9.5px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                    Simulated Output
-                  </span>
-                )}
+
+                {/* Agent Summary Cards */}
+                <div className="flex flex-col gap-1.5 text-[11px] bg-surface/60 rounded-md border border-rule/70 p-2.5 font-sans">
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-semibold text-purple-300 shrink-0">{lang === 'ar' ? 'الهوية:' : 'Identity:'}</span>
+                    <span className="text-foreground/90">{rule.agentRole || (lang === 'ar' ? 'مساعد بث تفاعلي' : 'Engaging Twitch co-host')}</span>
+                  </div>
+                  {rule.agentContext && (
+                    <div className="flex items-start gap-1.5">
+                      <span className="font-semibold text-sky-300 shrink-0">{lang === 'ar' ? 'القصص والمعلومات:' : 'Lore:'}</span>
+                      <span className="text-foreground/80 line-clamp-2">{rule.agentContext}</span>
+                    </div>
+                  )}
+                  {rule.aiInstructions && (
+                    <div className="flex items-start gap-1.5">
+                      <span className="font-semibold text-emerald-300 shrink-0">{lang === 'ar' ? 'التعليمات:' : 'Rules:'}</span>
+                      <span className="text-foreground/80 line-clamp-2">{rule.aiInstructions}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Simulated Output Box */}
+                <div className="my-1 rounded-md border border-rule/60 bg-surface-2/80 p-3 min-h-[60px] flex items-center">
+                  {isTesting ? (
+                    <span className="text-muted animate-pulse font-mono text-[11px] flex items-center gap-1.5">
+                      <Sparkles size={12} className="text-purple-400 animate-spin" />
+                      Generating reply as {rule.agentName || 'Agent'} via {provider === 'openrouter' ? 'OpenRouter' : 'Groq'}…
+                    </span>
+                  ) : lastTestOutput ? (
+                    <div className="flex flex-col gap-1 w-full">
+                      <span className="font-mono text-[10px] text-muted">Response:</span>
+                      <span className="text-[12.5px] font-medium text-foreground">&ldquo;{lastTestOutput}&rdquo;</span>
+                    </div>
+                  ) : (
+                    <span className="italic text-muted text-[11.5px]">
+                      {rule.agentName
+                        ? `${rule.agentName} is ready! Click "Run Test" in the top bar to simulate how they respond to @${testUser}.`
+                        : 'Configure your agent persona on the left and click "Run Test" to see live simulation.'}
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <div className="my-2 min-h-[48px] text-[12px] text-foreground">
-                {isTesting ? (
-                  <span className="text-muted animate-pulse font-mono text-[11px]">
-                    Generating AI reply via {provider === 'openrouter' ? 'OpenRouter' : 'Groq'}…
-                  </span>
-                ) : lastTestOutput ? (
-                  <span className="italic font-medium">&ldquo;{lastTestOutput}&rdquo;</span>
-                ) : (
-                  <span className="italic text-muted">
-                    {rule.aiInstructions
-                      ? `Active Prompt: "${rule.aiInstructions}"`
-                      : 'Enter prompt instructions on the left or click "Run Test" above to test simulation.'}
-                  </span>
-                )}
+              <div className="flex items-center justify-between border-t border-purple-500/20 pt-2.5 font-mono text-[10px] text-muted">
+                <span>Engine: {provider === 'openrouter' ? 'OpenRouter' : 'Groq'}</span>
+                <span>{rule.aiModel ?? 'llama-3.1-8b-instant'}</span>
               </div>
-
-              <span className="font-mono text-[10px] text-muted">
-                Engine: {provider === 'openrouter' ? 'OpenRouter' : 'Groq'} · {rule.aiModel ?? 'llama-3.1-8b-instant'}
-              </span>
             </div>
           </div>
         </section>
@@ -543,32 +919,174 @@ export function AiReplyStudioView({
         <ChatterOverridesSection rule={rule} update={update} lang={lang} />
 
         {/* Section 5: Permission & Cooldowns */}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {/* Permission Rank */}
-          <div className="flex flex-col gap-3 rounded-lg border border-rule bg-surface-3 p-4">
-            <div className="border-b border-rule pb-2">
-              <h3 className="font-semibold text-[13px]">{t(lang, 'workspace.who')}</h3>
-              <p className="text-[11px] text-muted">Minimum rank required to trigger this AI reply</p>
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* Card 1: AI Global Limits (Master Protection across all AI commands) */}
+          <div className="flex flex-col justify-between rounded-lg border border-purple-500/40 bg-purple-500/5 p-4 shadow-sm">
+            <div className="space-y-4">
+              <div className="flex items-start justify-between border-b border-purple-500/20 pb-2.5">
+                <div>
+                  <h3 className="font-semibold text-[13px] tracking-tight flex items-center gap-1.5 text-purple-200">
+                    <Sparkles size={14} className="text-purple-400" />
+                    <span>{t(lang, 'aiStudio.globalLimitsTitle')}</span>
+                  </h3>
+                  <p className="text-[10.5px] text-muted mt-0.5">
+                    {t(lang, 'aiStudio.globalLimitsHint')}
+                  </p>
+                </div>
+                <span className="rounded-full bg-purple-500/20 border border-purple-500/40 px-2 py-0.5 font-mono text-[9.5px] font-bold text-purple-300 shrink-0">
+                  {t(lang, 'aiStudio.globalLimitsBadge')}
+                </span>
+              </div>
+
+              {/* Global AI Cooldown */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-[11.5px]">
+                  <span className="font-medium text-foreground flex items-center gap-1">
+                    <Clock size={12} className="text-purple-400" />
+                    <span>{t(lang, 'aiStudio.globalAiCooldownShort')}</span>
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      dir="ltr"
+                      type="number"
+                      min={0}
+                      max={3600}
+                      value={globalSettings.globalAiCooldownSeconds || 0}
+                      onChange={(e) =>
+                        updateGlobalSettings({
+                          globalAiCooldownSeconds: Math.max(0, Math.min(3600, Number(e.target.value) || 0)),
+                        })
+                      }
+                      className="h-6 w-16 text-center font-mono text-[11px]"
+                    />
+                    <span className="font-mono text-muted text-[11px]">s</span>
+                  </div>
+                </div>
+
+                <Slider
+                  value={globalSettings.globalAiCooldownSeconds || 0}
+                  min={0}
+                  max={180}
+                  step={5}
+                  onChange={(v) => updateGlobalSettings({ globalAiCooldownSeconds: v })}
+                  ariaLabel={t(lang, 'aiStudio.globalAiCooldownShort')}
+                />
+
+                <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                  <span className="text-[10px] text-muted me-1">{t(lang, 'aiStudio.quickPresets')}</span>
+                  {[0, 5, 10, 15, 30, 60].map((sec) => (
+                    <button
+                      key={sec}
+                      type="button"
+                      onClick={() => updateGlobalSettings({ globalAiCooldownSeconds: sec })}
+                      className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors border ${
+                        (globalSettings.globalAiCooldownSeconds || 0) === sec
+                          ? 'border-purple-500/60 bg-purple-500/25 text-purple-200 font-bold'
+                          : 'border-rule bg-surface-2 text-muted hover:border-accent hover:text-foreground'
+                      }`}
+                    >
+                      {sec === 0 ? '0s (Off)' : `${sec}s`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Global AI User Cooldown */}
+              <div className="space-y-2 pt-3 border-t border-purple-500/20">
+                <div className="flex items-center justify-between text-[11.5px]">
+                  <span className="font-medium text-foreground flex items-center gap-1">
+                    <Shield size={12} className="text-purple-400" />
+                    <span>{t(lang, 'aiStudio.globalAiUserCooldownShort')}</span>
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      dir="ltr"
+                      type="number"
+                      min={0}
+                      max={3600}
+                      value={globalSettings.globalAiUserCooldownSeconds ?? 60}
+                      onChange={(e) =>
+                        updateGlobalSettings({
+                          globalAiUserCooldownSeconds: Math.max(0, Math.min(3600, Number(e.target.value) || 0)),
+                        })
+                      }
+                      className="h-6 w-16 text-center font-mono text-[11px]"
+                    />
+                    <span className="font-mono text-muted text-[11px]">s</span>
+                  </div>
+                </div>
+
+                <Slider
+                  value={globalSettings.globalAiUserCooldownSeconds ?? 60}
+                  min={0}
+                  max={300}
+                  step={5}
+                  onChange={(v) => updateGlobalSettings({ globalAiUserCooldownSeconds: v })}
+                  ariaLabel={t(lang, 'aiStudio.globalAiUserCooldownShort')}
+                />
+
+                <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                  <span className="text-[10px] text-muted me-1">{t(lang, 'aiStudio.quickPresets')}</span>
+                  {[0, 30, 60, 120, 300].map((sec) => (
+                    <button
+                      key={sec}
+                      type="button"
+                      onClick={() => updateGlobalSettings({ globalAiUserCooldownSeconds: sec })}
+                      className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors border ${
+                        (globalSettings.globalAiUserCooldownSeconds ?? 60) === sec
+                          ? 'border-purple-500/60 bg-purple-500/25 text-purple-200 font-bold'
+                          : 'border-rule bg-surface-2 text-muted hover:border-accent hover:text-foreground'
+                      }`}
+                    >
+                      {sec === 0 ? '0s (Off)' : `${sec}s`}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-            <SegmentedControl
-              value={rule.minimumRank ?? 'everyone'}
-              options={rankOptions}
-              onChange={(minimumRank) => update(rule.id, { minimumRank })}
-            />
           </div>
 
-          {/* Cooldowns */}
-          <div className="flex flex-col gap-3 rounded-lg border border-rule bg-surface-3 p-4">
-            <div className="border-b border-rule pb-2">
-              <h3 className="font-semibold text-[13px]">{t(lang, 'workspace.cooldown')}</h3>
-              <p className="text-[11px] text-muted">Global and per-user spam prevention</p>
+          {/* Card 2: This Command Settings (Permission Rank & Rule Cooldown) */}
+          <div className="flex flex-col justify-between gap-4 rounded-lg border border-rule bg-surface-3 p-4">
+            {/* Permission Rank */}
+            <div className="space-y-2">
+              <div className="border-b border-rule pb-2">
+                <h3 className="font-semibold text-[13px]">{t(lang, 'workspace.who')}</h3>
+                <p className="text-[11px] text-muted">Minimum rank required to trigger this AI reply</p>
+              </div>
+              <SegmentedControl
+                value={rule.minimumRank ?? 'everyone'}
+                options={rankOptions}
+                onChange={(minimumRank) => update(rule.id, { minimumRank })}
+              />
             </div>
 
-            <div className="space-y-3">
+            {/* Specific Command Cooldown */}
+            <div className="space-y-3 pt-2 border-t border-rule">
+              <div>
+                <h3 className="font-semibold text-[13px]">{t(lang, 'aiStudio.ruleCooldownTitle')}</h3>
+                <p className="text-[11px] text-muted">{t(lang, 'aiStudio.ruleCooldownHint')}</p>
+              </div>
+
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-medium">Global:</span>
-                  <span className="font-mono text-muted">{rule.cooldownSeconds || 0}s</span>
+                  <span className="font-medium">{t(lang, 'workspace.cooldown')}:</span>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      dir="ltr"
+                      type="number"
+                      min={0}
+                      max={3600}
+                      value={rule.cooldownSeconds || 0}
+                      onChange={(e) =>
+                        update(rule.id, {
+                          cooldownSeconds: Math.max(0, Math.min(3600, Number(e.target.value) || 0)),
+                        })
+                      }
+                      className="h-6 w-16 text-center font-mono text-[11px]"
+                    />
+                    <span className="font-mono text-muted text-[11px]">s</span>
+                  </div>
                 </div>
                 <Slider
                   value={rule.cooldownSeconds || 0}
@@ -584,6 +1102,7 @@ export function AiReplyStudioView({
                 <span className="text-[11px] font-medium">{t(lang, 'autoReplies.userCooldown')}:</span>
                 <div className="flex items-center gap-1">
                   <Input
+                    dir="ltr"
                     type="number"
                     min={0}
                     max={3600}

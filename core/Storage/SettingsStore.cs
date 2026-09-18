@@ -43,6 +43,12 @@ public sealed class SettingsStore : IDisposable
         _filePath = filePath;
         _document = Load();
         _debounce = new System.Threading.Timer(_ => Flush(), null, Timeout.Infinite, Timeout.Infinite);
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+    }
+
+    private void OnProcessExit(object? sender, EventArgs e)
+    {
+        try { Flush(); } catch { }
     }
 
     public IReadOnlyList<Counter> Counters
@@ -482,6 +488,7 @@ public sealed class SettingsStore : IDisposable
 
     public void Dispose()
     {
+        AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
         _debounce.Dispose();
         Flush();
     }

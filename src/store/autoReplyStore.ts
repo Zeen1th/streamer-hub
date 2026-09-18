@@ -39,11 +39,47 @@ interface AutoReplyState {
   triggerTitleAction(id: string, action: 'increase' | 'decrease' | 'reset' | 'apply'): boolean;
   detachTitleAction(id: string): Promise<boolean>;
   handleChatMessage(message: ChatMessage): void;
+  flush(id?: string): void;
 }
 
-const persist = (rule: AutoReply) => {
-  rpc.invoke(Channels.AutoRepliesSave, { rule }).catch(() => undefined);
+const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
+
+const persist = (rule: AutoReply, immediate = false) => {
+  const existing = pendingSaves.get(rule.id);
+  if (existing) {
+    clearTimeout(existing);
+    pendingSaves.delete(rule.id);
+  }
+
+  const doSave = () => {
+    pendingSaves.delete(rule.id);
+    rpc.invoke(Channels.AutoRepliesSave, { rule }).catch(() => undefined);
+  };
+
+  if (immediate) {
+    doSave();
+  } else {
+    pendingSaves.set(rule.id, setTimeout(doSave, 150));
+  }
 };
+
+export const flushPendingAutoReplies = () => {
+  const rules = useAutoReplyStore.getState().rules;
+  for (const [id, timeoutId] of pendingSaves.entries()) {
+    clearTimeout(timeoutId);
+    const rule = rules.find((r) => r.id === id);
+    if (rule) {
+      rpc.invoke(Channels.AutoRepliesSave, { rule }).catch(() => undefined);
+    }
+  }
+  pendingSaves.clear();
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    flushPendingAutoReplies();
+  });
+}
 
 const messageDeduplicator = new MessageDeduplicator(500);
 
@@ -55,6 +91,20 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
   lastAiUserTriggeredAt: {},
   isAiGenerating: false,
   globalSettings: { globalAiCooldownSeconds: 0, globalAiUserCooldownSeconds: 60 },
+  flush: (id?: string) => {
+    const rules = get().rules;
+    if (id) {
+      const timeoutId = pendingSaves.get(id);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        pendingSaves.delete(id);
+        const rule = rules.find((r) => r.id === id);
+        if (rule) persist(rule, true);
+      }
+    } else {
+      flushPendingAutoReplies();
+    }
+  },
   hydrateGlobalSettings: (settings) => set({ globalSettings: { globalAiCooldownSeconds: settings.globalAiCooldownSeconds ?? 0, globalAiUserCooldownSeconds: settings.globalAiUserCooldownSeconds ?? 60 } }),
   updateGlobalSettings: (patch) => {
     const globalSettings = { ...get().globalSettings, ...patch };
@@ -82,6 +132,9 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       minimumRank: rule.minimumRank ?? 'everyone',
       aiUserCooldownSeconds: rule.aiUserCooldownSeconds ?? 60,
       aiInstructions: rule.aiInstructions ?? '',
+      agentName: rule.agentName ?? '',
+      agentRole: rule.agentRole ?? '',
+      agentContext: rule.agentContext ?? '',
       aiModel: rule.aiModel ?? (rule.aiProvider === 'openrouter' ? 'meta-llama/llama-3.2-3b-instruct:free' : 'llama-3.1-8b-instant'),
       aiProvider: rule.aiProvider ?? 'groq',
       aiMaxTokens: rule.aiMaxTokens ?? 120,
@@ -113,6 +166,9 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       matchMode: 'exact',
       responseMode: 'static',
       aiInstructions: '',
+      agentName: '',
+      agentRole: '',
+      agentContext: '',
       aiModel: 'llama-3.1-8b-instant',
       aiProvider: 'groq',
       aiMaxTokens: 120,
@@ -121,7 +177,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       aiTargetUsers: [],
     };
     set((state) => ({ rules: [...state.rules, rule] }));
-    persist(rule);
+    persist(rule, true);
     return rule.id;
   },
   update: (id, patch) => {
@@ -150,6 +206,11 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
     }
   },
   remove: (id) => {
+    const existing = pendingSaves.get(id);
+    if (existing) {
+      clearTimeout(existing);
+      pendingSaves.delete(id);
+    }
     set((state) => ({
       rules: state.rules.filter((rule) => rule.id !== id),
       lastTriggeredAt: Object.fromEntries(Object.entries(state.lastTriggeredAt).filter(([key]) => key !== id)),

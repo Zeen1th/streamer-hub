@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
 
-**Version:** `v0.3.0`  
+**Version:** `v0.3.4`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -108,6 +108,29 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
   - Checks `localStorage.getItem('streamer-hub-reauth-prompt-v0.3.0')`.
   - If missing, presents a clean, informative dialog with a direct **Re-authenticate with Twitch** action (`rpc.invoke(Channels.TwitchAuthorize)`).
   - Sets the storage key to `'true'` upon dismissal or authorization so it is shown only once.
+
+### 2.5 AI Reply Studio & Persona Engine
+- **Agent Identity & Persona Customization**:
+  - AI replies feature structured persona inputs:
+    - `agentName`: Identity acknowledged by the model when replying or mentioning itself.
+    - `agentRole`: Personality, style, tone, and character background.
+    - `agentContext`: Stream rules, lore, inside jokes, and broadcaster facts.
+    - `aiInstructions`: Custom behavioral guidelines and output constraints.
+  - Persisted reliably to disk through the `AutoRepliesSave` channel.
+- **Arrodes (`🪞 أروديس`) Exclusive Preset**:
+  - Features the omniscient silver mirror from *Lord of the Mysteries* as the primary built-in persona preset with rich Arabic and English stream context.
+- **Custom Persona Presets**:
+  - Saved to persistent local storage (`streamer-hub-ai-custom-presets`).
+  - Supports 1-click application, instant disk flushing, and deletion.
+- **Integrated AI Global Cooldowns**:
+  - Master protection controls (`globalAiCooldownSeconds` and `globalAiUserCooldownSeconds`) are accessible directly inside:
+    1. **AI Reply Studio (`AiReplyStudioView.tsx`)**: Full sliders, numeric inputs, and preset chips.
+    2. **Reply Inspector (`CommandsView.tsx`)**: Quick-edit card when selecting any AI reply.
+    3. **AI Command Toolbar (`CommandsView.tsx`)**: Top header banner when viewing `group === 'ai'`.
+- **Anti-Duplicate Multi-Reply Guard**:
+  - In-flight message tracking in `AutoRepliesGenerate` and frontend stores rejects duplicate trigger events during message bursts.
+- **Bot Account Sender Selection**:
+  - Automatic resolution between Broadcaster and Bot account tokens with debug switching support.
 
 ---
 

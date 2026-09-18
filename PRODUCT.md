@@ -38,10 +38,15 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
   - Direct OBS text file synchronization with custom formatting tokens (`{count}`, `{username}`).
   - Stream title template integration with intelligent base title preservation (`extractBaseTitle`) to prevent compounding.
   - Comprehensive activity and audit log with manual rollback controls.
-- **Auto-Replies & Triggers**:
-  - Exact, Prefix, Contains, and Regex matching modes.
-  - Prepared response templates with drag-and-drop placeholder tokens.
-  - Optional AI-assisted replies using Groq (Llama 3.1) or OpenRouter with fallback safety.
+- **Auto-Replies & AI Reply Studio**:
+  - Exact, Prefix, Contains, and Regex matching modes for chat triggers.
+  - Prepared response templates with drag-and-drop placeholder tokens (`{username}`, `{mention}`, `{message}`).
+  - **Persona Engine & Identity**: Streamers define custom Agent Names, Roles, and Stream Lore/Knowledge facts that seamlessly feed into the LLM system prompt.
+  - **Arrodes (`🪞 أروديس`) Built-in Preset**: Deep, authentic LOTM magic silver mirror persona with rich lore and natural English/Arabic translations.
+  - **Custom User Presets**: 1-click preset saving to local persistent storage, instant application, and deletion.
+  - **Global AI Protection Limits**: Direct sliders, numeric inputs, and quick presets for master AI cooldown and per-user spam prevention across all AI replies.
+  - **Bot Account Dispatching**: Command execution and chat replies can be dispatched from either the Broadcaster or a secondary Bot account with debug switching tools.
+  - **Multi-Reply De-duplication**: Double-burst prevention ensuring single-response execution even under rapid message spikes.
   - Title increase/decrease commands bound directly to counter sequences.
 - **OBS Chat Overlay & Multi-Overlay Manager**:
   - Real-time broadcast from Twitch IRC to a 1920×1080 OBS Browser Source.

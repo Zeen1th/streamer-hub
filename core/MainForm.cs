@@ -630,6 +630,13 @@ public sealed class MainForm : Form
         catch
         {
         }
+        try
+        {
+            _settings?.Dispose();
+        }
+        catch
+        {
+        }
         base.OnFormClosing(e);
     }
 }

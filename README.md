@@ -8,7 +8,13 @@ Streamer Hub is a lightweight, local-first desktop companion for Twitch streamer
 
 - **Stream Counters**: Multi-command chat counters (+1, −1, reset) syncing instantly to plain text files for OBS text sources.
 - **Smart Title Sync**: Integrates counters with your live Twitch stream title using `{title}` and `{count}` with automatic anti-compounding protection.
-- **Auto-Replies & Triggers**: Keyword and regex response rules with optional AI-generated answers (Groq Llama 3.1 / OpenRouter) and custom cooldowns.
+- **AI Reply Studio & Persona Engine**: Intelligent, context-aware Twitch chat interactions powered by Groq (Llama 3.1) and OpenRouter:
+  - **Agent Persona Customization**: Set custom Agent Names (which bots recognize as their identity), roles, personalities, and stream lore knowledge bases.
+  - **Arrodes (`🪞 أروديس`) Exclusive Preset**: Built-in LOTM magic silver mirror persona with rich lore and natural bilingual Arabic/English responses.
+  - **Custom Persona Presets**: Save your active persona configurations locally, apply in 1-click, and manage easily.
+  - **Global AI Cooldown Protection**: Direct, real-time controls for master AI cooldown and per-user spam prevention accessible directly inside AI replies, the Inspector, and the AI command table toolbar.
+  - **Bot Account Switching**: Seamlessly route command replies and AI chat messages through a secondary Bot account or the main Broadcaster.
+  - **Anti-Duplicate Safety Guard**: Multi-tier deduplication protecting against double-burst responses on high-activity streams.
 - **OBS Streamer Chat Dock & In-App Chat Tab**: Zero-latency, streamer-focused chat reader (`http://127.0.0.1:49178/obs-chat.html`) built for OBS Custom Browser Docks or multi-monitor streaming:
   - **Natural bottom-to-up flow** — messages start anchored at the bottom above the input bar and smoothly push upward as chat moves.
   - **Streamer sent message echo** — messages sent by the streamer or configured bot account appear immediately in real-time.

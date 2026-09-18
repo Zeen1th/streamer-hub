@@ -444,6 +444,7 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
                 </div>
               </div>
               <Input
+                dir={lang === 'ar' ? 'rtl' : 'ltr'}
                 value={overrideValue}
                 onChange={(e) => handleValueChange(e.target.value)}
                 placeholder={
@@ -465,6 +466,7 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
                   : 'Custom AI Instructions for Listed Viewers'}
               </label>
               <textarea
+                dir={lang === 'ar' ? 'rtl' : 'ltr'}
                 rows={2}
                 value={overrideValue}
                 onChange={(e) => handleValueChange(e.target.value)}

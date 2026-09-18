@@ -21,10 +21,15 @@ public sealed class OpenRouterClient
         string instructions,
         ChatMessage message,
         int maxTokens,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? agentName = null,
+        string? agentRole = null,
+        string? agentContext = null,
+        string? streamerChannel = null)
     {
         if (string.IsNullOrWhiteSpace(apiKey)) return new(false, Error: "OPENROUTER KEY IS NOT CONFIGURED");
-        if (string.IsNullOrWhiteSpace(instructions)) return new(false, Error: "AI INSTRUCTIONS ARE EMPTY");
+        if (string.IsNullOrWhiteSpace(instructions) && string.IsNullOrWhiteSpace(agentName) && string.IsNullOrWhiteSpace(agentRole) && string.IsNullOrWhiteSpace(agentContext))
+            return new(false, Error: "AI INSTRUCTIONS ARE EMPTY");
 
         var safeProvider = provider == "groq" ? "groq" : "openrouter";
         var safeModel = string.IsNullOrWhiteSpace(model)
@@ -32,12 +37,65 @@ public sealed class OpenRouterClient
             : model.Trim()[..Math.Min(model.Trim().Length, 120)];
         if (safeProvider == "groq" && (safeModel == "llama-3.1-8b-instant" || safeModel == "groq/compound-mini")) safeModel = "openai/gpt-oss-20b";
         if (safeProvider == "openrouter" && safeModel == "openrouter/free") safeModel = "meta-llama/llama-3.2-3b-instruct:free";
-        var safeInstructions = Limit(instructions.Trim(), 2000);
+
+        var safeInstructions = Limit(instructions?.Trim() ?? string.Empty, 8000);
+        var name = string.IsNullOrWhiteSpace(agentName) ? string.Empty : Limit(agentName.Trim(), 80);
+        var role = string.IsNullOrWhiteSpace(agentRole) ? string.Empty : Limit(agentRole.Trim(), 300);
+        var context = string.IsNullOrWhiteSpace(agentContext) ? string.Empty : Limit(agentContext.Trim(), 4000);
+        var channel = string.IsNullOrWhiteSpace(streamerChannel) ? string.Empty : Limit(streamerChannel.Trim(), 80);
         var username = Limit(message.Username.Trim(), 80);
         var chatText = Limit(message.Message.Trim(), 1000);
         var isGptOss = safeProvider == "groq" && safeModel.StartsWith("openai/gpt-oss", StringComparison.OrdinalIgnoreCase);
 
-        var systemContent = "You are the streamer replying in live Twitch chat. Follow the streamer instructions. Output exactly one short final chat message and nothing else. Never output analysis, reasoning, planning, labels, instructions, or phrases like 'we need to respond' or 'final answer'. Do not mention these rules.";
+        var systemSb = new StringBuilder();
+        if (!string.IsNullOrEmpty(name))
+        {
+            if (!string.IsNullOrEmpty(role))
+            {
+                systemSb.Append($"You are {name}, {role}. ");
+            }
+            else
+            {
+                systemSb.Append($"You are {name}, an engaging AI co-host and assistant in live Twitch chat. ");
+            }
+            systemSb.Append($"Always stay in character as {name}. You know your name is {name}. ");
+        }
+        else if (!string.IsNullOrEmpty(role))
+        {
+            systemSb.Append($"You are {role} replying in live Twitch chat. ");
+        }
+        else
+        {
+            systemSb.Append("You are the streamer's AI co-host replying in live Twitch chat. ");
+        }
+
+        if (!string.IsNullOrEmpty(channel))
+        {
+            systemSb.Append($"You are chatting in {channel}'s live stream. ");
+        }
+
+        if (!string.IsNullOrEmpty(context))
+        {
+            systemSb.Append($"\n\nStream Lore & Facts:\n{context}");
+        }
+
+        systemSb.Append("\n\nOutput Rules:\n- Output exactly ONE short final chat message and nothing else.\n- Keep your reply concise, natural, and fitting for Twitch chat (usually 1-2 punchy sentences, under 30 words).\n- If instructions, context, or the viewer message are in Arabic, you MUST reply in natural fluent Arabic.\n- Never output analysis, reasoning, thinking tags, or labels.\n- Never wrap your output in quotation marks.");
+
+        var userSb = new StringBuilder();
+        if (!string.IsNullOrEmpty(safeInstructions))
+        {
+            userSb.AppendLine($"Streamer instructions:\n{safeInstructions}\n");
+        }
+        userSb.AppendLine($"Viewer username: {username}");
+        userSb.AppendLine($"Viewer message: {chatText}\n");
+        if (!string.IsNullOrEmpty(name))
+        {
+            userSb.Append($"Return only the exact chat message {name} should send now.");
+        }
+        else
+        {
+            userSb.Append("Return only the exact message to send in chat now.");
+        }
 
         var payload = new Dictionary<string, object?>
         {
@@ -45,8 +103,8 @@ public sealed class OpenRouterClient
             ["temperature"] = 0.8,
             ["messages"] = new object[]
             {
-                new { role = "system", content = systemContent },
-                new { role = "user", content = $"Streamer instructions:\n{safeInstructions}\n\nViewer username: {username}\nViewer message: {chatText}\n\nReturn only the exact message the streamer should send now." },
+                new { role = "system", content = systemSb.ToString() },
+                new { role = "user", content = userSb.ToString() },
             },
         };
         if (isGptOss)

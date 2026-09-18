@@ -84,6 +84,9 @@ public sealed record AutoReply
     public string MatchMode { get; init; } = "exact";
     public string ResponseMode { get; init; } = "static";
     public string AiInstructions { get; init; } = string.Empty;
+    public string AgentName { get; init; } = string.Empty;
+    public string AgentRole { get; init; } = string.Empty;
+    public string AgentContext { get; init; } = string.Empty;
     public string AiModel { get; init; } = "meta-llama/llama-3.2-3b-instruct:free";
     public string AiProvider { get; init; } = "openrouter";
     public int AiMaxTokens { get; init; } = 120;

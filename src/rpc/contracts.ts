@@ -99,6 +99,9 @@ export interface AutoReply {
   matchMode: 'exact' | 'startsWith' | 'contains' | 'regex';
   responseMode?: 'static' | 'ai';
   aiInstructions?: string;
+  agentName?: string;
+  agentRole?: string;
+  agentContext?: string;
   aiModel?: string;
   aiProvider?: 'openrouter' | 'groq';
   aiMaxTokens?: number;
