@@ -69,6 +69,10 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
   - Bottom-anchored message flow (`min-h-full flex flex-col justify-end`) where new messages enter from below with smooth sliding animation (`animate-chat-in`).
   - Streamer sent message reflection: messages sent through the app or bot are immediately echoed with `isSelf: true`.
   - Floating action toolbar on every message: Timeout (60s), Ban, Delete message, Shoutout, and Mention.
+  - **Automatic OAuth Token Refresh**: Caught HTTP 401 Helix responses trigger token refresh via DPAPI storage and retry requests automatically.
+  - **Multilingual & Arabic Display Name Resolution**: Known chatter in-memory cache maps IRC numeric user IDs, logins, and Arabic/non-ASCII display names, with direct user ID dispatch from UI buttons.
+  - **Hardened Moderator Timeout Propagation**: Progressive retry backoff (`[1000, 1200, 1500, 2000] ms`) ensures Twitch edge cluster unmod propagation completes reliably before applying timeouts, backed by immediate rollback and delayed remodding.
+  - **Cross-Client Chat Clear Sync**: Real-time message removal across app dock and OBS overlays matching `userId`, `username`, `userLogin`, and `displayName`, with fallback parsing for trailing `:targetuser` IRC tags.
   - High-contrast dark theme with automatic username luminance protection ($\ge 0.35$).
   - Full bidirectional typography: `Cairo` for Arabic and `Barlow` for Latin/English.
   - Instant cross-client synchronization of deletions, user timeouts, and full room clears.

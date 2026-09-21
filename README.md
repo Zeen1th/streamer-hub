@@ -18,7 +18,12 @@ Streamer Hub is a lightweight, local-first desktop companion for Twitch streamer
 - **OBS Streamer Chat Dock & In-App Chat Tab**: Zero-latency, streamer-focused chat reader (`http://127.0.0.1:49178/obs-chat.html`) built for OBS Custom Browser Docks or multi-monitor streaming:
   - **Natural bottom-to-up flow** — messages start anchored at the bottom above the input bar and smoothly push upward as chat moves.
   - **Streamer sent message echo** — messages sent by the streamer or configured bot account appear immediately in real-time.
-  - **One-click moderation** — hover any message for instant Timeout (60s), Ban, Message Deletion, Shoutout, and Mention actions.
+  - **Robust One-Click Moderation**:
+    - Instant hover actions: Timeout (60s), Ban, Message Deletion, Shoutout, and Mention.
+    - **Automatic OAuth Token Refresh on HTTP 401**: Automatically catches expired tokens during Helix moderation calls, refreshes credentials, and retries seamlessly without interrupting stream moderation.
+    - **Multilingual & Arabic Chatter Resolution**: Chatters with Arabic or non-ASCII display names (e.g. `زينث`) are instantly resolved via an in-memory known chatter cache without failing on non-broadcaster search endpoints. Direct user IDs are dispatched from the UI to bypass network lookups.
+    - **Resilient Moderator Timeout Propagation (`SmartModTimeoutAsync`)**: Uses a 4-step progressive delay loop (`[1000, 1200, 1500, 2000] ms`) to reliably accommodate Twitch edge cluster propagation when unmodding a moderator before timing them out, with automatic rollback and delayed remodding.
+    - **Synchronized Chat Clearing & CLEARCHAT Tag Fallback**: Updates `obsChatStore` and `chatOverlayStore` across `userId`, `username`, `userLogin`, and `displayName`, with fallback parsing for trailing `:targetuser` IRC tags to prevent room-wide message wipes.
   - **High-contrast readability** — dark theme with automatic username luminance scaling ($\ge 0.35$) ensures every name is readable on black backgrounds.
   - **BiDi typography** — native Cairo (Arabic) and Barlow (English) font rendering with full emote support.
 - **Multi-Overlay Profiles**: Create and customize multiple independent overlay designs (e.g., Just Chatting vs Gameplay) with dedicated OBS Browser Source URLs (`http://127.0.0.1:49178/chat-overlay.html?id=<overlayId>`).
