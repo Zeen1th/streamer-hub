@@ -105,6 +105,8 @@ export const DEFAULT_CHAT_OVERLAY_SETTINGS: ChatOverlaySettings = createDefaultC
 export interface NormalizedChatOverlayMessage {
   id: string;
   username: string;
+  displayName?: string;
+  userLogin?: string;
   userId: string;
   avatarUrl: string;
   isBroadcaster: boolean;
@@ -325,6 +327,8 @@ export function normalizeChatOverlayMessage(value: Partial<ChatMessage> | null |
   return {
     id: suppliedId || buildFallbackMessageId(),
     username: trimAndCap(input.username, 32) || 'viewer',
+    displayName: trimAndCap(input.displayName, 64) || undefined,
+    userLogin: trimAndCap(input.userLogin, 64) || undefined,
     userId: trimAndCap(input.userId, 64),
     avatarUrl: normalizeAvatarUrl(input.avatarUrl),
     isBroadcaster: input.isBroadcaster === true,

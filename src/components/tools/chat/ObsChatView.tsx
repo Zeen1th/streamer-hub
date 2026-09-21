@@ -882,7 +882,7 @@ function ChatMessageRow({
           {/* Mention */}
           <button
             type="button"
-            onClick={() => onMention(message.username)}
+            onClick={() => onMention(message.userLogin || message.username)}
             className="rounded p-1 text-sky-400 hover:text-white hover:bg-sky-500/30 transition-colors cursor-pointer"
             title={t(lang, 'obsChat.mention')}
           >
@@ -892,7 +892,7 @@ function ChatMessageRow({
           {/* Shoutout */}
           <button
             type="button"
-            onClick={() => onShoutout(message.username)}
+            onClick={() => onShoutout(message.userId || message.userLogin || message.username)}
             className="rounded p-1 text-purple-400 hover:text-white hover:bg-purple-500/30 transition-colors cursor-pointer"
             title={t(lang, 'obsChat.shoutout')}
           >
@@ -902,7 +902,7 @@ function ChatMessageRow({
           {/* Timeout 60s */}
           <button
             type="button"
-            onClick={() => onTimeout(message.username)}
+            onClick={() => onTimeout(message.userId || message.userLogin || message.username)}
             className="rounded p-1 text-amber-400 hover:text-white hover:bg-amber-500/30 transition-colors cursor-pointer"
             title={t(lang, 'obsChat.timeout')}
           >
@@ -912,7 +912,7 @@ function ChatMessageRow({
           {/* Ban User */}
           <button
             type="button"
-            onClick={() => onBan(message.username)}
+            onClick={() => onBan(message.userId || message.userLogin || message.username)}
             className="rounded p-1 text-rose-400 hover:text-white hover:bg-rose-500/30 transition-colors cursor-pointer"
             title={t(lang, 'obsChat.ban')}
           >

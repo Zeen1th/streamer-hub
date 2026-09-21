@@ -247,18 +247,26 @@ export function createObsChatStore(deps: ObsChatStoreDeps = defaultDeps) {
     },
 
     applyProfile: (userId, avatarUrl, color) => {
-      set((state) => ({
-        messages: state.messages.map((m) => {
-          if (m.userId === userId || m.username.toLowerCase() === userId.toLowerCase()) {
-            return {
-              ...m,
-              avatarUrl: avatarUrl || m.avatarUrl,
-              color: color || m.color,
-            };
-          }
-          return m;
-        }),
-      }));
+      set((state) => {
+        const targetId = (userId || '').toLowerCase();
+        return {
+          messages: state.messages.map((m) => {
+            if (
+              m.userId === userId ||
+              m.username.toLowerCase() === targetId ||
+              (m.userLogin && m.userLogin.toLowerCase() === targetId) ||
+              (m.displayName && m.displayName.toLowerCase() === targetId)
+            ) {
+              return {
+                ...m,
+                avatarUrl: avatarUrl || m.avatarUrl,
+                color: color || m.color,
+              };
+            }
+            return m;
+          }),
+        };
+      });
     },
 
     clearByScope: (scope, id) => {
@@ -268,9 +276,13 @@ export function createObsChatStore(deps: ObsChatStoreDeps = defaultDeps) {
           return { messages: [] };
         }
         if (normalized === 'user') {
+          const targetId = id.toLowerCase();
           return {
             messages: state.messages.map((m) =>
-              m.userId === id || m.username.toLowerCase() === id.toLowerCase()
+              m.userId === id ||
+              m.username.toLowerCase() === targetId ||
+              (m.userLogin && m.userLogin.toLowerCase() === targetId) ||
+              (m.displayName && m.displayName.toLowerCase() === targetId)
                 ? { ...m, deleted: true }
                 : m,
             ),

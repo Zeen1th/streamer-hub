@@ -256,6 +256,23 @@ public sealed class HostController : IDisposable
         }
     }
 
+    private string ResolveKnownTarget(string? target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return string.Empty;
+        var clean = target.Trim().TrimStart('@');
+        if (clean.All(char.IsDigit)) return clean;
+        if (_knownChatters.TryGetValue(clean, out var known))
+        {
+            return known.UserId;
+        }
+        var norm = TwitchPrivmsgParser.NormalizeArabic(clean);
+        if (!string.IsNullOrWhiteSpace(norm) && _knownChatters.TryGetValue(norm, out known))
+        {
+            return known.UserId;
+        }
+        return clean;
+    }
+
     private void RegisterHandlers()
     {
         _dispatcher.Register(Channels.WindowMinimize, (_, _) =>
@@ -715,7 +732,8 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, isMod = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, isMod = false, error = "TWITCH CHAT IS NOT CONNECTED" };
-            var result = await _twitch.CheckIsModeratorAsync(request.Target, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.CheckIsModeratorAsync(target, ct).ConfigureAwait(false);
             return new { ok = result.Ok, isMod = result.IsMod, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchModerationTimeout, async (payload, ct) =>
@@ -724,7 +742,8 @@ public sealed class HostController : IDisposable
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
             var duration = request.DurationSeconds.GetValueOrDefault(60);
-            var result = await _twitch.TimeoutUserAsync(request.Target, duration, request.Reason, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.TimeoutUserAsync(target, duration, request.Reason, ct).ConfigureAwait(false);
             if (!result.Ok)
             {
                 Log("moderation", $"Timeout failed for @{request.Target}: {result.Error}");
@@ -737,7 +756,8 @@ public sealed class HostController : IDisposable
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, wasMod = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, wasMod = false, error = "TWITCH CHAT IS NOT CONNECTED" };
             var duration = request.DurationSeconds.GetValueOrDefault(60);
-            var result = await _twitch.SmartModTimeoutAsync(request.Target, duration, request.Reason, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.SmartModTimeoutAsync(target, duration, request.Reason, ct).ConfigureAwait(false);
             if (!result.Ok)
             {
                 Log("moderation", $"Smart timeout failed for @{request.Target}: {result.Error}");
@@ -749,7 +769,8 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<ModerationBanPayload>(payload ?? default);
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
-            var result = await _twitch.BanUserAsync(request.Target, request.Reason, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.BanUserAsync(target, request.Reason, ct).ConfigureAwait(false);
             if (!result.Ok)
             {
                 Log("moderation", $"Ban failed for @{request.Target}: {result.Error}");
@@ -761,7 +782,8 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
-            var result = await _twitch.UnbanUserAsync(request.Target, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.UnbanUserAsync(target, ct).ConfigureAwait(false);
             if (!result.Ok)
             {
                 Log("moderation", $"Unban failed for @{request.Target}: {result.Error}");
@@ -773,7 +795,8 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
-            var result = await _twitch.ModUserAsync(request.Target, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.ModUserAsync(target, ct).ConfigureAwait(false);
             return new { ok = result.Ok, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchModerationUnmod, async (payload, ct) =>
@@ -781,7 +804,8 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
-            var result = await _twitch.UnmodUserAsync(request.Target, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.UnmodUserAsync(target, ct).ConfigureAwait(false);
             return new { ok = result.Ok, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchModerationVip, async (payload, ct) =>
@@ -789,7 +813,8 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
-            var result = await _twitch.VipUserAsync(request.Target, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.VipUserAsync(target, ct).ConfigureAwait(false);
             return new { ok = result.Ok, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchModerationUnvip, async (payload, ct) =>
@@ -797,7 +822,8 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
-            var result = await _twitch.UnvipUserAsync(request.Target, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.UnvipUserAsync(target, ct).ConfigureAwait(false);
             return new { ok = result.Ok, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchModerationClear, async (_, ct) =>
@@ -823,7 +849,8 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<ModerationTargetPayload>(payload ?? default);
             if (string.IsNullOrWhiteSpace(request?.Target)) return new { ok = false, error = "EMPTY_TARGET" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
-            var result = await _twitch.SendShoutoutAsync(request.Target, ct).ConfigureAwait(false);
+            var target = ResolveKnownTarget(request.Target);
+            var result = await _twitch.SendShoutoutAsync(target, ct).ConfigureAwait(false);
             return new { ok = result.Ok, error = result.Error };
         });
         _dispatcher.Register(Channels.ChatOverlayTestMessage, async (payload, ct) =>
@@ -1148,6 +1175,11 @@ public sealed class HostController : IDisposable
                     _knownChatters[publishedMessage.UserId] = info;
                     _knownChatters[login] = info;
                     _knownChatters[displayName] = info;
+                    var norm = TwitchPrivmsgParser.NormalizeArabic(displayName);
+                    if (!string.IsNullOrWhiteSpace(norm))
+                    {
+                        _knownChatters[norm] = info;
+                    }
                 }
 
                 if (!string.IsNullOrWhiteSpace(message.UserId) && !_twitchUserProfiles.TryGet(message.UserId, out _))
@@ -1167,6 +1199,11 @@ public sealed class HostController : IDisposable
                 _knownChatters[publishedMessage.UserId] = info;
                 _knownChatters[login] = info;
                 _knownChatters[displayName] = info;
+                var norm = TwitchPrivmsgParser.NormalizeArabic(displayName);
+                if (!string.IsNullOrWhiteSpace(norm))
+                {
+                    _knownChatters[norm] = info;
+                }
             }
 
             PostEvent(Events.TwitchChatMessage, publishedMessage);
@@ -1250,6 +1287,36 @@ public sealed class HostController : IDisposable
             }
             _ = SetChatOverlayConnectedAsync(state == TwitchState.Connected);
             EmitStatus();
+        };
+        _twitch.TokenRefreshRequested = async () =>
+        {
+            var tokens = _tokens.Load();
+            if (tokens is null || string.IsNullOrWhiteSpace(tokens.RefreshToken)) return null;
+            var refreshed = await TwitchAuth.RefreshAsync(TwitchConstants.ClientId, string.Empty, tokens.RefreshToken).ConfigureAwait(false);
+            if (refreshed is null)
+            {
+                Log("system", "Automatic Twitch token refresh on HTTP 401 failed.");
+                return null;
+            }
+            var updatedTokens = refreshed with { Login = tokens.Login };
+            _tokens.Save(updatedTokens);
+            Log("system", "Automatic Twitch token refresh on HTTP 401 succeeded.");
+            return updatedTokens.AccessToken;
+        };
+        _botTwitch.TokenRefreshRequested = async () =>
+        {
+            var tokens = _botTokens.Load();
+            if (tokens is null || string.IsNullOrWhiteSpace(tokens.RefreshToken)) return null;
+            var refreshed = await TwitchAuth.RefreshAsync(TwitchConstants.ClientId, string.Empty, tokens.RefreshToken).ConfigureAwait(false);
+            if (refreshed is null)
+            {
+                Log("system", "Automatic Bot token refresh on HTTP 401 failed.");
+                return null;
+            }
+            var updatedTokens = refreshed with { Login = tokens.Login };
+            _botTokens.Save(updatedTokens);
+            Log("system", "Automatic Bot token refresh on HTTP 401 succeeded.");
+            return updatedTokens.AccessToken;
         };
     }
 

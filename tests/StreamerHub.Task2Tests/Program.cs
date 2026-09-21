@@ -113,6 +113,15 @@ Task ParseClearCommandsAsync()
     AssertEqual(ChatClearScope.User, banned.Scope, "CLEARCHAT user scope");
     AssertEqual("424242", banned.Id, "CLEARCHAT target user");
 
+    // A CLEARCHAT without target-user-id tag but with a trailing target user name
+    const string timeoutWithoutTargetTag = "@ban-duration=600;room-id=999;tmi-sent-ts=1 :tmi.twitch.tv CLEARCHAT #room :troll";
+    if (!TwitchClearParser.TryParse(timeoutWithoutTargetTag, out ChatClear? bannedWithoutTag))
+    {
+        throw new InvalidOperationException("expected CLEARCHAT without target-user-id tag to parse");
+    }
+    AssertEqual(ChatClearScope.User, bannedWithoutTag.Scope, "CLEARCHAT without tag user scope");
+    AssertEqual("troll", bannedWithoutTag.Id, "CLEARCHAT target user name");
+
     // A CLEARCHAT with no target clears the whole room.
     const string clearAll = "@room-id=999;tmi-sent-ts=1 :tmi.twitch.tv CLEARCHAT #room";
     if (!TwitchClearParser.TryParse(clearAll, out ChatClear? all))

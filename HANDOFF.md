@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
 
-**Version:** `v0.3.5`  
+**Version:** `v0.3.6`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -80,16 +80,27 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
   - English and numbers use `Barlow` (`sans-serif`).
   - Mixed BiDi messages render with natural unicode bidirectional isolation.
 
-### 2.2 Streamer Quick Moderation Tools
+### 2.2 Streamer Quick Moderation Tools & Robust Timeout Architecture
 - Every message row features a hover action bar with 5 immediate moderation tools:
   1. **Mention** (`#38bdf8`): Copies `@username` into the chat input field.
   2. **Shoutout** (`#a855f7`): Dispatches `POST /helix/chat/shoutouts`.
   3. **Timeout 60s** (`#f59e0b`): Dispatches `POST /helix/moderation/bans` with `duration: 60`.
   4. **Ban** (`#f43f5e`): Dispatches `POST /helix/moderation/bans` without duration.
   5. **Delete** (`#ef4444`): Dispatches `DELETE /helix/moderation/chat` with `message_id`.
-- **ChatCleared Synchronization**:
-  - On moderation success, `TwitchIrcClient.cs` invokes `ChatCleared?.Invoke(new ChatClear(ChatClearScope.User, cleanTarget))`.
-  - The host broadcasts `twitch/chat-cleared` across RPC and WebSocket, immediately marking affected messages as deleted in the app, dock, and overlays.
+- **Direct User ID Resolution & Chatter Mapping**:
+  - UI action buttons pass `message.userId || message.userLogin || message.username` directly, avoiding unnecessary username-to-ID network calls.
+  - The host maintains an in-memory `_knownChatters` dictionary mapping `userId`, `userLogin`, `displayName`, and normalized Arabic display names from incoming IRC `PRIVMSG` tags. Non-broadcaster chatters with Arabic or non-ASCII names are resolved immediately without relying on `/helix/search/channels` (which only indexes broadcasters).
+- **Automatic OAuth Token Refresh on HTTP 401**:
+  - Twitch user access tokens expire after ~4 hours. While the IRC TCP connection stays open via PING/PONG, Helix HTTP calls would fail with HTTP 401 Unauthorized.
+  - All Helix requests are executed through `SendHelixWithRetryAsync`, catching 401 responses, invoking `TokenRefreshRequested`, persisting the refreshed token to disk via DPAPI, updating the in-memory bearer token, and retrying the request seamlessly.
+- **Resilient Moderator Timeout (`SmartModTimeoutAsync`)**:
+  - Direct timeout is attempted first. If Twitch reports the user is a moderator, they are temporarily unmodded.
+  - A 4-step progressive propagation delay (`[1000, 1200, 1500, 2000] ms`) accommodates Twitch edge cluster sync delays before re-attempting timeout.
+  - On timeout failure, moderator status is rolled back immediately (or enqueued to `_remodManager` for persistent retry).
+  - Once timed out, remodding is scheduled with a safety buffer after the timeout expires.
+- **ChatClear Synchronization & CLEARCHAT Tag Fallback**:
+  - `TwitchClearParser` supports standard `target-user-id` tags as well as trailing `:targetuser` IRC parameters, preventing whole-room wipes when target tags are omitted by Twitch.
+  - Chat clear logic in `obsChatStore.ts` and `chatOverlayStore.ts` matches against `userId`, `username`, `userLogin`, and `displayName`, ensuring timed-out chatter messages are instantly removed regardless of display language or IRC casing.
 - **Activity Logging**:
   - Failed moderation calls are logged via `Log("moderation", ...)` in `HostController.cs` and displayed in the UI Activity Log.
 

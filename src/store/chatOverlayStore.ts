@@ -388,10 +388,16 @@ export function createChatOverlayStore(
 
     applyProfile: (userId, avatarUrl, color) => {
       if (!userId) return;
+      const targetId = userId.toLowerCase();
       set((state) => {
         let changed = false;
         const messages = state.messages.map((message) => {
-          if (message.userId !== userId) return message;
+          const match =
+            message.userId === userId ||
+            (Boolean(message.username) && message.username.toLowerCase() === targetId) ||
+            (Boolean(message.userLogin) && message.userLogin!.toLowerCase() === targetId) ||
+            (Boolean(message.displayName) && message.displayName!.toLowerCase() === targetId);
+          if (!match) return message;
           const nextAvatar = avatarUrl || message.avatarUrl;
           const nextColor = color || message.color;
           if (nextAvatar === message.avatarUrl && nextColor === message.color) return message;
@@ -406,7 +412,16 @@ export function createChatOverlayStore(
       const state = get();
       const doomed = state.messages.filter((m) => {
         if (scope === 'all') return true;
-        if (scope === 'user') return m.userId === id || (Boolean(m.username) && Boolean(id) && m.username.toLowerCase() === id!.toLowerCase());
+        if (scope === 'user') {
+          if (!id) return false;
+          const targetId = id.toLowerCase();
+          return (
+            m.userId === id ||
+            (Boolean(m.username) && m.username.toLowerCase() === targetId) ||
+            (Boolean(m.userLogin) && m.userLogin!.toLowerCase() === targetId) ||
+            (Boolean(m.displayName) && m.displayName!.toLowerCase() === targetId)
+          );
+        }
         return m.id === id;
       });
       for (const message of doomed) {

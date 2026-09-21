@@ -51,6 +51,67 @@ public sealed class TwitchIrcClient : ITwitchClient
     private int _processingRemods;
 
     public PendingRemodManager RemodManager => _remodManager;
+    private readonly ConcurrentDictionary<string, (string UserId, string Login, string DisplayName)> _knownChatters = new(StringComparer.OrdinalIgnoreCase);
+
+    public Func<Task<string?>>? TokenRefreshRequested { get; set; }
+
+    public void UpdateAccessToken(string accessToken)
+    {
+        if (!string.IsNullOrWhiteSpace(accessToken))
+        {
+            _accessToken = accessToken;
+        }
+    }
+
+    private void RememberChatter(string userId, string login, string displayName)
+    {
+        var info = (userId, login, displayName);
+        _knownChatters[userId] = info;
+        _knownChatters[login] = info;
+        _knownChatters[displayName] = info;
+        var norm = TwitchPrivmsgParser.NormalizeArabic(displayName);
+        if (!string.IsNullOrWhiteSpace(norm))
+        {
+            _knownChatters[norm] = info;
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendHelixWithRetryAsync(
+        Func<HttpRequestMessage> requestFactory,
+        CancellationToken cancellationToken = default)
+    {
+        var request = requestFactory();
+        AddHelixHeaders(request);
+        var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized && TokenRefreshRequested != null)
+        {
+            response.Dispose();
+            string? newToken = null;
+            try
+            {
+                newToken = await TokenRefreshRequested().ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            if (!string.IsNullOrWhiteSpace(newToken))
+            {
+                _accessToken = newToken;
+                var retryRequest = requestFactory();
+                AddHelixHeaders(retryRequest);
+                return await Helix.SendAsync(retryRequest, cancellationToken).ConfigureAwait(false);
+            }
+
+            var finalRequest = requestFactory();
+            AddHelixHeaders(finalRequest);
+            return await Helix.SendAsync(finalRequest, cancellationToken).ConfigureAwait(false);
+        }
+
+        return response;
+    }
 
     public TwitchIrcClient(string? pendingRemodsPath = null)
     {
@@ -115,7 +176,7 @@ public sealed class TwitchIrcClient : ITwitchClient
         return await SendAsync($"PRIVMSG #{_channel} :{trimmed}").ConfigureAwait(false);
     }
 
-    private async Task<(string? Id, string? Error)> GetBroadcasterIdAsync()
+    private async Task<(string? Id, string? Error)> GetBroadcasterIdAsync(CancellationToken cancellationToken = default)
     {
         if (!string.IsNullOrWhiteSpace(_cachedBroadcasterId)) return (_cachedBroadcasterId, null);
         if (string.IsNullOrWhiteSpace(_login) || string.IsNullOrWhiteSpace(_accessToken)) return (null, "TWITCH SESSION IS NOT READY");
@@ -123,11 +184,11 @@ public sealed class TwitchIrcClient : ITwitchClient
         try
         {
             var channelToQuery = string.IsNullOrWhiteSpace(_channel) ? _login : _channel;
-            using var userRequest = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?login={Uri.EscapeDataString(channelToQuery)}");
-            AddHelixHeaders(userRequest);
-            using var userResponse = await Helix.SendAsync(userRequest).ConfigureAwait(false);
+            using var userResponse = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?login={Uri.EscapeDataString(channelToQuery)}"),
+                cancellationToken).ConfigureAwait(false);
             if (!userResponse.IsSuccessStatusCode) return (null, await ReadHelixErrorAsync(userResponse).ConfigureAwait(false));
-            using var userDoc = JsonDocument.Parse(await userResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
+            using var userDoc = JsonDocument.Parse(await userResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
             var users = userDoc.RootElement.GetProperty("data");
             if (users.GetArrayLength() == 0) return (null, "BROADCASTER USER NOT FOUND");
             var userId = users[0].GetProperty("id").GetString();
@@ -141,7 +202,7 @@ public sealed class TwitchIrcClient : ITwitchClient
         }
     }
 
-    private async Task<(string? Id, string? Error)> GetModeratorIdAsync()
+    private async Task<(string? Id, string? Error)> GetModeratorIdAsync(CancellationToken cancellationToken = default)
     {
         if (!string.IsNullOrWhiteSpace(_cachedModeratorId)) return (_cachedModeratorId, null);
         if (string.IsNullOrWhiteSpace(_login) || string.IsNullOrWhiteSpace(_accessToken)) return (null, "TWITCH SESSION IS NOT READY");
@@ -154,11 +215,11 @@ public sealed class TwitchIrcClient : ITwitchClient
 
         try
         {
-            using var userRequest = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?login={Uri.EscapeDataString(_login)}");
-            AddHelixHeaders(userRequest);
-            using var userResponse = await Helix.SendAsync(userRequest).ConfigureAwait(false);
+            using var userResponse = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?login={Uri.EscapeDataString(_login)}"),
+                cancellationToken).ConfigureAwait(false);
             if (!userResponse.IsSuccessStatusCode) return (null, await ReadHelixErrorAsync(userResponse).ConfigureAwait(false));
-            using var userDoc = JsonDocument.Parse(await userResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
+            using var userDoc = JsonDocument.Parse(await userResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
             var users = userDoc.RootElement.GetProperty("data");
             if (users.GetArrayLength() == 0) return (null, "MODERATOR USER NOT FOUND");
             var userId = users[0].GetProperty("id").GetString();
@@ -179,9 +240,8 @@ public sealed class TwitchIrcClient : ITwitchClient
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/channels?broadcaster_id={Uri.EscapeDataString(userId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/channels?broadcaster_id={Uri.EscapeDataString(userId)}")).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) return (false, null, await ReadHelixErrorAsync(response).ConfigureAwait(false));
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
             var data = doc.RootElement.GetProperty("data");
@@ -212,12 +272,11 @@ public sealed class TwitchIrcClient : ITwitchClient
 
         try
         {
-            using var updateRequest = new HttpRequestMessage(HttpMethod.Patch, $"https://api.twitch.tv/helix/channels?broadcaster_id={Uri.EscapeDataString(userId)}")
-            {
-                Content = new StringContent(JsonSerializer.Serialize(new { title = trimmed }), Encoding.UTF8, "application/json"),
-            };
-            AddHelixHeaders(updateRequest);
-            using var updateResponse = await Helix.SendAsync(updateRequest).ConfigureAwait(false);
+            using var updateResponse = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Patch, $"https://api.twitch.tv/helix/channels?broadcaster_id={Uri.EscapeDataString(userId)}")
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(new { title = trimmed }), Encoding.UTF8, "application/json"),
+                }).ConfigureAwait(false);
             if (updateResponse.IsSuccessStatusCode)
             {
                 _lastKnownTitle = trimmed;
@@ -240,9 +299,9 @@ public sealed class TwitchIrcClient : ITwitchClient
         if (string.IsNullOrWhiteSpace(_accessToken)) throw new InvalidOperationException("TWITCH SESSION IS NOT READY");
 
         var query = string.Join("&", userIds.Select(userId => $"id={Uri.EscapeDataString(userId)}"));
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?{query}");
-        AddHelixHeaders(request);
-        using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendHelixWithRetryAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?{query}"),
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ReadHelixErrorAsync(response).ConfigureAwait(false));
 
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
@@ -275,17 +334,28 @@ public sealed class TwitchIrcClient : ITwitchClient
             return (false, null, null, null, null, "NO USERNAME PROVIDED AND CHANNEL LOGIN UNKNOWN");
         }
 
+        // 1. Check in-memory known chatters cache first
+        if (_knownChatters.TryGetValue(target, out var known))
+        {
+            return (true, known.UserId, known.Login, known.DisplayName, null, null);
+        }
+        var norm = TwitchPrivmsgParser.NormalizeArabic(target);
+        if (!string.IsNullOrWhiteSpace(norm) && _knownChatters.TryGetValue(norm, out known))
+        {
+            return (true, known.UserId, known.Login, known.DisplayName, null, null);
+        }
+
         var isDigits = target.All(char.IsDigit);
         var isNonAscii = target.Any(c => c > 127);
 
         try
         {
-            if (!isNonAscii)
+            if (isDigits || !isNonAscii)
             {
                 var param = isDigits ? $"id={Uri.EscapeDataString(target)}" : $"login={Uri.EscapeDataString(target)}";
-                using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?{param}");
-                AddHelixHeaders(request);
-                using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                using var response = await SendHelixWithRetryAsync(
+                    () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?{param}"),
+                    cancellationToken).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                 {
                     using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
@@ -298,6 +368,11 @@ public sealed class TwitchIrcClient : ITwitchClient
                         var displayName = user.TryGetProperty("display_name", out var dn) ? dn.GetString() : login;
                         var avatarUrl = user.TryGetProperty("profile_image_url", out var av) ? av.GetString() : null;
 
+                        if (!string.IsNullOrWhiteSpace(userId) && !string.IsNullOrWhiteSpace(login))
+                        {
+                            RememberChatter(userId, login, displayName ?? login);
+                        }
+
                         return (true, userId, login, displayName, avatarUrl, null);
                     }
                 }
@@ -305,9 +380,9 @@ public sealed class TwitchIrcClient : ITwitchClient
 
             // Fallback for non-ASCII (e.g. Arabic display names) or if direct lookup returned no user:
             // Query Helix search/channels which indexes localized display names
-            using var searchReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/search/channels?query={Uri.EscapeDataString(target)}&first=10");
-            AddHelixHeaders(searchReq);
-            using var searchResp = await Helix.SendAsync(searchReq, cancellationToken).ConfigureAwait(false);
+            using var searchResp = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/search/channels?query={Uri.EscapeDataString(target)}&first=10"),
+                cancellationToken).ConfigureAwait(false);
             if (searchResp.IsSuccessStatusCode)
             {
                 using var searchDoc = JsonDocument.Parse(await searchResp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
@@ -348,9 +423,9 @@ public sealed class TwitchIrcClient : ITwitchClient
                 if (!string.IsNullOrWhiteSpace(matchedChannelId))
                 {
                     // Fetch full profile by ID to obtain official avatar and user info
-                    using var userByIdReq = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?id={Uri.EscapeDataString(matchedChannelId)}");
-                    AddHelixHeaders(userByIdReq);
-                    using var userByIdResp = await Helix.SendAsync(userByIdReq, cancellationToken).ConfigureAwait(false);
+                    using var userByIdResp = await SendHelixWithRetryAsync(
+                        () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/users?id={Uri.EscapeDataString(matchedChannelId)}"),
+                        cancellationToken).ConfigureAwait(false);
                     if (userByIdResp.IsSuccessStatusCode)
                     {
                         using var userByIdDoc = JsonDocument.Parse(await userByIdResp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
@@ -362,8 +437,16 @@ public sealed class TwitchIrcClient : ITwitchClient
                             var uLog = u.GetProperty("login").GetString();
                             var uDisp = u.TryGetProperty("display_name", out var ud) ? ud.GetString() : uLog;
                             var uAv = u.TryGetProperty("profile_image_url", out var ua) ? ua.GetString() : matchedThumbnail;
+                            if (!string.IsNullOrWhiteSpace(uId) && !string.IsNullOrWhiteSpace(uLog))
+                            {
+                                RememberChatter(uId, uLog, uDisp ?? uLog);
+                            }
                             return (true, uId, uLog, uDisp, uAv, null);
                         }
+                    }
+                    if (!string.IsNullOrWhiteSpace(matchedChannelId) && !string.IsNullOrWhiteSpace(matchedLogin))
+                    {
+                        RememberChatter(matchedChannelId, matchedLogin, matchedDisplayName ?? matchedLogin);
                     }
                     return (true, matchedChannelId, matchedLogin, matchedDisplayName, matchedThumbnail, null);
                 }
@@ -375,6 +458,39 @@ public sealed class TwitchIrcClient : ITwitchClient
         {
             return (false, null, target, null, null, ex.Message);
         }
+    }
+
+    private async Task<(bool Ok, string? UserId, string? Login, string? Error)> ResolveTargetUserAsync(
+        string cleanTarget,
+        CancellationToken cancellationToken)
+    {
+        if (cleanTarget.All(char.IsDigit))
+        {
+            if (_knownChatters.TryGetValue(cleanTarget, out var known))
+            {
+                return (true, cleanTarget, known.Login, null);
+            }
+            return (true, cleanTarget, cleanTarget, null);
+        }
+
+        if (_knownChatters.TryGetValue(cleanTarget, out var knownUser))
+        {
+            return (true, knownUser.UserId, knownUser.Login, null);
+        }
+
+        var norm = TwitchPrivmsgParser.NormalizeArabic(cleanTarget);
+        if (!string.IsNullOrWhiteSpace(norm) && _knownChatters.TryGetValue(norm, out knownUser))
+        {
+            return (true, knownUser.UserId, knownUser.Login, null);
+        }
+
+        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId))
+        {
+            return (false, null, null, profile.Error ?? "USER_NOT_FOUND");
+        }
+
+        return (true, profile.UserId, profile.Login ?? cleanTarget, null);
     }
 
     public async Task<(bool Ok, IReadOnlyList<TwitchRewardInfo> Rewards, string? Error)> GetCustomRewardsAsync(
@@ -393,9 +509,9 @@ public sealed class TwitchIrcClient : ITwitchClient
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id={Uri.EscapeDataString(userId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id={Uri.EscapeDataString(userId)}"),
+                cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return (false, Array.Empty<TwitchRewardInfo>(), await ReadHelixErrorAsync(response).ConfigureAwait(false));
@@ -495,20 +611,13 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUsernameOrId);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, false, "EMPTY_TARGET");
 
-        var (userId, error) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (userId, error) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(userId)) return (false, false, error ?? "BROADCASTER_ID_NOT_FOUND");
 
-        string targetUserId;
-        if (cleanTarget.All(char.IsDigit))
+        var (targetResolved, targetUserId, _, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
         {
-            targetUserId = cleanTarget;
-        }
-        else
-        {
-            var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-            if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId))
-                return (false, false, profile.Error ?? "USER_NOT_FOUND");
-            targetUserId = profile.UserId;
+            return (false, false, targetErr ?? "USER_NOT_FOUND");
         }
 
         if (string.Equals(targetUserId, userId, StringComparison.OrdinalIgnoreCase))
@@ -518,9 +627,9 @@ public sealed class TwitchIrcClient : ITwitchClient
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/moderation/moderators?broadcaster_id={Uri.EscapeDataString(userId)}&user_id={Uri.EscapeDataString(targetUserId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/moderation/moderators?broadcaster_id={Uri.EscapeDataString(userId)}&user_id={Uri.EscapeDataString(targetUserId)}"),
+                cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return (false, false, await ReadHelixErrorAsync(response).ConfigureAwait(false));
@@ -563,25 +672,22 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUserIdOrLogin);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var (moderatorId, mErr) = await GetModeratorIdAsync().ConfigureAwait(false);
+        var (moderatorId, mErr) = await GetModeratorIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(moderatorId)) return (false, mErr ?? "MODERATOR_ID_NOT_FOUND");
 
-        string targetUserId;
-        if (cleanTarget.All(char.IsDigit))
+        var (targetResolved, targetUserId, resolvedLogin, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
         {
-            targetUserId = cleanTarget;
-        }
-        else
-        {
-            var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-            if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
-            targetUserId = profile.UserId;
+            return (false, targetErr ?? "USER_NOT_FOUND");
         }
 
+        var effectiveLogin = resolvedLogin ?? fallbackLogin;
+
         if (string.Equals(targetUserId, broadcasterId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(effectiveLogin, _channel, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(cleanTarget, _channel, StringComparison.OrdinalIgnoreCase))
         {
             return (false, "CANNOT_TIMEOUT_BROADCASTER");
@@ -593,23 +699,28 @@ public sealed class TwitchIrcClient : ITwitchClient
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/moderation/bans?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}")
-            {
-                Content = new StringContent(JsonSerializer.Serialize(new
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/moderation/bans?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}")
                 {
-                    data = new
+                    Content = new StringContent(JsonSerializer.Serialize(new
                     {
-                        user_id = targetUserId,
-                        duration = duration,
-                        reason = safeReason,
-                    }
-                }), Encoding.UTF8, "application/json")
-            };
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                        data = new
+                        {
+                            user_id = targetUserId,
+                            duration = duration,
+                            reason = safeReason,
+                        }
+                    }), Encoding.UTF8, "application/json")
+                },
+                cancellationToken).ConfigureAwait(false);
+
             if (response.IsSuccessStatusCode)
             {
-                ChatCleared?.Invoke(new ChatClear(ChatClearScope.User, fallbackLogin));
+                ChatCleared?.Invoke(new ChatClear(ChatClearScope.User, targetUserId));
+                if (!string.IsNullOrWhiteSpace(effectiveLogin) && !string.Equals(effectiveLogin, targetUserId, StringComparison.OrdinalIgnoreCase))
+                {
+                    ChatCleared?.Invoke(new ChatClear(ChatClearScope.User, effectiveLogin));
+                }
                 return (true, null);
             }
 
@@ -626,17 +737,21 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUsernameOrId);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var (moderatorId, mErr) = await GetModeratorIdAsync().ConfigureAwait(false);
+        var (moderatorId, mErr) = await GetModeratorIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(moderatorId)) return (false, mErr ?? "MODERATOR_ID_NOT_FOUND");
 
-        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
+        var (targetResolved, targetUserId, resolvedLogin, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
+        {
+            return (false, targetErr ?? "USER_NOT_FOUND");
+        }
 
-        if (string.Equals(profile.UserId, broadcasterId, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(profile.Login, _channel, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(targetUserId, broadcasterId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(resolvedLogin, _channel, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(cleanTarget, _channel, StringComparison.OrdinalIgnoreCase))
         {
             return (false, "CANNOT_BAN_BROADCASTER");
         }
@@ -644,18 +759,23 @@ public sealed class TwitchIrcClient : ITwitchClient
         var safeReason = string.IsNullOrWhiteSpace(reason) ? "Banned via Streamer Hub" : reason.Trim();
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/moderation/bans?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}")
-            {
-                Content = new StringContent(JsonSerializer.Serialize(new
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/moderation/bans?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}")
                 {
-                    data = new { user_id = profile.UserId, reason = safeReason }
-                }), Encoding.UTF8, "application/json")
-            };
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    Content = new StringContent(JsonSerializer.Serialize(new
+                    {
+                        data = new { user_id = targetUserId, reason = safeReason }
+                    }), Encoding.UTF8, "application/json")
+                },
+                cancellationToken).ConfigureAwait(false);
+
             if (response.IsSuccessStatusCode)
             {
-                ChatCleared?.Invoke(new ChatClear(ChatClearScope.User, cleanTarget));
+                ChatCleared?.Invoke(new ChatClear(ChatClearScope.User, targetUserId));
+                if (!string.IsNullOrWhiteSpace(resolvedLogin) && !string.Equals(resolvedLogin, targetUserId, StringComparison.OrdinalIgnoreCase))
+                {
+                    ChatCleared?.Invoke(new ChatClear(ChatClearScope.User, resolvedLogin));
+                }
                 return (true, null);
             }
 
@@ -672,20 +792,23 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUsernameOrId);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var (moderatorId, mErr) = await GetModeratorIdAsync().ConfigureAwait(false);
+        var (moderatorId, mErr) = await GetModeratorIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(moderatorId)) return (false, mErr ?? "MODERATOR_ID_NOT_FOUND");
 
-        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
+        var (targetResolved, targetUserId, _, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
+        {
+            return (false, targetErr ?? "USER_NOT_FOUND");
+        }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/moderation/bans?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}&user_id={Uri.EscapeDataString(profile.UserId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/moderation/bans?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}&user_id={Uri.EscapeDataString(targetUserId)}"),
+                cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode) return (true, null);
 
             return (false, await ReadHelixErrorAsync(response).ConfigureAwait(false));
@@ -701,17 +824,20 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUsernameOrId);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
+        var (targetResolved, targetUserId, _, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
+        {
+            return (false, targetErr ?? "USER_NOT_FOUND");
+        }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/moderation/moderators?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&user_id={Uri.EscapeDataString(profile.UserId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/moderation/moderators?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&user_id={Uri.EscapeDataString(targetUserId)}"),
+                cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode) return (true, null);
 
             return (false, await ReadHelixErrorAsync(response).ConfigureAwait(false));
@@ -727,23 +853,27 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUsernameOrId);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
+        var (targetResolved, targetUserId, resolvedLogin, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
+        {
+            return (false, targetErr ?? "USER_NOT_FOUND");
+        }
 
-        if (string.Equals(profile.UserId, broadcasterId, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(profile.Login, _channel, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(targetUserId, broadcasterId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(resolvedLogin, _channel, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(cleanTarget, _channel, StringComparison.OrdinalIgnoreCase))
         {
             return (false, "CANNOT_UNMOD_BROADCASTER");
         }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/moderation/moderators?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&user_id={Uri.EscapeDataString(profile.UserId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/moderation/moderators?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&user_id={Uri.EscapeDataString(targetUserId)}"),
+                cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode) return (true, null);
 
             return (false, await ReadHelixErrorAsync(response).ConfigureAwait(false));
@@ -759,17 +889,20 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUsernameOrId);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
+        var (targetResolved, targetUserId, _, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
+        {
+            return (false, targetErr ?? "USER_NOT_FOUND");
+        }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/channels/vips?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&user_id={Uri.EscapeDataString(profile.UserId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/channels/vips?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&user_id={Uri.EscapeDataString(targetUserId)}"),
+                cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode) return (true, null);
 
             return (false, await ReadHelixErrorAsync(response).ConfigureAwait(false));
@@ -785,17 +918,20 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUsernameOrId);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
+        var (targetResolved, targetUserId, _, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
+        {
+            return (false, targetErr ?? "USER_NOT_FOUND");
+        }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/channels/vips?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&user_id={Uri.EscapeDataString(profile.UserId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/channels/vips?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&user_id={Uri.EscapeDataString(targetUserId)}"),
+                cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode) return (true, null);
 
             return (false, await ReadHelixErrorAsync(response).ConfigureAwait(false));
@@ -808,17 +944,17 @@ public sealed class TwitchIrcClient : ITwitchClient
 
     public async Task<(bool Ok, string? Error)> ClearChatAsync(CancellationToken cancellationToken = default)
     {
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var (moderatorId, mErr) = await GetModeratorIdAsync().ConfigureAwait(false);
+        var (moderatorId, mErr) = await GetModeratorIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(moderatorId)) return (false, mErr ?? "MODERATOR_ID_NOT_FOUND");
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/moderation/chat?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/moderation/chat?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}"),
+                cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode) return (true, null);
 
             return (false, await ReadHelixErrorAsync(response).ConfigureAwait(false));
@@ -833,17 +969,17 @@ public sealed class TwitchIrcClient : ITwitchClient
     {
         if (string.IsNullOrWhiteSpace(messageId)) return (false, "EMPTY_MESSAGE_ID");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var (moderatorId, mErr) = await GetModeratorIdAsync().ConfigureAwait(false);
+        var (moderatorId, mErr) = await GetModeratorIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(moderatorId)) return (false, mErr ?? "MODERATOR_ID_NOT_FOUND");
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/moderation/chat?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}&message_id={Uri.EscapeDataString(messageId.Trim())}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Delete, $"https://api.twitch.tv/helix/moderation/chat?broadcaster_id={Uri.EscapeDataString(broadcasterId)}&moderator_id={Uri.EscapeDataString(moderatorId)}&message_id={Uri.EscapeDataString(messageId.Trim())}"),
+                cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode)
             {
                 ChatCleared?.Invoke(new ChatClear(ChatClearScope.Message, messageId.Trim()));
@@ -863,20 +999,23 @@ public sealed class TwitchIrcClient : ITwitchClient
         var cleanTarget = CleanUsername(targetUsernameOrId);
         if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, "EMPTY_TARGET");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var (moderatorId, mErr) = await GetModeratorIdAsync().ConfigureAwait(false);
+        var (moderatorId, mErr) = await GetModeratorIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(moderatorId)) return (false, mErr ?? "MODERATOR_ID_NOT_FOUND");
 
-        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId)) return (false, profile.Error ?? "USER_NOT_FOUND");
+        var (targetResolved, targetUserId, _, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
+        {
+            return (false, targetErr ?? "USER_NOT_FOUND");
+        }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/chat/shoutouts?from_broadcaster_id={Uri.EscapeDataString(broadcasterId)}&to_broadcaster_id={Uri.EscapeDataString(profile.UserId)}&moderator_id={Uri.EscapeDataString(moderatorId)}");
-            AddHelixHeaders(request);
-            using var response = await Helix.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/chat/shoutouts?from_broadcaster_id={Uri.EscapeDataString(broadcasterId)}&to_broadcaster_id={Uri.EscapeDataString(targetUserId)}&moderator_id={Uri.EscapeDataString(moderatorId)}"),
+                cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode) return (true, null);
 
             return (false, await ReadHelixErrorAsync(response).ConfigureAwait(false));
@@ -897,19 +1036,19 @@ public sealed class TwitchIrcClient : ITwitchClient
         if (string.IsNullOrWhiteSpace(cleanTarget))
             return (false, false, null, "EMPTY_TARGET_USERNAME");
 
-        var (broadcasterId, bErr) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId))
             return (false, false, cleanTarget, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
-        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
-        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId))
-            return (false, false, cleanTarget, profile.Error ?? "USER_NOT_FOUND");
+        var (targetResolved, targetUserId, resolvedLogin, targetErr) = await ResolveTargetUserAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!targetResolved || string.IsNullOrWhiteSpace(targetUserId))
+            return (false, false, cleanTarget, targetErr ?? "USER_NOT_FOUND");
 
-        var targetUserId = profile.UserId;
-        var targetLogin = profile.Login ?? cleanTarget;
+        var targetLogin = resolvedLogin ?? cleanTarget;
 
         if (string.Equals(targetUserId, broadcasterId, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(targetLogin, _channel, StringComparison.OrdinalIgnoreCase))
+            string.Equals(targetLogin, _channel, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(cleanTarget, _channel, StringComparison.OrdinalIgnoreCase))
         {
             return (false, false, targetLogin, "CANNOT_TIMEOUT_BROADCASTER");
         }
@@ -928,96 +1067,74 @@ public sealed class TwitchIrcClient : ITwitchClient
         }
 
         var (checkOk, isMod, _) = await CheckIsModeratorAsync(targetUserId, cancellationToken).ConfigureAwait(false);
+        var targetIsMod = (checkOk && isMod) || isLeadMod;
 
-        if ((checkOk && isMod) || isLeadMod)
+        if (!targetIsMod)
         {
-            var (unmodOk, unmodErr) = await UnmodUserAsync(targetUserId, cancellationToken).ConfigureAwait(false);
-            if (!unmodOk)
+            // First try a direct timeout
+            var (directOk, directErr) = await TimeoutUserDirectAsync(targetUserId, duration, timeoutReason, targetLogin, cancellationToken).ConfigureAwait(false);
+            if (directOk) return (true, false, targetLogin, null);
+            if (directErr == null || !directErr.Contains("moderator", StringComparison.OrdinalIgnoreCase))
             {
-                if (unmodErr == null || !unmodErr.Contains("not a moderator", StringComparison.OrdinalIgnoreCase))
-                {
-                    return (false, true, targetLogin, $"FAILED_TO_UNMOD_FOR_TIMEOUT: {unmodErr}");
-                }
+                return (false, false, targetLogin, directErr);
             }
-
-            // Unmod propagation loop: Twitch distributed clusters can take 1-3 seconds to propagate the unmod
-            bool timeoutOk = false;
-            string? timeoutErr = null;
-            for (var attempt = 0; attempt < 3; attempt++)
-            {
-                var delayMs = attempt == 0 ? 1200 : 1500;
-                try
-                {
-                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-
-                (timeoutOk, timeoutErr) = await TimeoutUserDirectAsync(targetUserId, duration, timeoutReason, targetLogin, cancellationToken).ConfigureAwait(false);
-                if (timeoutOk) break;
-
-                // If the error is not about being a moderator, do not keep retrying propagation
-                if (timeoutErr == null || !timeoutErr.Contains("moderator", StringComparison.OrdinalIgnoreCase))
-                {
-                    break;
-                }
-            }
-
-            if (!timeoutOk)
-            {
-                // Rollback: try to restore mod status immediately so user is not left unmodded
-                var (rollbackOk, _) = await ModUserAsync(targetUserId, CancellationToken.None).ConfigureAwait(false);
-                if (!rollbackOk)
-                {
-                    // If immediate rollback failed, enqueue to persistent manager so background retry loop handles it
-                    EnsureRemodTimerStarted();
-                    _remodManager.Enqueue(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(2), wasLeadMod: isLeadMod);
-                }
-                return (false, true, targetLogin, $"FAILED_TO_TIMEOUT_MOD: {timeoutErr}");
-            }
-
-            // Enqueue remod with a 2-second safety buffer beyond duration to allow Twitch ban table to clear
-            EnsureRemodTimerStarted();
-            _remodManager.Enqueue(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(duration).AddSeconds(2), wasLeadMod: isLeadMod);
-
-            return (true, true, targetLogin, null);
+            // Direct timeout confirmed they are indeed a moderator on Twitch
+            targetIsMod = true;
         }
-        else
+
+        // Target is a moderator: Unmod -> wait for edge propagation -> Timeout -> Enqueue Remod
+        var (unmodOk, unmodErr) = await UnmodUserAsync(targetUserId, cancellationToken).ConfigureAwait(false);
+        if (!unmodOk)
         {
-            var (timeoutOk, timeoutErr) = await TimeoutUserDirectAsync(targetUserId, duration, timeoutReason, targetLogin, cancellationToken).ConfigureAwait(false);
-            if (!timeoutOk && timeoutErr != null && timeoutErr.Contains("moderator", StringComparison.OrdinalIgnoreCase))
+            if (unmodErr == null || !unmodErr.Contains("not a moderator", StringComparison.OrdinalIgnoreCase))
             {
-                var (unmodOk, _) = await UnmodUserAsync(targetUserId, cancellationToken).ConfigureAwait(false);
-                if (unmodOk)
-                {
-                    bool retryOk = false;
-                    string? retryErr = null;
-                    for (var attempt = 0; attempt < 3; attempt++)
-                    {
-                        var delayMs = attempt == 0 ? 1200 : 1500;
-                        try { await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false); } catch { break; }
+                return (false, true, targetLogin, $"FAILED_TO_UNMOD_FOR_TIMEOUT: {unmodErr}");
+            }
+        }
 
-                        (retryOk, retryErr) = await TimeoutUserDirectAsync(targetUserId, duration, timeoutReason, targetLogin, cancellationToken).ConfigureAwait(false);
-                        if (retryOk) break;
-                        if (retryErr == null || !retryErr.Contains("moderator", StringComparison.OrdinalIgnoreCase)) break;
-                    }
-
-                    if (!retryOk)
-                    {
-                        _ = ModUserAsync(targetUserId, CancellationToken.None);
-                        return (false, true, targetLogin, retryErr);
-                    }
-
-                    EnsureRemodTimerStarted();
-                    _remodManager.Enqueue(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(duration).AddSeconds(2), wasLeadMod: isLeadMod);
-                    return (true, true, targetLogin, null);
-                }
+        // Unmod propagation loop: Twitch distributed clusters can take 1-4 seconds to propagate the unmod
+        bool timeoutOk = false;
+        string? timeoutErr = null;
+        var propagationDelays = new[] { 1000, 1200, 1500, 2000 };
+        for (var attempt = 0; attempt < propagationDelays.Length; attempt++)
+        {
+            try
+            {
+                await Task.Delay(propagationDelays[attempt], cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
 
-            return (timeoutOk, false, targetLogin, timeoutErr);
+            (timeoutOk, timeoutErr) = await TimeoutUserDirectAsync(targetUserId, duration, timeoutReason, targetLogin, cancellationToken).ConfigureAwait(false);
+            if (timeoutOk) break;
+
+            // If the error is not about being a moderator, do not keep retrying propagation
+            if (timeoutErr == null || !timeoutErr.Contains("moderator", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
         }
+
+        if (!timeoutOk)
+        {
+            // Rollback: try to restore mod status immediately so user is not left unmodded
+            var (rollbackOk, _) = await ModUserAsync(targetUserId, CancellationToken.None).ConfigureAwait(false);
+            if (!rollbackOk)
+            {
+                // If immediate rollback failed, enqueue to persistent manager so background retry loop handles it
+                EnsureRemodTimerStarted();
+                _remodManager.Enqueue(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(2), wasLeadMod: isLeadMod);
+            }
+            return (false, true, targetLogin, $"FAILED_TO_TIMEOUT_MOD: {timeoutErr}");
+        }
+
+        // Enqueue remod with a 2-second safety buffer beyond duration to allow Twitch ban table to clear
+        EnsureRemodTimerStarted();
+        _remodManager.Enqueue(broadcasterId, targetUserId, targetLogin, DateTime.UtcNow.AddSeconds(duration).AddSeconds(2), wasLeadMod: isLeadMod);
+
+        return (true, true, targetLogin, null);
     }
 
     private static async Task<string> ReadHelixErrorAsync(HttpResponseMessage response)
@@ -1169,6 +1286,9 @@ public sealed class TwitchIrcClient : ITwitchClient
             if (!string.IsNullOrWhiteSpace(message.UserId))
             {
                 _chatterRoles[message.UserId] = (message.IsMod, message.IsLeadMod);
+                var login = message.UserLogin ?? message.Username.ToLowerInvariant();
+                var displayName = message.DisplayName ?? message.Username;
+                RememberChatter(message.UserId, login, displayName);
             }
 
             ChatMessageReceived?.Invoke(message);
@@ -1437,6 +1557,17 @@ public static class TwitchClearParser
         {
             clear = new ChatClear(ChatClearScope.User, userId.Trim());
             return true;
+        }
+
+        var lastColon = line.LastIndexOf(':');
+        if (lastColon > 0)
+        {
+            var trailing = line[(lastColon + 1)..].Trim();
+            if (!string.IsNullOrEmpty(trailing) && !trailing.StartsWith("tmi.twitch.tv", StringComparison.OrdinalIgnoreCase))
+            {
+                clear = new ChatClear(ChatClearScope.User, trailing);
+                return true;
+            }
         }
 
         // A CLEARCHAT with no target clears the entire room.
