@@ -9,7 +9,7 @@
     <RootNamespace>StreamerHub.Core</RootNamespace>
     <AssemblyName>StreamerHub</AssemblyName>
     <ApplicationIcon>..\assets\streamer-hub-icon.ico</ApplicationIcon>
-    <Version>0.3.6</Version>
+    <Version>0.3.7</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
@@ -20,8 +20,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\dist\**\*" Exclude="..\dist\src\chat-overlay.html" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="Always" />
+    <Content Include="..\dist\**\*" Exclude="..\dist\src\chat-overlay.html;..\dist\src\vote-overlay.html" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="Always" />
     <Content Include="..\dist\src\chat-overlay.html" Link="wwwroot\chat-overlay.html" CopyToOutputDirectory="Always" />
+    <Content Include="..\dist\src\vote-overlay.html" Link="wwwroot\vote-overlay.html" CopyToOutputDirectory="Always" />
     <Content Include="..\assets\streamer-hub-icon.ico" Link="streamer-hub-icon.ico" CopyToOutputDirectory="Always" />
   </ItemGroup>
 

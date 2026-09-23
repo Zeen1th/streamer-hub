@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using StreamerHub.Core.Audio;
 using StreamerHub.Core.Obs;
 using StreamerHub.Core.AI;
 using StreamerHub.Core.Overlay;
@@ -21,6 +22,7 @@ public sealed class ChatOverlayHostBridge
     {
         _settings = settings;
         _server = server;
+        _server.SetActivePoll(settings.ActivePoll);
     }
 
     public ChatOverlaySettings GetState() => _settings.ChatOverlay;
@@ -41,6 +43,11 @@ public sealed class ChatOverlayHostBridge
     }
 
     public string GetDockUrl() => _server.DockUrl?.ToString() ?? string.Empty;
+
+    public string GetVoteOverlayUrl() => _server.VoteOverlayUrl?.ToString() ?? string.Empty;
+
+    public async Task PublishVoteStateAsync(PollState state, CancellationToken cancellationToken = default) =>
+        await _server.PublishVoteStateAsync(state, cancellationToken).ConfigureAwait(false);
 
     public async Task<bool> SaveOverlayAsync(ChatOverlayInstance overlay, CancellationToken cancellationToken = default)
     {
@@ -134,6 +141,7 @@ public sealed class HostController : IDisposable
     private sealed record BeginResizePayload(string Edge);
     private sealed record SaveSequencePayload(CommandSequence? Sequence);
     private sealed record DeleteSequencePayload(string SequenceId);
+    private sealed record SaveVotesPayload(PollState? Poll);
 
     private readonly MainForm _form;
     private readonly WebView2 _webView;
@@ -152,6 +160,8 @@ public sealed class HostController : IDisposable
     private readonly ITwitchClient _twitch = new TwitchIrcClient();
     private readonly ITwitchClient _botTwitch = new TwitchIrcClient();
     private readonly TwitchEventSubClient _eventSub = new();
+    private readonly WindowsMicController _micController = new();
+    private readonly SoundEffectPlayer _soundPlayer = new();
     private readonly HashSet<string> _seenRedemptionIds = new(StringComparer.Ordinal);
     private readonly object _seenRedemptionsLock = new();
     private readonly Dictionary<string, DateTime> _seenRaids = new(StringComparer.OrdinalIgnoreCase);
@@ -364,6 +374,25 @@ public sealed class HostController : IDisposable
         {
             var request = Json.Deserialize<SaveFilePayload>(payload ?? default);
             return Task.FromResult<object?>(new { path = ShowSaveDialog(request?.DefaultName ?? "deaths.txt") });
+        });
+        _dispatcher.Register(Channels.DialogOpenFile, (payload, _) =>
+        {
+            var request = Json.Deserialize<OpenFilePayload>(payload ?? default);
+            return Task.FromResult<object?>(new { path = ShowOpenDialog(request?.Filter ?? "Audio files (*.mp3;*.wav;*.ogg)|*.mp3;*.wav;*.ogg|All files (*.*)|*.*", request?.Title ?? "Select Audio File") });
+        });
+        _dispatcher.Register(Channels.AudioPlaySound, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<AudioPlaySoundPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.SoundPath)) return new { ok = false, error = "MISSING_SOUND_PATH" };
+            var success = await _soundPlayer.PlayAsync(request.SoundPath, request.Volume, ct).ConfigureAwait(false);
+            return new { ok = success };
+        });
+        _dispatcher.Register(Channels.AudioMuteMic, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<AudioMuteMicPayload>(payload ?? default);
+            var duration = request?.DurationSeconds ?? 5;
+            var success = await _micController.MuteForDurationAsync(duration, ct).ConfigureAwait(false);
+            return new { ok = success };
         });
         _dispatcher.Register(Channels.LogAppend, (payload, _) =>
         {
@@ -890,6 +919,37 @@ public sealed class HostController : IDisposable
             await _chatOverlay.SetObsChatPreviewAsync(enabled, request?.Messages, ct).ConfigureAwait(false);
             return new { ok = true };
         });
+        _dispatcher.Register(Channels.VotesGetState, (_, _) =>
+            Task.FromResult<object?>(new { poll = _settings.ActivePoll, url = _chatOverlay.GetVoteOverlayUrl() }));
+        _dispatcher.Register(Channels.VotesSave, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<SaveVotesPayload>(payload ?? default);
+            if (request?.Poll is null) return new { ok = false };
+            _settings.SetActivePoll(request.Poll);
+            _settings.Flush();
+            await _chatOverlay.PublishVoteStateAsync(request.Poll, ct).ConfigureAwait(false);
+            PostEvent(Events.VotesChanged, request.Poll);
+            return new { ok = true, poll = request.Poll };
+        });
+        _dispatcher.Register(Channels.VotesReset, async (_, ct) =>
+        {
+            var current = _settings.ActivePoll;
+            var resetOptions = current.Options.Select(o => o with { Votes = 0 }).ToList();
+            var resetPoll = current with { Options = resetOptions, TotalVotes = 0, Voters = new Dictionary<string, string>() };
+            _settings.SetActivePoll(resetPoll);
+            _settings.Flush();
+            await _chatOverlay.PublishVoteStateAsync(resetPoll, ct).ConfigureAwait(false);
+            PostEvent(Events.VotesChanged, resetPoll);
+            return new { ok = true, poll = resetPoll };
+        });
+        _dispatcher.Register(Channels.VotesGenerateAi, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<GenerateAiPollPayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.Topic))
+                return new GenerateAiPollResponse(false, Error: "TOPIC_REQUIRED");
+
+            return await GenerateAiPollAsync(request, ct).ConfigureAwait(false);
+        });
         _dispatcher.Register(Channels.AutoRepliesGenerate, async (payload, ct) =>
         {
             var request = Json.Deserialize<GenerateAutoReplyPayload>(payload ?? default);
@@ -1253,6 +1313,11 @@ public sealed class HostController : IDisposable
                 PostEvent(Events.TwitchChannelPointsRedeemed, redemption);
                 Log("trigger", $"CHANNEL POINTS REDEEMED · {redemption.UserName} redeemed '{redemption.RewardTitle}'");
             }
+        };
+        _eventSub.FollowReceived += follow =>
+        {
+            PostEvent(Events.TwitchFollow, follow);
+            Log("trigger", $"TWITCH FOLLOW · {follow.UserName} just followed!");
         };
         _eventSub.ChannelTitleUpdated += updatedTitle =>
         {
@@ -1734,6 +1799,21 @@ public sealed class HostController : IDisposable
         return path;
     }
 
+    private string? ShowOpenDialog(string filter, string title)
+    {
+        string? path = null;
+        Ui(() =>
+        {
+            using var dialog = new OpenFileDialog
+            {
+                Filter = filter,
+                Title = title,
+            };
+            if (dialog.ShowDialog(_form) == DialogResult.OK) path = dialog.FileName;
+        });
+        return path;
+    }
+
     private void RefreshKeybinds()
     {
         var valid = new List<ActionKeybind>();
@@ -1790,13 +1870,237 @@ public sealed class HostController : IDisposable
         catch
         {
         }
-        if (emitEvent) PostEvent(Events.CoreLog, new { message });
+    }
+
+    private async Task<GenerateAiPollResponse> GenerateAiPollAsync(GenerateAiPollPayload request, CancellationToken ct)
+    {
+        var topic = request.Topic.Trim();
+        var instructions = request.Instructions?.Trim() ?? string.Empty;
+        var count = Math.Clamp(request.OptionCount, 2, 6);
+        var isArabic = string.Equals(request.Language, "ar", StringComparison.OrdinalIgnoreCase) ||
+                       (topic + " " + instructions).Any(c => c >= '\u0600' && c <= '\u06FF');
+
+        string title = string.Empty;
+        var candidateLabels = new List<string>();
+
+        // 1. Try LLM generation if OpenRouter / Groq key is configured
+        var groqKey = _groqKey.Load();
+        var openRouterKey = _openRouterKey.Load();
+        var hasKey = !string.IsNullOrWhiteSpace(groqKey) || !string.IsNullOrWhiteSpace(openRouterKey);
+
+        if (hasKey)
+        {
+            try
+            {
+                var provider = !string.IsNullOrWhiteSpace(groqKey) ? "groq" : "openrouter";
+                var key = provider == "groq" ? groqKey : openRouterKey;
+                var model = provider == "groq" ? "openai/gpt-oss-20b" : "meta-llama/llama-3.2-3b-instruct:free";
+
+                var sysPrompt = isArabic
+                    ? $"أنت مساعد بث ذكي للمذيع المباشر على تويتش. مهمتك هي إنشاء استطلاع رأي جذاب وممتع للمشاهدين.\n" +
+                      $"يجب أن ترجع استجابتك بتنسيق JSON حصراً بدون أي نصوص إضافية:\n" +
+                      $"{{\n  \"title\": \"سؤال الاستطلاع هنا\",\n  \"options\": [\"الخيار الأول\", \"الخيار الثاني\", ...]\n}}\n" +
+                      $"عدد الخيارات المطلوب: {count} خيارات. يجب أن تكون الخيارات أسماء دقيقة للألعاب أو المواضيع المطلوبة."
+                    : $"You are an AI stream assistant helping a Twitch streamer create an engaging live poll.\n" +
+                      $"Return ONLY a valid JSON object matching this exact format with NO markdown fences, no thinking, and no surrounding text:\n" +
+                      $"{{\n  \"title\": \"A concise, engaging poll question\",\n  \"options\": [\"Option 1\", \"Option 2\", ...]\n}}\n" +
+                      $"Required number of options: exactly {count}. Each option must be the exact specific name of the game/topic.";
+
+                var userPrompt = $"Streamer topic/question: {topic}\n" +
+                                 (!string.IsNullOrWhiteSpace(instructions) ? $"Additional instructions: {instructions}\n" : "") +
+                                 $"Generate the poll title and {count} options now in JSON.";
+
+                var genResult = await _openRouter.GenerateAsync(
+                    provider,
+                    key!,
+                    model,
+                    sysPrompt,
+                    new ChatMessage { Message = userPrompt, Username = "Streamer" },
+                    400,
+                    ct
+                ).ConfigureAwait(false);
+
+                if (genResult.Ok && !string.IsNullOrWhiteSpace(genResult.Message))
+                {
+                    var raw = genResult.Message.Trim();
+                    if (raw.StartsWith("```"))
+                    {
+                        var firstNewline = raw.IndexOf('\n');
+                        if (firstNewline > 0) raw = raw[(firstNewline + 1)..];
+                        if (raw.EndsWith("```")) raw = raw[..^3].Trim();
+                    }
+
+                    using var doc = JsonDocument.Parse(raw);
+                    if (doc.RootElement.TryGetProperty("title", out var titleElem))
+                    {
+                        title = titleElem.GetString() ?? string.Empty;
+                    }
+                    if (doc.RootElement.TryGetProperty("options", out var optionsElem) && optionsElem.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var opt in optionsElem.EnumerateArray())
+                        {
+                            var s = opt.GetString()?.Trim();
+                            if (!string.IsNullOrWhiteSpace(s) && !candidateLabels.Contains(s))
+                            {
+                                candidateLabels.Add(s);
+                                if (candidateLabels.Count >= count) break;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("system", $"AI Poll generation fallback triggered: {ex.Message}");
+            }
+        }
+
+        // 2. Intelligent Curated Catalog Fallback if LLM was skipped or returned incomplete options
+        if (candidateLabels.Count < 2)
+        {
+            var fallback = ResolveCuratedPoll(topic, count, isArabic);
+            title = fallback.Title;
+            candidateLabels = fallback.Options.Take(count).ToList();
+        }
+
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            title = isArabic ? $"استطلاع: {topic}" : $"Poll: {topic}";
+        }
+
+        // 3. Resolve images for each option (via Steam Store Search or high-res artwork)
+        var defaultColors = new[]
+        {
+            "#06b6d4", "#8b5cf6", "#ec4899", "#10b981", "#f59e0b", "#3b82f6"
+        };
+
+        var finalOptions = new List<AiPollOptionDto>();
+        for (int i = 0; i < candidateLabels.Count; i++)
+        {
+            var label = candidateLabels[i];
+            var color = defaultColors[i % defaultColors.Length];
+            var imgUrl = await SearchGameOrTopicImageAsync(label, ct).ConfigureAwait(false);
+            finalOptions.Add(new AiPollOptionDto(label, imgUrl, color));
+        }
+
+        return new GenerateAiPollResponse(true, title, finalOptions);
+    }
+
+    private static (string Title, List<string> Options) ResolveCuratedPoll(string topic, int count, bool isArabic)
+    {
+        var lower = topic.ToLowerInvariant();
+
+        if (lower.Contains("open world") || lower.Contains("عالم مفتوح"))
+        {
+            return (
+                isArabic ? "ما هي أفضل لعبة عالم مفتوح؟" : "What is the best open-world game?",
+                new List<string> { "The Witcher 3: Wild Hunt", "Elden Ring", "Cyberpunk 2077", "Red Dead Redemption 2", "Grand Theft Auto V", "The Legend of Zelda: Tears of the Kingdom" }
+            );
+        }
+
+        if (lower.Contains("horror") || lower.Contains("رعب"))
+        {
+            return (
+                isArabic ? "أي لعبة رعب نلعبها في البث؟" : "Which horror game should we stream?",
+                new List<string> { "Resident Evil 4", "Silent Hill 2", "Dead Space", "Alan Wake 2", "Outlast", "Amnesia: The Dark Descent" }
+            );
+        }
+
+        if (lower.Contains("fps") || lower.Contains("shooter") || lower.Contains("تصويب"))
+        {
+            return (
+                isArabic ? "ما هي أفضل لعبة تصويب؟" : "Best competitive FPS shooter?",
+                new List<string> { "Valorant", "Counter-Strike 2", "Overwatch 2", "Apex Legends", "Call of Duty: Warzone", "Rainbow Six Siege" }
+            );
+        }
+
+        if (lower.Contains("souls") || lower.Contains("سولز") || lower.Contains("fromsoft"))
+        {
+            return (
+                isArabic ? "أفضل لعبة سولز بالنسبة لك؟" : "Best Souls-like challenge?",
+                new List<string> { "Elden Ring", "Dark Souls III", "Bloodborne", "Sekiro: Shadows Die Twice", "Lies of P", "Demon's Souls" }
+            );
+        }
+
+        if (lower.Contains("cozy") || lower.Contains("chill") || lower.Contains("مريحة") || lower.Contains("استرخاء"))
+        {
+            return (
+                isArabic ? "أفضل لعبة استرخاء للبث؟" : "Best cozy game for stream?",
+                new List<string> { "Stardew Valley", "Minecraft", "Animal Crossing: New Horizons", "Terraria", "Slime Rancher", "Dave the Diver" }
+            );
+        }
+
+        if (lower.Contains("battle royale") || lower.Contains("باتل رويال"))
+        {
+            return (
+                isArabic ? "أي لعبة باتل رويال نلعب اليوم؟" : "Which Battle Royale today?",
+                new List<string> { "Fortnite", "Apex Legends", "Call of Duty: Warzone", "PUBG: Battlegrounds" }
+            );
+        }
+
+        if (lower.Contains("anime") || lower.Contains("أنمي"))
+        {
+            return (
+                isArabic ? "ما هو أفضل أنمي؟" : "Best Anime of All Time?",
+                new List<string> { "Attack on Titan", "One Piece", "Fullmetal Alchemist: Brotherhood", "Jujutsu Kaisen", "Demon Slayer", "Death Note" }
+            );
+        }
+
+        // Generic intelligent fallback
+        var genericTitle = isArabic ? $"استطلاع: {topic}" : $"Poll: {topic}";
+        var genericOptions = isArabic
+            ? new List<string> { "الخيار الأول", "الخيار الثاني", "الخيار الثالث", "الخيار الرابع" }
+            : new List<string> { "Option A", "Option B", "Option C", "Option D" };
+
+        return (genericTitle, genericOptions);
+    }
+
+    private static async Task<string?> SearchGameOrTopicImageAsync(string query, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return null;
+
+        try
+        {
+            var steamUrl = $"https://steamcommunity.com/actions/SearchApps/{Uri.EscapeDataString(query.Trim())}";
+            using var req = new HttpRequestMessage(HttpMethod.Get, steamUrl);
+            req.Headers.Add("User-Agent", "StreamerHub/0.3.7");
+            using var resp = await UpdateHttp.SendAsync(req, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+            {
+                var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+                {
+                    var first = doc.RootElement[0];
+                    if (first.TryGetProperty("appid", out var appidElem))
+                    {
+                        var appid = appidElem.GetString();
+                        if (!string.IsNullOrWhiteSpace(appid))
+                        {
+                            return $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/header.jpg";
+                        }
+                    }
+                    if (first.TryGetProperty("logo", out var logoElem))
+                    {
+                        var logo = logoElem.GetString();
+                        if (!string.IsNullOrWhiteSpace(logo)) return logo;
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 
     public void Dispose()
     {
         try
         {
+            _micController.Dispose();
+            _soundPlayer.Dispose();
             _eventSub.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _twitch.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _botTwitch.DisposeAsync().AsTask().GetAwaiter().GetResult();

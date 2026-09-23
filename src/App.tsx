@@ -27,7 +27,9 @@ import { useSettingsStore } from './store/settingsStore';
 import { useToolStore } from './store/toolStore';
 import { useUpdateStore } from './store/updateStore';
 import { useChatterStore } from './store/chatterStore';
+import { useVoteStore } from './store/voteStore';
 import { ObsChatView } from './components/tools/chat/ObsChatView';
+import { VotesView } from './components/tools/votes/VotesView';
 import { ReauthPromptModal } from './components/modals/ReauthPromptModal';
 
 export default function App() {
@@ -103,12 +105,16 @@ export default function App() {
       useChatOverlayStore.getState().addMessage(message);
       useObsChatOverlayStore.getState().addMessage(message);
       useObsChatStore.getState().addMessage(message);
+      useVoteStore.getState().handleChatMessage(message);
     });
     const offRedemption = rpc.on(Events.TwitchChannelPointsRedeemed, (redemption) => {
       useSequenceStore.getState().handleChannelPointsRedemption(redemption);
     });
     const offRaid = rpc.on(Events.TwitchRaid, (raid) => {
       useSequenceStore.getState().handleRaid(raid);
+    });
+    const offFollow = rpc.on(Events.TwitchFollow, (follow) => {
+      useSequenceStore.getState().handleFollow(follow);
     });
     const offProfile = rpc.on(Events.TwitchUserProfile, (payload) => {
       useChatterStore.getState().recordChatter({
@@ -128,6 +134,9 @@ export default function App() {
     const offKeybind = rpc.on(Events.KeybindTriggered, ({ bindingId }) => useKeybindStore.getState().trigger(bindingId));
     const offTitle = rpc.on(Events.TwitchTitleChanged, (payload) => {
       window.dispatchEvent(new CustomEvent('twitch-title-changed', { detail: payload.title }));
+    });
+    const offVotes = rpc.on(Events.VotesChanged, (poll) => {
+      useVoteStore.getState().applyRemotePoll(poll);
     });
 
     const boot = async () => {
@@ -163,6 +172,7 @@ export default function App() {
           await Promise.all([
             useChatOverlayStore.getState().load(),
             useObsChatOverlayStore.getState().load(),
+            useVoteStore.getState().loadState(),
           ]);
         }
       } catch { void 0; }
@@ -188,7 +198,7 @@ export default function App() {
 
     return () => {
       disposed = true;
-      offStatus(); offMaximized(); offChat(); offRedemption(); offRaid(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offTitle();
+      offStatus(); offMaximized(); offChat(); offRedemption(); offRaid(); offFollow(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offTitle(); offVotes();
       window.clearInterval(poll);
     };
   }, []);
@@ -231,6 +241,7 @@ export default function App() {
             {tab === 'commands' && <CommandsView />}
             {tab === 'overlay' && <ChatView target="overlay" />}
             {tab === 'obs-chat' && <ObsChatView />}
+            {tab === 'votes' && <VotesView />}
             {tab === 'activity' && <ActivityLog className="min-h-0 flex-1" />}
             {tab === 'settings' && <SettingsView />}
           </main>

@@ -14,6 +14,7 @@ export default defineConfig({
         app: 'index.html',
         chatOverlay: 'src/chat-overlay.html',
         obsChat: 'src/obs-chat.html',
+        voteOverlay: 'src/vote-overlay.html',
       },
     },
   },

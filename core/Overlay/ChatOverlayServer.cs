@@ -72,6 +72,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     private bool _connected;
     private bool _previewEnabled;
     private IReadOnlyList<ChatMessage>? _previewMessages;
+    private PollState _activePoll = new();
     private int _disposed;
 
     public ChatOverlayServer(
@@ -96,6 +97,8 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     public Uri OverlayUrl { get; private set; } = null!;
 
     public Uri DockUrl { get; private set; } = null!;
+
+    public Uri VoteOverlayUrl { get; private set; } = null!;
 
     public Uri WebSocketUrl { get; private set; } = null!;
 
@@ -129,6 +132,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                     Port = port;
                     OverlayUrl = new Uri($"http://127.0.0.1:{port}/chat-overlay.html");
                     DockUrl = new Uri($"http://127.0.0.1:{port}/obs-chat.html");
+                    VoteOverlayUrl = new Uri($"http://127.0.0.1:{port}/vote-overlay.html");
                     WebSocketUrl = new Uri($"ws://127.0.0.1:{port}/ws");
                     _listener = listener;
                     _serverCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -192,6 +196,18 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(providers);
         lock (_stateLock) _emoteProviders = providers;
         await BroadcastAsync(ChatOverlayProtocol.Emotes(providers), cancellationToken).ConfigureAwait(false);
+    }
+
+    public void SetActivePoll(PollState poll)
+    {
+        lock (_stateLock) _activePoll = poll ?? new();
+    }
+
+    public async Task PublishVoteStateAsync(PollState state, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        lock (_stateLock) _activePoll = state;
+        await BroadcastAsync(ChatOverlayProtocol.VoteState(state), "vote-overlay", cancellationToken).ConfigureAwait(false);
     }
 
     public void RegisterOverlays(IEnumerable<ChatOverlayInstance> overlays)
@@ -492,6 +508,8 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                 {
                     if (string.Equals(val, "obs-chat", StringComparison.OrdinalIgnoreCase))
                         target = "obs-chat";
+                    else if (string.Equals(val, "vote-overlay", StringComparison.OrdinalIgnoreCase) || string.Equals(val, "votes", StringComparison.OrdinalIgnoreCase))
+                        target = "vote-overlay";
                 }
                 else if ((string.Equals(key, "id", StringComparison.OrdinalIgnoreCase) ||
                           string.Equals(key, "overlayId", StringComparison.OrdinalIgnoreCase)) &&
@@ -505,43 +523,56 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         {
             target = "obs-chat";
         }
+        else if (context.Request.Url?.AbsolutePath.Contains("vote-overlay", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            target = "vote-overlay";
+        }
 
         var id = Guid.NewGuid();
         var client = new ClientConnection(upgrade.WebSocket, target, overlayId);
         _clients[id] = client;
         try
         {
-            ChatOverlaySettings settings;
-            bool connected;
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emotes;
-            lock (_stateLock)
+            if (string.Equals(target, "vote-overlay", StringComparison.OrdinalIgnoreCase))
             {
-                if (string.Equals(target, "obs-chat", StringComparison.OrdinalIgnoreCase))
-                {
-                    settings = _obsChatSettings;
-                }
-                else
-                {
-                    settings = _overlaySettings.TryGetValue(overlayId, out var s) ? s : _settings;
-                }
-                connected = _connected;
-                emotes = _emoteProviders;
+                PollState poll;
+                lock (_stateLock) poll = _activePoll;
+                await client.SendAsync(ChatOverlayProtocol.VoteState(poll), cancellationToken).ConfigureAwait(false);
             }
+            else
+            {
+                ChatOverlaySettings settings;
+                bool connected;
+                IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emotes;
+                lock (_stateLock)
+                {
+                    if (string.Equals(target, "obs-chat", StringComparison.OrdinalIgnoreCase))
+                    {
+                        settings = _obsChatSettings;
+                    }
+                    else
+                    {
+                        settings = _overlaySettings.TryGetValue(overlayId, out var s) ? s : _settings;
+                    }
+                    connected = _connected;
+                    emotes = _emoteProviders;
+                }
 
-            await client.SendAsync(ChatOverlayProtocol.Hello(settings, connected), cancellationToken).ConfigureAwait(false);
-            await client.SendAsync(ChatOverlayProtocol.Settings(settings), cancellationToken).ConfigureAwait(false);
-            // A reconnecting overlay needs the emote map replayed; it is not
-            // resent otherwise until the next registry refresh.
-            if (emotes.Count > 0)
-            {
-                await client.SendAsync(ChatOverlayProtocol.Emotes(emotes), cancellationToken).ConfigureAwait(false);
-            }
-            await client.SendAsync(
-                connected ? ChatOverlayProtocol.Connected() : ChatOverlayProtocol.Disconnected(),
-                cancellationToken).ConfigureAwait(false);
-            if (_previewEnabled)
-            {
-                await client.SendAsync(ChatOverlayProtocol.Preview(true, _previewMessages), cancellationToken).ConfigureAwait(false);
+                await client.SendAsync(ChatOverlayProtocol.Hello(settings, connected), cancellationToken).ConfigureAwait(false);
+                await client.SendAsync(ChatOverlayProtocol.Settings(settings), cancellationToken).ConfigureAwait(false);
+                // A reconnecting overlay needs the emote map replayed; it is not
+                // resent otherwise until the next registry refresh.
+                if (emotes.Count > 0)
+                {
+                    await client.SendAsync(ChatOverlayProtocol.Emotes(emotes), cancellationToken).ConfigureAwait(false);
+                }
+                await client.SendAsync(
+                    connected ? ChatOverlayProtocol.Connected() : ChatOverlayProtocol.Disconnected(),
+                    cancellationToken).ConfigureAwait(false);
+                if (_previewEnabled)
+                {
+                    await client.SendAsync(ChatOverlayProtocol.Preview(true, _previewMessages), cancellationToken).ConfigureAwait(false);
+                }
             }
 
             var buffer = new byte[4096];
@@ -624,12 +655,15 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     {
         var isOverlayEntry = requestPath is "/" or "/chat-overlay.html";
         var isDockEntry = requestPath is "/obs-chat" or "/obs-chat.html" or "/streamer-chat" or "/streamer-chat.html";
+        var isVoteOverlayEntry = requestPath is "/vote-overlay" or "/vote-overlay.html";
         var relativePath = isOverlayEntry
             ? OverlayEntryPath()
             : isDockEntry
                 ? DockEntryPath()
-                : Uri.UnescapeDataString(requestPath.TrimStart('/')).Replace('\\', '/');
-        if (!isOverlayEntry && !isDockEntry && !_allowedAssetPaths.Contains(relativePath))
+                : isVoteOverlayEntry
+                    ? VoteOverlayEntryPath()
+                    : Uri.UnescapeDataString(requestPath.TrimStart('/')).Replace('\\', '/');
+        if (!isOverlayEntry && !isDockEntry && !isVoteOverlayEntry && !_allowedAssetPaths.Contains(relativePath))
         {
             _allowedAssetPaths = LoadOverlayAssetAllowlist();
             if (!_allowedAssetPaths.Contains(relativePath))
@@ -652,7 +686,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         response.ContentType = ContentTypeFor(fullPath);
         response.Headers[HttpResponseHeader.CacheControl] = "no-store";
         response.Headers["X-Content-Type-Options"] = "nosniff";
-        var bytes = (isOverlayEntry || isDockEntry)
+        var bytes = (isOverlayEntry || isDockEntry || isVoteOverlayEntry)
             ? Encoding.UTF8.GetBytes(InjectRecoveryRegistration(await File.ReadAllTextAsync(fullPath, cancellationToken).ConfigureAwait(false)))
             : await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
         response.ContentLength64 = bytes.Length;
@@ -722,6 +756,11 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             ? "obs-chat.html"
             : Path.Combine("src", "obs-chat.html");
 
+    private string VoteOverlayEntryPath() =>
+        File.Exists(Path.Combine(_assetRoot, "vote-overlay.html"))
+            ? "vote-overlay.html"
+            : Path.Combine("src", "vote-overlay.html");
+
     private HashSet<string> LoadOverlayAssetAllowlist()
     {
         var allowed = new HashSet<string>(StringComparer.Ordinal);
@@ -733,7 +772,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             using var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath));
             var root = manifest.RootElement;
             var entryKeys = new List<string>();
-            foreach (var target in new[] { "src/chat-overlay.html", "src/obs-chat.html" })
+            foreach (var target in new[] { "src/chat-overlay.html", "src/obs-chat.html", "src/vote-overlay.html" })
             {
                 if (root.TryGetProperty(target, out _))
                 {

@@ -1,4 +1,4 @@
-import type { ActionKeybind, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, ConnectionStatus, Counter, RpcEnvelope, TwitchRewardInfo, TwitchSettings } from './contracts';
+import type { ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, ConnectionStatus, Counter, GenerateAiPollPayload, PollState, RpcEnvelope, TwitchRewardInfo, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -65,6 +65,22 @@ export class MockHost {
   private chatOverlaySettings: ChatOverlaySettings;
   private chatOverlays: ChatOverlayInstance[];
   private obsChatSettings: ChatOverlaySettings;
+  private activePoll: PollState = {
+    id: 'default',
+    title: 'Next Game?',
+    options: [
+      { id: '1', key: '1', label: 'Elden Ring', votes: 12, color: '#8b5cf6' },
+      { id: '2', key: '2', label: 'Cyberpunk 2077', votes: 9, color: '#06b6d4' },
+      { id: '3', key: '3', label: 'Hollow Knight', votes: 5, color: '#ec4899' },
+    ],
+    isActive: false,
+    isEnded: false,
+    allowChatVotes: true,
+    allowChangeVote: true,
+    durationSeconds: 0,
+    totalVotes: 26,
+    voters: {},
+  };
   private readonly listeners = new Set<(message: RpcEnvelope) => void>();
   private isMaximized = false;
   private twitchConnected = true;
@@ -316,6 +332,18 @@ export class MockHost {
       }
       case 'dialog/save-file':
         this.respond(request, { path: 'C:\\StreamerHub\\deaths.txt' });
+        break;
+      case Channels.AudioPlaySound:
+      case 'audio/play-sound':
+        this.respond(request, { ok: true });
+        break;
+      case Channels.AudioMuteMic:
+      case 'audio/mute-mic':
+        this.respond(request, { ok: true });
+        break;
+      case Channels.DialogOpenFile:
+      case 'dialog/open-file':
+        this.respond(request, { path: 'C:\\StreamerHub\\sounds\\alert.mp3' });
         break;
       case 'twitch/authorize':
         this.respond(request, { ok: true });
@@ -647,6 +675,58 @@ export class MockHost {
       case Channels.UpdateInstall:
         this.respond(request, { ok: true });
         break;
+      case Channels.VotesGetState:
+        this.respond(request, {
+          poll: this.activePoll,
+          url: 'http://127.0.0.1:49178/vote-overlay.html',
+        });
+        break;
+      case Channels.VotesSave: {
+        const payload = request.payload as { poll: PollState } | undefined;
+        if (payload?.poll) {
+          this.activePoll = payload.poll;
+          this.emitEvent(Events.VotesChanged, this.activePoll);
+        }
+        this.respond(request, { ok: true, poll: this.activePoll });
+        break;
+      }
+      case Channels.VotesReset: {
+        const resetOptions = this.activePoll.options.map((o) => ({ ...o, votes: 0 }));
+        this.activePoll = {
+          ...this.activePoll,
+          options: resetOptions,
+          totalVotes: 0,
+          voters: {},
+        };
+        this.emitEvent(Events.VotesChanged, this.activePoll);
+        this.respond(request, { ok: true, poll: this.activePoll });
+        break;
+      }
+      case Channels.VotesGenerateAi: {
+        const payload = request.payload as GenerateAiPollPayload | undefined;
+        const topic = payload?.topic || 'Best Games';
+        const isAr = payload?.language === 'ar';
+        const options: AiPollOptionDto[] = isAr
+          ? [
+              { label: 'ذا ويتشر 3', imageUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/292030/header.jpg' },
+              { label: 'إلدن رينغ', imageUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1245620/header.jpg' },
+              { label: 'سايبربانك 2077', imageUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1091500/header.jpg' },
+              { label: 'ريد ديد ريدمبشن 2', imageUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1174180/header.jpg' },
+            ]
+          : [
+              { label: 'The Witcher 3: Wild Hunt', imageUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/292030/header.jpg' },
+              { label: 'Elden Ring', imageUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1245620/header.jpg' },
+              { label: 'Cyberpunk 2077', imageUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1091500/header.jpg' },
+              { label: 'Red Dead Redemption 2', imageUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1174180/header.jpg' },
+            ];
+
+        this.respond(request, {
+          ok: true,
+          title: isAr ? `ما هي أفضل ألعاب: ${topic}؟` : `What is the best: ${topic}?`,
+          options: options.slice(0, payload?.optionCount || 4),
+        });
+        break;
+      }
       case Channels.TwitchModerationSmartTimeout:
       case Channels.TwitchModerationTimeout:
       case Channels.TwitchModerationBan:

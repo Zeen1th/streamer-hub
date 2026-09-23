@@ -98,6 +98,13 @@ public static class Channels
     public const string ObsChatSetPreview = "obs-chat/set-preview";
     public const string UpdateCheck = "update/check";
     public const string UpdateInstall = "update/install";
+    public const string VotesGetState = "votes/get-state";
+    public const string VotesSave = "votes/save";
+    public const string VotesReset = "votes/reset";
+    public const string VotesGenerateAi = "votes/generate-ai";
+    public const string AudioPlaySound = "audio/play-sound";
+    public const string AudioMuteMic = "audio/mute-mic";
+    public const string DialogOpenFile = "dialog/open-file";
 }
 
 public static class Events
@@ -114,5 +121,8 @@ public static class Events
     public const string CoreLog = "core/log";
     public const string KeybindTriggered = "keybind/triggered";
     public const string TwitchRaid = "twitch/raid";
+    public const string TwitchFollow = "twitch/follow";
+    public const string VotesChanged = "votes/changed";
 }
+
 

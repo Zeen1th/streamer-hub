@@ -31,6 +31,7 @@ public sealed class SettingsStore : IDisposable
         public string PreferredChatSender { get; init; } = "bot";
         public bool StartupEnabled { get; init; } = true;
         public bool? CloseToTray { get; init; }
+        public PollState ActivePoll { get; init; } = new();
     }
 
     private readonly string _filePath;
@@ -248,6 +249,19 @@ public sealed class SettingsStore : IDisposable
         }
         ScheduleSave();
     }
+
+    public PollState ActivePoll
+    {
+        get { lock (_lock) return _document.ActivePoll; }
+    }
+
+    public void SetActivePoll(PollState poll)
+    {
+        ArgumentNullException.ThrowIfNull(poll);
+        lock (_lock) _document = _document with { ActivePoll = poll };
+        ScheduleSave();
+    }
+
 
     public void SetCount(string counterId, int count)
     {

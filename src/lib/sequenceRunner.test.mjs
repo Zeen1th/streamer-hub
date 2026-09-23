@@ -249,5 +249,163 @@ test('matchesSequenceTrigger returns false when triggers array is empty', () => 
   assert.equal(matchesSequenceTrigger(seqWithEmptyTriggers, { raid: { fromUserName: 'R', fromUserLogin: 'r', viewers: 10 } }), false);
 });
 
+test('matchesSequenceTrigger evaluates twitch_follow triggers', () => {
+  const seq = {
+    id: 'seq-follow',
+    enabled: true,
+    name: 'Follow Alert',
+    triggers: [
+      {
+        id: 't-follow',
+        type: 'twitch_follow',
+        enabled: true,
+      },
+    ],
+    steps: [],
+  };
 
+  // Follow event matches
+  assert.equal(
+    matchesSequenceTrigger(seq, {
+      follow: { userId: '123', userName: 'CoolFollower', userLogin: 'coolfollower' },
+    }),
+    true
+  );
 
+  // When trigger is disabled, does not match
+  const seqDisabled = {
+    ...seq,
+    triggers: [{ id: 't-follow', type: 'twitch_follow', enabled: false }],
+  };
+  assert.equal(
+    matchesSequenceTrigger(seqDisabled, {
+      follow: { userId: '123', userName: 'CoolFollower', userLogin: 'coolfollower' },
+    }),
+    false
+  );
+
+  // Other events do not match follow trigger
+  assert.equal(matchesSequenceTrigger(seq, { chatMessage: '!follow' }), false);
+  assert.equal(matchesSequenceTrigger(seq, { raid: { fromUserName: 'R', fromUserLogin: 'r', viewers: 10 } }), false);
+});
+
+test('replaceSequenceTokens replaces tokens for follow events', () => {
+  const ctx = {
+    username: 'AwesomeFollower',
+    source: 'follow',
+  };
+
+  const text = 'Welcome to the channel {mention}! Thanks {username} for following!';
+  const result = replaceSequenceTokens(text, ctx);
+
+  assert.equal(result, 'Welcome to the channel @AwesomeFollower! Thanks AwesomeFollower for following!');
+});
+
+test('executeSequence executes all 5 new sub-actions (sound, tts, obs_text, poll, mic_mute)', async () => {
+  const seq = {
+    id: 'seq-new-actions',
+    enabled: true,
+    name: 'New Actions Test',
+    steps: [
+      {
+        id: 's-sound',
+        type: 'sound',
+        soundPath: 'C:\\sounds\\cheer.mp3',
+        soundVolume: 0.8,
+      },
+      {
+        id: 's-tts',
+        type: 'tts',
+        ttsText: 'Welcome {username} to the stream!',
+        ttsVoice: 'Microsoft David',
+        ttsRate: 1.1,
+        ttsPitch: 1.0,
+        ttsVolume: 0.9,
+      },
+      {
+        id: 's-obs',
+        type: 'obs_text',
+        filePath: 'C:\\stream\\latest_follower.txt',
+        fileContent: 'Latest Follower: {username}',
+      },
+      {
+        id: 's-poll',
+        type: 'poll',
+        pollAction: 'start',
+        pollQuestion: 'Which game next?',
+        pollOptions: ['Valorant', 'Minecraft'],
+        pollDurationSeconds: 120,
+      },
+      {
+        id: 's-mic',
+        type: 'mic_mute',
+        micMuteDurationSeconds: 10,
+      },
+    ],
+  };
+
+  const soundsPlayed = [];
+  const ttsSpoken = [];
+  const obsTextsWritten = [];
+  const pollActions = [];
+  const micMutes = [];
+
+  const result = await executeSequence(
+    seq,
+    { username: 'Gamer123', source: 'follow' },
+    {
+      playSound: async (soundPath, volume) => {
+        soundsPlayed.push({ soundPath, volume });
+      },
+      speakTts: async (text, voice, rate, pitch, volume) => {
+        ttsSpoken.push({ text, voice, rate, pitch, volume });
+      },
+      writeObsText: async (filePath, content) => {
+        obsTextsWritten.push({ filePath, content });
+      },
+      executePollAction: async (action, question, options, durationSeconds) => {
+        pollActions.push({ action, question, options, durationSeconds });
+      },
+      muteMic: async (durationSeconds) => {
+        micMutes.push({ durationSeconds });
+      },
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.executedSteps, 5);
+
+  assert.deepEqual(soundsPlayed, [
+    { soundPath: 'C:\\sounds\\cheer.mp3', volume: 0.8 },
+  ]);
+
+  assert.deepEqual(ttsSpoken, [
+    {
+      text: 'Welcome Gamer123 to the stream!',
+      voice: 'Microsoft David',
+      rate: 1.1,
+      pitch: 1.0,
+      volume: 0.9,
+    },
+  ]);
+
+  assert.deepEqual(obsTextsWritten, [
+    {
+      filePath: 'C:\\stream\\latest_follower.txt',
+      content: 'Latest Follower: Gamer123',
+    },
+  ]);
+
+  assert.deepEqual(pollActions, [
+    {
+      action: 'start',
+      question: 'Which game next?',
+      options: ['Valorant', 'Minecraft'],
+      durationSeconds: 120,
+    },
+  ]);
+
+  assert.deepEqual(micMutes, [
+    { durationSeconds: 10 },
+  ]);
+});

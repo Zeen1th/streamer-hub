@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  BarChart3,
   Calculator,
   Check,
   ChevronDown,
@@ -8,11 +9,16 @@ import {
   Clock,
   Coins,
   Edit3,
+  FileText,
   Flame,
+  FolderOpen,
+  Heart,
   Info,
   Layers,
   Megaphone,
   MessageSquare,
+  Mic,
+  MicOff,
   Play,
   Plus,
   Radio,
@@ -23,6 +29,8 @@ import {
   Sparkles,
   Terminal,
   Trash2,
+  Volume2,
+  VolumeX,
   X,
   Zap,
 } from 'lucide-react';
@@ -83,7 +91,9 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onClose }: 
   const [rewardId, setRewardId] = useState(trigger.rewardId ?? '');
 
   const handleApply = () => {
-    if (trigger.type === 'twitch_raid') {
+    if (trigger.type === 'twitch_follow') {
+      onSave({ enabled });
+    } else if (trigger.type === 'twitch_raid') {
       onSave({ enabled, minViewers: Math.max(1, Number(minViewers) || 1) });
     } else if (trigger.type === 'twitch_chat') {
       onSave({ enabled, chatCommand: chatCommand.trim() || '!command', matchMode });
@@ -108,8 +118,18 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onClose }: 
       >
         <header className="flex items-center justify-between border-b border-white/[0.08] bg-[#12141c] px-5 py-3.5">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-7 items-center justify-center rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30">
-              {trigger.type === 'twitch_raid' ? (
+            <div className={`flex size-7 items-center justify-center rounded-md border ${
+              trigger.type === 'twitch_follow'
+                ? 'bg-pink-500/15 text-pink-400 border-pink-500/30'
+                : trigger.type === 'twitch_raid'
+                ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                : trigger.type === 'twitch_chat'
+                ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+            }`}>
+              {trigger.type === 'twitch_follow' ? (
+                <Heart size={15} />
+              ) : trigger.type === 'twitch_raid' ? (
                 <Flame size={15} />
               ) : trigger.type === 'twitch_chat' ? (
                 <Terminal size={15} />
@@ -122,7 +142,9 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onClose }: 
                 {t(lang, 'sequence.editTrigger')}
               </h3>
               <p className="font-mono text-[11px] text-muted">
-                {trigger.type === 'twitch_raid'
+                {trigger.type === 'twitch_follow'
+                  ? `${t(lang, 'sequence.sourceTwitchChannel')} > ${t(lang, 'sequence.typeChannelFollow')}`
+                  : trigger.type === 'twitch_raid'
                   ? `${t(lang, 'sequence.sourceTwitchChannel')} > ${t(lang, 'sequence.typeChannelRaid')}`
                   : trigger.type === 'twitch_chat'
                   ? `${t(lang, 'sequence.sourceCoreCommands')} > ${t(lang, 'sequence.typeCommandTriggered')}`
@@ -150,6 +172,22 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onClose }: 
               </span>
             </div>
           </div>
+
+          {trigger.type === 'twitch_follow' && (
+            <div className="flex flex-col gap-2 rounded-md border border-pink-500/25 bg-pink-500/10 p-3.5 text-[12px] text-pink-300">
+              <p className="font-semibold text-pink-200">
+                {t(lang, 'sequence.triggerFollow')}
+              </p>
+              <p className="text-zinc-300 text-[11.5px] leading-relaxed">
+                {t(lang, 'sequence.triggerFollowDesc')}
+              </p>
+              <div className="flex items-center gap-1.5 pt-1">
+                <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
+                <span className="rounded bg-white/5 px-1.5 py-0.5 border border-white/10 text-pink-400 font-mono text-[11px]">{'{username}'}</span>
+                <span className="rounded bg-white/5 px-1.5 py-0.5 border border-white/10 text-pink-400 font-mono text-[11px]">{'{mention}'}</span>
+              </div>
+            </div>
+          )}
 
           {trigger.type === 'twitch_raid' && (
             <div className="flex flex-col gap-2">
@@ -293,6 +331,100 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   const [durationSeconds, setDurationSeconds] = useState(step.durationSeconds ?? 60);
   const [reason, setReason] = useState(step.reason ?? '');
 
+  // Sound state
+  const [soundPath, setSoundPath] = useState(step.soundPath ?? '');
+  const [soundVolume, setSoundVolume] = useState(step.soundVolume ?? 1.0);
+  const [isPlayingSound, setIsPlayingSound] = useState(false);
+
+  // TTS state
+  const [ttsText, setTtsText] = useState(step.ttsText ?? 'Welcome to the stream {username}!');
+  const [ttsVoice, setTtsVoice] = useState(step.ttsVoice ?? '');
+  const [ttsRate, setTtsRate] = useState(step.ttsRate ?? 1.0);
+  const [ttsPitch, setTtsPitch] = useState(step.ttsPitch ?? 1.0);
+  const [ttsVolume, setTtsVolume] = useState(step.ttsVolume ?? 1.0);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [isSpeakingTts, setIsSpeakingTts] = useState(false);
+
+  // OBS Text state
+  const [filePath, setFilePath] = useState(step.filePath ?? 'C:\\stream\\latest_follower.txt');
+  const [fileContent, setFileContent] = useState(step.fileContent ?? 'Latest Follower: {username}');
+
+  // Poll state
+  const [pollAction, setPollAction] = useState<'start' | 'end' | 'reset'>(step.pollAction ?? 'start');
+  const [pollQuestion, setPollQuestion] = useState(step.pollQuestion ?? 'What game should we play next?');
+  const [pollOptionsText, setPollOptionsText] = useState((step.pollOptions ?? ['Option A', 'Option B']).join(', '));
+  const [pollDurationSeconds, setPollDurationSeconds] = useState(step.pollDurationSeconds ?? 60);
+
+  // Mic Mute state
+  const [micMuteDurationSeconds, setMicMuteDurationSeconds] = useState(step.micMuteDurationSeconds ?? 5);
+  const [isTestMuting, setIsTestMuting] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        setAvailableVoices(voices);
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+
+  const handleBrowseSound = async () => {
+    try {
+      const res = await rpc.invoke(Channels.DialogOpenFile, {
+        filter: 'Audio files (*.mp3;*.wav;*.ogg;*.wma)|*.mp3;*.wav;*.ogg;*.wma|All files (*.*)|*.*',
+        title: 'Select Sound Effect File',
+      });
+      if (res?.path) setSoundPath(res.path);
+    } catch { }
+  };
+
+  const handleTestSound = async () => {
+    if (!soundPath.trim()) return;
+    setIsPlayingSound(true);
+    try {
+      await rpc.invoke(Channels.AudioPlaySound, { soundPath: soundPath.trim(), volume: soundVolume });
+    } finally {
+      setTimeout(() => setIsPlayingSound(false), 1200);
+    }
+  };
+
+  const handleTestTts = () => {
+    if (!ttsText.trim() || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(
+      ttsText.replace(/\{username\}/gi, 'Viewer').replace(/\{user\}/gi, 'Viewer').replace(/\{input\}/gi, 'hello')
+    );
+    if (ttsRate != null) utterance.rate = ttsRate;
+    if (ttsPitch != null) utterance.pitch = ttsPitch;
+    if (ttsVolume != null) utterance.volume = ttsVolume;
+    if (ttsVoice) {
+      const matched = availableVoices.find((v) => v.name === ttsVoice || v.voiceURI === ttsVoice);
+      if (matched) utterance.voice = matched;
+    }
+    setIsSpeakingTts(true);
+    utterance.onend = () => setIsSpeakingTts(false);
+    utterance.onerror = () => setIsSpeakingTts(false);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleBrowseTextFile = async () => {
+    try {
+      const res = await rpc.invoke(Channels.DialogSaveFile, { defaultName: 'stream-text.txt' });
+      if (res?.path) setFilePath(res.path);
+    } catch { }
+  };
+
+  const handleTestMicMute = async () => {
+    setIsTestMuting(true);
+    try {
+      await rpc.invoke(Channels.AudioMuteMic, { durationSeconds: 3 });
+    } finally {
+      setTimeout(() => setIsTestMuting(false), 3000);
+    }
+  };
+
   const handleApply = () => {
     switch (step.type) {
       case 'comment':
@@ -317,6 +449,32 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
           durationSeconds: Math.max(1, Number(durationSeconds) || 60),
           reason: reason.trim(),
         });
+        break;
+      case 'sound':
+        onSave({ soundPath: soundPath.trim(), soundVolume });
+        break;
+      case 'tts':
+        onSave({
+          ttsText: ttsText.trim(),
+          ttsVoice: ttsVoice || undefined,
+          ttsRate,
+          ttsPitch,
+          ttsVolume,
+        });
+        break;
+      case 'obs_text':
+        onSave({ filePath: filePath.trim(), fileContent });
+        break;
+      case 'poll':
+        onSave({
+          pollAction,
+          pollQuestion: pollQuestion.trim(),
+          pollOptions: pollOptionsText.split(',').map((o) => o.trim()).filter(Boolean),
+          pollDurationSeconds,
+        });
+        break;
+      case 'mic_mute':
+        onSave({ micMuteDurationSeconds });
         break;
     }
     onClose();
@@ -350,16 +508,26 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
               </h3>
               <p className="font-mono text-[11px] text-muted">
                 {step.type === 'comment'
-                  ? 'Comment / Note'
+                  ? (lang === 'ar' ? 'تعليق / ملاحظة' : 'Comment / Note')
                   : step.type === 'chat'
-                  ? 'Twitch > Send Message'
+                  ? (lang === 'ar' ? 'تويتش > إرسال رسالة' : 'Twitch > Send Message')
                   : step.type === 'moderation'
-                  ? `Twitch > Moderation (${moderationAction})`
+                  ? (lang === 'ar' ? `تويتش > الإشراف (${moderationAction})` : `Twitch > Moderation (${moderationAction})`)
+                  : step.type === 'sound'
+                  ? (lang === 'ar' ? 'الصوت > تشغيل مؤثر صوتي' : 'Audio > Play Sound Effect')
+                  : step.type === 'tts'
+                  ? (lang === 'ar' ? 'الكلام > قراءة النص صوتياً' : 'Speech > Text-To-Speech')
+                  : step.type === 'obs_text'
+                  ? (lang === 'ar' ? 'OBS > إخراج ملف نصي' : 'OBS > Text File Output')
+                  : step.type === 'poll'
+                  ? (lang === 'ar' ? 'التفاعل > استطلاع وتصويت مباشر' : 'Interactivity > Live Poll')
+                  : step.type === 'mic_mute'
+                  ? (lang === 'ar' ? 'الصوت > كتم مايك الستريمر' : 'Audio > Mute Streamer Mic')
                   : step.type === 'wait'
-                  ? 'Core > Delay / Wait'
+                  ? (lang === 'ar' ? 'النظام > انتظار وتأخير' : 'Core > Delay / Wait')
                   : step.type === 'counter'
-                  ? 'Counters > Modify Counter'
-                  : 'Core > Run Sub-Command'}
+                  ? (lang === 'ar' ? 'العدّادات > تعديل عدّاد' : 'Counters > Modify Counter')
+                  : (lang === 'ar' ? 'النظام > تشغيل أمر فرعي' : 'Core > Run Sub-Command')}
               </p>
             </div>
           </div>
@@ -622,6 +790,357 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
               <p className="text-[11px] text-muted">{t(lang, 'sequence.commandPlaceholder')}</p>
             </div>
           )}
+
+          {/* SOUND EFFECT */}
+          {step.type === 'sound' && (
+            <div className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.soundFile')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={soundPath}
+                    onChange={(e) => setSoundPath(e.target.value)}
+                    placeholder="C:\Sounds\alert.mp3"
+                    className="h-9 font-mono text-[12.5px] flex-1"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleBrowseSound()}
+                    className="h-9 shrink-0 gap-1.5"
+                  >
+                    <FolderOpen size={13} />
+                    <span>{t(lang, 'sequence.browse')}</span>
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-sans text-[12px] font-medium text-zinc-300">
+                    {t(lang, 'sequence.volume')}
+                  </span>
+                  <span className="font-mono text-[11px] text-zinc-400">{Math.round(soundVolume * 100)}%</span>
+                </div>
+                <Slider
+                  value={Math.round(soundVolume * 100)}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(v) => setSoundVolume(v / 100)}
+                  ariaLabel={t(lang, 'sequence.volume')}
+                />
+              </div>
+
+              <div className="flex items-center justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleTestSound()}
+                  disabled={isPlayingSound || !soundPath.trim()}
+                  className="gap-1.5 text-indigo-400 hover:text-indigo-300 border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20"
+                >
+                  <Volume2 size={13} className={isPlayingSound ? 'animate-bounce' : ''} />
+                  <span>{isPlayingSound ? t(lang, 'sequence.playing') : t(lang, 'sequence.previewSound')}</span>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* TEXT TO SPEECH */}
+          {step.type === 'tts' && (
+            <div className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.ttsMessage')}
+                </label>
+                <textarea
+                  value={ttsText}
+                  onChange={(e) => setTtsText(e.target.value)}
+                  placeholder="Welcome to the stream {username}!"
+                  rows={3}
+                  className="w-full rounded-md border border-white/15 bg-[#11131a] p-3 font-mono text-[12.5px] text-foreground focus:border-accent focus:outline-none resize-y"
+                />
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
+                  {['{username}', '{mention}', '{input}', '{raider}', '{viewers}'].map((tok) => (
+                    <button
+                      key={tok}
+                      type="button"
+                      onClick={() => insertToken(tok, setTtsText)}
+                      className="rounded border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[11px] text-accent-text hover:border-accent hover:bg-accent/10 transition-colors"
+                    >
+                      {tok}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {availableVoices.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-sans text-[12px] font-medium text-zinc-300">
+                    {t(lang, 'sequence.ttsVoice')}
+                  </label>
+                  <select
+                    value={ttsVoice}
+                    onChange={(e) => setTtsVoice(e.target.value)}
+                    className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
+                  >
+                    <option value="">{t(lang, 'sequence.defaultVoice')}</option>
+                    {availableVoices.map((v) => (
+                      <option key={v.name} value={v.name}>
+                        {v.name} ({v.lang})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="flex flex-col gap-1 rounded-md border border-white/[0.08] bg-[#11131a] p-2.5">
+                  <div className="flex items-center justify-between text-[11.5px]">
+                    <span className="text-zinc-300 font-medium">{t(lang, 'sequence.ttsSpeed')}</span>
+                    <span className="font-mono text-zinc-400">{ttsRate.toFixed(1)}x</span>
+                  </div>
+                  <Slider
+                    value={Math.round(ttsRate * 10)}
+                    min={5}
+                    max={20}
+                    step={1}
+                    onChange={(v) => setTtsRate(v / 10)}
+                    ariaLabel={t(lang, 'sequence.ttsSpeed')}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1 rounded-md border border-white/[0.08] bg-[#11131a] p-2.5">
+                  <div className="flex items-center justify-between text-[11.5px]">
+                    <span className="text-zinc-300 font-medium">{t(lang, 'sequence.ttsPitch')}</span>
+                    <span className="font-mono text-zinc-400">{ttsPitch.toFixed(1)}</span>
+                  </div>
+                  <Slider
+                    value={Math.round(ttsPitch * 10)}
+                    min={5}
+                    max={15}
+                    step={1}
+                    onChange={(v) => setTtsPitch(v / 10)}
+                    ariaLabel={t(lang, 'sequence.ttsPitch')}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1 rounded-md border border-white/[0.08] bg-[#11131a] p-2.5">
+                  <div className="flex items-center justify-between text-[11.5px]">
+                    <span className="text-zinc-300 font-medium">{t(lang, 'sequence.volume')}</span>
+                    <span className="font-mono text-zinc-400">{Math.round(ttsVolume * 100)}%</span>
+                  </div>
+                  <Slider
+                    value={Math.round(ttsVolume * 100)}
+                    min={0}
+                    max={100}
+                    step={5}
+                    onChange={(v) => setTtsVolume(v / 100)}
+                    ariaLabel={t(lang, 'sequence.volume')}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleTestTts}
+                  disabled={isSpeakingTts || !ttsText.trim()}
+                  className="gap-1.5 text-teal-400 hover:text-teal-300 border-teal-500/30 bg-teal-500/10 hover:bg-teal-500/20"
+                >
+                  <Mic size={13} className={isSpeakingTts ? 'animate-pulse' : ''} />
+                  <span>{isSpeakingTts ? t(lang, 'sequence.speaking') : t(lang, 'sequence.previewTts')}</span>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* OBS TEXT OUTPUT */}
+          {step.type === 'obs_text' && (
+            <div className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.obsFilePath')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={filePath}
+                    onChange={(e) => setFilePath(e.target.value)}
+                    placeholder="C:\stream\latest_follower.txt"
+                    className="h-9 font-mono text-[12.5px] flex-1"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleBrowseTextFile()}
+                    className="h-9 shrink-0 gap-1.5"
+                  >
+                    <FolderOpen size={13} />
+                    <span>{t(lang, 'sequence.browse')}</span>
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.obsFileContent')}
+                </label>
+                <textarea
+                  value={fileContent}
+                  onChange={(e) => setFileContent(e.target.value)}
+                  placeholder="Latest Follower: {username}"
+                  rows={3}
+                  className="w-full rounded-md border border-white/15 bg-[#11131a] p-3 font-mono text-[12.5px] text-foreground focus:border-accent focus:outline-none resize-y"
+                />
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
+                  {['{username}', '{mention}', '{input}', '{raider}', '{viewers}'].map((tok) => (
+                    <button
+                      key={tok}
+                      type="button"
+                      onClick={() => insertToken(tok, setFileContent)}
+                      className="rounded border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[11px] text-accent-text hover:border-accent hover:bg-accent/10 transition-colors"
+                    >
+                      {tok}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* LIVE POLL */}
+          {step.type === 'poll' && (
+            <div className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.pollAction')}
+                </label>
+                <SegmentedControl<'start' | 'end' | 'reset'>
+                  value={pollAction}
+                  onChange={setPollAction}
+                  options={[
+                    { value: 'start', label: `▶ ${t(lang, 'sequence.pollStart')}` },
+                    { value: 'end', label: `⏹ ${t(lang, 'sequence.pollEnd')}` },
+                    { value: 'reset', label: `↺ ${t(lang, 'sequence.pollReset')}` },
+                  ]}
+                />
+              </div>
+
+              {pollAction === 'start' && (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-sans text-[12px] font-medium text-zinc-300">
+                      {t(lang, 'sequence.pollQuestion')}
+                    </label>
+                    <Input
+                      value={pollQuestion}
+                      onChange={(e) => setPollQuestion(e.target.value)}
+                      placeholder="What game next?"
+                      className="h-9 text-[12.5px]"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-sans text-[12px] font-medium text-zinc-300">
+                      {t(lang, 'sequence.pollOptions')}
+                    </label>
+                    <Input
+                      value={pollOptionsText}
+                      onChange={(e) => setPollOptionsText(e.target.value)}
+                      placeholder="Option 1, Option 2, Option 3"
+                      className="h-9 text-[12.5px]"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-sans text-[12px] font-medium text-zinc-300">
+                        {t(lang, 'sequence.pollDuration')}
+                      </span>
+                      <span className="font-mono text-[11px] text-zinc-400">{pollDurationSeconds}s</span>
+                    </div>
+                    <Slider
+                      value={pollDurationSeconds}
+                      min={10}
+                      max={600}
+                      step={5}
+                      onChange={setPollDurationSeconds}
+                      ariaLabel={t(lang, 'sequence.pollDuration')}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* MIC MUTE */}
+          {step.type === 'mic_mute' && (
+            <div className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-sans text-[12px] font-medium text-zinc-300">
+                    {t(lang, 'sequence.micMuteDuration')}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      {[5, 10, 15, 30, 60].map((sec) => (
+                        <button
+                          key={sec}
+                          type="button"
+                          onClick={() => setMicMuteDurationSeconds(sec)}
+                          className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                            micMuteDurationSeconds === sec
+                              ? 'border border-rose-500/40 bg-rose-500/20 text-rose-400'
+                              : 'bg-white/5 text-muted hover:text-white'
+                          }`}
+                        >
+                          {sec}s
+                        </button>
+                      ))}
+                    </div>
+                    <span className="font-mono text-[11px] text-zinc-400">{micMuteDurationSeconds}s</span>
+                  </div>
+                </div>
+                <Slider
+                  value={micMuteDurationSeconds}
+                  min={1}
+                  max={300}
+                  step={1}
+                  onChange={setMicMuteDurationSeconds}
+                  ariaLabel={t(lang, 'sequence.micMuteDuration')}
+                />
+              </div>
+
+              <div className="flex items-start gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-[11.5px] text-rose-300">
+                <MicOff size={15} className="mt-0.5 shrink-0 text-rose-400" />
+                <span>{t(lang, 'sequence.micMuteNotice')}</span>
+              </div>
+
+              <div className="flex items-center justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleTestMicMute()}
+                  disabled={isTestMuting}
+                  className="gap-1.5 text-rose-400 hover:text-rose-300 border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20"
+                >
+                  <VolumeX size={13} className={isTestMuting ? 'animate-pulse' : ''} />
+                  <span>{isTestMuting ? t(lang, 'sequence.muting') : t(lang, 'sequence.testMicMute')}</span>
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         <footer className="flex items-center justify-end border-t border-white/[0.08] bg-[#12141c] px-5 py-3">
@@ -679,8 +1198,9 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
   const [showSimDrawer, setShowSimDrawer] = useState(false);
 
   // Test / Simulation
-  const [simMode, setSimMode] = useState<'raid' | 'chat' | 'points'>('raid');
+  const [simMode, setSimMode] = useState<'raid' | 'follow' | 'chat' | 'points'>('raid');
   const [simRaider, setSimRaider] = useState('EpicRaider');
+  const [simFollower, setSimFollower] = useState('NewFollower');
   const [simViewers, setSimViewers] = useState(25);
   const [testUser, setTestUser] = useState('StreamViewer');
   const [testTarget, setTestTarget] = useState('');
@@ -754,9 +1274,13 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     let formattedInput = '';
     let raider = '';
     let viewers = 0;
-    let source: 'raid' | 'chat' | 'channel_points' | 'test' = 'test';
+    let source: 'raid' | 'follow' | 'chat' | 'channel_points' | 'test' = 'test';
 
-    if (simMode === 'raid') {
+    if (simMode === 'follow') {
+      const follower = simFollower.trim().replace(/^@+/, '') || 'NewFollower';
+      username = follower;
+      source = 'follow';
+    } else if (simMode === 'raid') {
       raider = simRaider.trim().replace(/^@+/, '') || 'EpicRaider';
       username = raider;
       viewers = Math.max(1, Number(simViewers) || 1);
@@ -788,7 +1312,11 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       setTestStatus({
         status: 'success',
         message:
-          simMode === 'raid'
+          simMode === 'follow'
+            ? lang === 'ar'
+              ? `✓ تمت محاكاة متابعة @${simFollower.trim() || 'NewFollower'} بنجاح!`
+              : `✓ Simulated follow from @${simFollower.trim() || 'NewFollower'} executed successfully!`
+            : simMode === 'raid'
             ? lang === 'ar'
               ? `✓ تمت محاكاة ريد @${raider} مع ${viewers} مشاهد بنجاح!`
               : `✓ Simulated raid from @${raider} with ${viewers} viewers executed successfully!`
@@ -880,54 +1408,80 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
   const getSubActionSummary = (st: SequenceStep) => {
     switch (st.type) {
       case 'comment':
-        return `// ${st.commentText || 'This is a comment!'}`;
+        return `// ${st.commentText || (lang === 'ar' ? 'هذا تعليق!' : 'This is a comment!')}`;
       case 'chat':
-        return `Twitch: Send Message "${st.chatMessage || ''}"`;
+        return `${lang === 'ar' ? 'تويتش: إرسال رسالة' : 'Twitch: Send Message'} "${st.chatMessage || ''}"`;
       case 'moderation': {
         const action = st.moderationAction || 'smart_timeout';
         const target = st.targetUser || (action === 'shoutout' ? '{raider}' : '{input}');
-        if (action === 'shoutout') return `Twitch: Shoutout ${target}`;
-        if (action === 'smart_timeout') return `Twitch: Smart Timeout "${target}" (${st.durationSeconds ?? 60}s)`;
-        if (action === 'timeout') return `Twitch: Timeout "${target}" (${st.durationSeconds ?? 60}s)`;
-        if (action === 'ban') return `Twitch: Ban "${target}"`;
-        if (action === 'clear_chat') return 'Twitch: Clear Chat';
-        return `Twitch: Moderation (${action}) on "${target}"`;
+        if (action === 'shoutout') return `${lang === 'ar' ? 'تويتش: شوت أوت' : 'Twitch: Shoutout'} ${target}`;
+        if (action === 'smart_timeout') return `${lang === 'ar' ? 'تويتش: إسكات ذكي' : 'Twitch: Smart Timeout'} "${target}" (${st.durationSeconds ?? 60}s)`;
+        if (action === 'timeout') return `${lang === 'ar' ? 'تويتش: إسكات' : 'Twitch: Timeout'} "${target}" (${st.durationSeconds ?? 60}s)`;
+        if (action === 'ban') return `${lang === 'ar' ? 'تويتش: حظر' : 'Twitch: Ban'} "${target}"`;
+        if (action === 'clear_chat') return lang === 'ar' ? 'تويتش: مسح الشات' : 'Twitch: Clear Chat';
+        return `${lang === 'ar' ? 'تويتش: إجراء إشراف' : 'Twitch: Moderation'} (${action}) -> "${target}"`;
       }
+      case 'sound': {
+        const fileName = st.soundPath ? st.soundPath.split(/[/\\]/).pop() : (lang === 'ar' ? 'مؤثر صوتي' : 'Sound Effect');
+        return `${lang === 'ar' ? 'الصوت: تشغيل' : 'Audio: Play'} "${fileName}" (${Math.round((st.soundVolume ?? 1) * 100)}%)`;
+      }
+      case 'tts':
+        return `TTS: "${st.ttsText || (lang === 'ar' ? 'مرحباً' : 'Hello')}"`;
+      case 'obs_text': {
+        const fileName = st.filePath ? st.filePath.split(/[/\\]/).pop() : 'file.txt';
+        return `${lang === 'ar' ? 'نص OBS: كتابة إلى' : 'OBS Text: ->'} "${fileName}"`;
+      }
+      case 'poll':
+        return st.pollAction === 'start'
+          ? `${lang === 'ar' ? 'استطلاع: بدء' : 'Poll: Start'} "${st.pollQuestion || ''}"`
+          : st.pollAction === 'end'
+          ? (lang === 'ar' ? 'استطلاع: إنهاء الاستطلاع النشط' : 'Poll: End Active Poll')
+          : (lang === 'ar' ? 'استطلاع: تصفير الاستطلاع' : 'Poll: Reset Poll');
+      case 'mic_mute':
+        return `${lang === 'ar' ? 'الصوت: كتم مايك الستريمر' : 'Audio: Mute Streamer Mic'} (${st.micMuteDurationSeconds ?? 5}s)`;
       case 'wait':
-        return `Core: Wait ${st.waitDuration ?? 2}${st.waitUnit === 'minutes' ? 'm' : 's'}`;
+        return `${lang === 'ar' ? 'النظام: انتظار' : 'Core: Wait'} ${st.waitDuration ?? 2}${st.waitUnit === 'minutes' ? (lang === 'ar' ? 'د' : 'm') : (lang === 'ar' ? 'ث' : 's')}`;
       case 'counter': {
         const matched = counters.find((c) => c.id === st.counterId);
-        const name = matched ? matched.name : 'Counter';
-        return `Counters: Modify ${name} (${st.counterAction ?? 'increase'})`;
+        const name = matched ? matched.name : (lang === 'ar' ? 'عدّاد' : 'Counter');
+        return `${lang === 'ar' ? 'العدّادات: تعديل' : 'Counters: Modify'} ${name} (${st.counterAction ?? 'increase'})`;
       }
       case 'command':
-        return `Core: Run Command "${st.commandTrigger || '!sound'}"`;
+        return `${lang === 'ar' ? 'النظام: تشغيل أمر' : 'Core: Run Command'} "${st.commandTrigger || '!sound'}"`;
     }
   };
 
   // Trigger search items
   const TRIGGER_SEARCH_ITEMS = [
     {
+      type: 'twitch_follow' as ActionTriggerType,
+      source: lang === 'ar' ? 'تويتش > القناة' : 'Twitch > Channel',
+      title: lang === 'ar' ? 'متابعة القناة' : 'Channel Follow',
+      desc: lang === 'ar' ? 'يتم التفعيل عندما يتابع مشاهد جديد قناتك' : 'Triggers when a new viewer follows your channel',
+      icon: Heart,
+      color: 'text-pink-400',
+    },
+    {
       type: 'twitch_raid' as ActionTriggerType,
-      source: 'Twitch > Channel',
-      title: 'Channel Raid',
-      desc: 'Triggers when another streamer raids your channel',
+      source: lang === 'ar' ? 'تويتش > القناة' : 'Twitch > Channel',
+      title: lang === 'ar' ? 'ريد القناة (Raid)' : 'Channel Raid',
+      desc: lang === 'ar' ? 'يتم التفعيل عندما يقوم ستريمر آخر بعمل Raid لقناتك' : 'Triggers when another streamer raids your channel',
       icon: Flame,
       color: 'text-orange-400',
     },
     {
       type: 'twitch_chat' as ActionTriggerType,
-      source: 'Core > Commands',
-      title: 'Command Triggered',
-      desc: 'Triggers when viewer enters a chat command',
+      source: lang === 'ar' ? 'النظام > الأوامر' : 'Core > Commands',
+      title: lang === 'ar' ? 'أمر في الشات' : 'Command Triggered',
+      desc: lang === 'ar' ? 'يتم التفعيل عندما يكتب المشاهد أمراً في الشات' : 'Triggers when viewer enters a chat command',
       icon: Terminal,
       color: 'text-sky-400',
     },
     {
       type: 'twitch_channel_points' as ActionTriggerType,
-      source: 'Twitch > Channel Points',
-      title: 'Reward Redemption',
-      desc: 'Triggers when a channel points custom reward is redeemed',
+      source: lang === 'ar' ? 'تويتش > نقاط القناة' : 'Twitch > Channel Points',
+      title: lang === 'ar' ? 'استبدال مكافأة نقاط القناة' : 'Reward Redemption',
+      desc: lang === 'ar' ? 'يتم التفعيل عند استبدال مكافأة مخصصة بنقاط القناة' : 'Triggers when a channel points custom reward is redeemed',
       icon: Coins,
       color: 'text-amber-400',
     },
@@ -945,24 +1499,64 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     {
       id: 'comment',
       type: 'comment' as SequenceStepType,
-      title: '💬 Add Comment / Note',
-      desc: 'Visual green comment step for organizing actions',
+      title: lang === 'ar' ? '💬 إضافة تعليق / ملاحظة' : '💬 Add Comment / Note',
+      desc: lang === 'ar' ? 'خطوة تعليق خضراء لتنظيم وفصل الإجراءات' : 'Visual green comment step for organizing actions',
       icon: MessageSquare,
       color: 'text-emerald-400',
     },
     {
+      id: 'sound',
+      type: 'sound' as SequenceStepType,
+      title: lang === 'ar' ? 'الصوت: تشغيل مؤثر صوتي (SFX)' : 'Audio: Play Sound Effect (SFX)',
+      desc: lang === 'ar' ? 'تشغيل ملف صوتي (.mp3, .wav) مع التحكم بمستوى الصوت' : 'Play a local sound file (.mp3, .wav) with volume control',
+      icon: Volume2,
+      color: 'text-indigo-400',
+    },
+    {
+      id: 'tts',
+      type: 'tts' as SequenceStepType,
+      title: lang === 'ar' ? 'الكلام: قراءة النص صوتياً (TTS)' : 'Speech: Text-To-Speech (TTS)',
+      desc: lang === 'ar' ? 'نطق أي نص تلقائياً مع دعم متغيرات الشات' : 'Synthesize spoken text with dynamic stream tokens',
+      icon: Mic,
+      color: 'text-teal-400',
+    },
+    {
+      id: 'obs_text',
+      type: 'obs_text' as SequenceStepType,
+      title: lang === 'ar' ? 'OBS: كتابة إلى ملف نصي' : 'OBS: Write to Text File',
+      desc: lang === 'ar' ? 'تحديث ملف نصي محلي ليظهر في مصادر نصوص OBS' : 'Update local text file for OBS text source overlays',
+      icon: FileText,
+      color: 'text-amber-400',
+    },
+    {
+      id: 'poll',
+      type: 'poll' as SequenceStepType,
+      title: lang === 'ar' ? 'التفاعل: استطلاع وتصويت مباشر' : 'Interactivity: Live Poll',
+      desc: lang === 'ar' ? 'بدء، إنهاء، أو تصفير استطلاع وتصويت مباشر على الشاشة' : 'Start, end, or reset a live stream vote/poll',
+      icon: BarChart3,
+      color: 'text-violet-400',
+    },
+    {
+      id: 'mic_mute',
+      type: 'mic_mute' as SequenceStepType,
+      title: lang === 'ar' ? 'الصوت: كتم مايك الستريمر لمدة مؤقتة' : 'Audio: Mute Streamer Mic for Duration',
+      desc: lang === 'ar' ? 'كتم ميكروفون الويندوز الافتراضي مع إعادة تشغيل تلقائية آمنة' : 'Temporarily mute default microphone with fail-safe auto-unmute',
+      icon: MicOff,
+      color: 'text-rose-400',
+    },
+    {
       id: 'chat',
       type: 'chat' as SequenceStepType,
-      title: 'Twitch: Send Chat Message',
-      desc: 'Post a custom message or alert to Twitch chat',
+      title: lang === 'ar' ? 'تويتش: إرسال رسالة في الشات' : 'Twitch: Send Chat Message',
+      desc: lang === 'ar' ? 'إرسال رسالة مخصصة أو تنبيه في شات تويتش' : 'Post a custom message or alert to Twitch chat',
       icon: MessageSquare,
       color: 'text-sky-400',
     },
     {
       id: 'shoutout',
       type: 'moderation' as SequenceStepType,
-      title: 'Twitch: Shoutout Raider / Channel',
-      desc: 'Send an official Twitch shoutout (/shoutout)',
+      title: lang === 'ar' ? 'تويتش: شوت أوت لقناة الـ Raider' : 'Twitch: Shoutout Raider / Channel',
+      desc: lang === 'ar' ? 'إرسال شوت أوت رسمي (/shoutout)' : 'Send an official Twitch shoutout (/shoutout)',
       icon: Megaphone,
       color: 'text-orange-400',
       options: { moderationAction: 'shoutout' as ModerationAction, targetUser: '{raider}' },
@@ -970,8 +1564,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     {
       id: 'smart_timeout',
       type: 'moderation' as SequenceStepType,
-      title: 'Twitch: Smart Timeout (Mods & Lead Mods)',
-      desc: 'Temporarily unmods, times out, and automatically re-mods (supports Mods & Lead Mods)',
+      title: lang === 'ar' ? 'تويتش: إسكات ذكي (مع دعم المشرفين)' : 'Twitch: Smart Timeout (Mods & Lead Mods)',
+      desc: lang === 'ar' ? 'سحب رتبة المشرف مؤقتاً، إسكاته، ثم إعادتها تلقائياً' : 'Temporarily unmods, times out, and automatically re-mods (supports Mods & Lead Mods)',
       icon: Zap,
       color: 'text-amber-400',
       options: { moderationAction: 'smart_timeout' as ModerationAction, targetUser: '{input}', durationSeconds: 60 },
@@ -979,8 +1573,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     {
       id: 'timeout',
       type: 'moderation' as SequenceStepType,
-      title: 'Twitch: Regular Timeout',
-      desc: 'Timeout a target chatter for specified seconds',
+      title: lang === 'ar' ? 'تويتش: إسكات عادي (Timeout)' : 'Twitch: Regular Timeout',
+      desc: lang === 'ar' ? 'إسكات المشاهد المحدد لعدد ثوانٍ معين' : 'Timeout a target chatter for specified seconds',
       icon: Shield,
       color: 'text-rose-400',
       options: { moderationAction: 'timeout' as ModerationAction, targetUser: '{input}', durationSeconds: 60 },
@@ -988,8 +1582,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     {
       id: 'clear_chat',
       type: 'moderation' as SequenceStepType,
-      title: 'Twitch: Clear Chat',
-      desc: 'Clear the entire Twitch chat room',
+      title: lang === 'ar' ? 'تويتش: مسح الشات بالكامل' : 'Twitch: Clear Chat',
+      desc: lang === 'ar' ? 'مسح كل الرسائل في شات تويتش' : 'Clear the entire Twitch chat room',
       icon: Shield,
       color: 'text-rose-400',
       options: { moderationAction: 'clear_chat' as ModerationAction },
@@ -997,24 +1591,24 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     {
       id: 'wait',
       type: 'wait' as SequenceStepType,
-      title: 'Core: Delay / Wait',
-      desc: 'Pause execution for specified seconds or minutes',
+      title: lang === 'ar' ? 'النظام: انتظار / تأخير زمني' : 'Core: Delay / Wait',
+      desc: lang === 'ar' ? 'إيقاف التنفيذ مؤقتاً لعدد ثوانٍ أو دقائق' : 'Pause execution for specified seconds or minutes',
       icon: Clock,
       color: 'text-amber-400',
     },
     {
       id: 'counter',
       type: 'counter' as SequenceStepType,
-      title: 'Counters: Modify Counter',
-      desc: 'Increment, decrement, or reset a stream counter',
+      title: lang === 'ar' ? 'العدّادات: تعديل قيمة عدّاد' : 'Counters: Modify Counter',
+      desc: lang === 'ar' ? 'زيادة، إنقاص، أو تصفير قيمة عدّاد' : 'Increment, decrement, or reset a stream counter',
       icon: Calculator,
       color: 'text-emerald-400',
     },
     {
       id: 'command',
       type: 'command' as SequenceStepType,
-      title: 'Core: Run Sub-Command',
-      desc: 'Trigger another command or sequence',
+      title: lang === 'ar' ? 'النظام: تشغيل أمر فرعي' : 'Core: Run Sub-Command',
+      desc: lang === 'ar' ? 'تشغيل أمر أو تسلسل آخر' : 'Trigger another command or sequence',
       icon: Terminal,
       color: 'text-violet-400',
     },
@@ -1059,7 +1653,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               className="border-white/10 bg-[#171b26] text-zinc-300 hover:text-white"
             >
               <Sparkles size={12} className="me-1.5 text-amber-400" />
-              <span>Presets</span>
+              <span>{t(lang, 'sequence.presets')}</span>
               <ChevronDown size={11} className="ms-1 opacity-70" />
             </Button>
 
@@ -1105,7 +1699,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
             className={`border-white/10 bg-[#171b26] ${showSimDrawer ? 'text-emerald-400 border-emerald-500/40' : 'text-zinc-300'}`}
           >
             <Sliders size={12} className="me-1.5" />
-            <span>Simulator</span>
+            <span>{t(lang, 'sequence.simulator')}</span>
           </Button>
 
           {/* Enabled Switch */}
@@ -1193,11 +1787,12 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                 )}
               </div>
 
-              <SegmentedControl<'raid' | 'chat' | 'points'>
+              <SegmentedControl<'raid' | 'follow' | 'chat' | 'points'>
                 value={simMode}
                 onChange={setSimMode}
                 options={[
                   { value: 'raid', label: `🔥 ${t(lang, 'sequence.simRaid')}` },
+                  { value: 'follow', label: `💖 ${t(lang, 'sequence.triggerFollow')}` },
                   { value: 'chat', label: `💬 ${t(lang, 'sequence.simChat')}` },
                   { value: 'points', label: `🪙 ${t(lang, 'sequence.simPoints')}` },
                 ]}
@@ -1205,7 +1800,34 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
             </div>
 
             <div className="mt-3">
-              {simMode === 'raid' ? (
+              {simMode === 'follow' ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-12 items-end">
+                  <div className="sm:col-span-9 flex flex-col gap-1">
+                    <label className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.triggerFollow')}</label>
+                    <div className="relative">
+                      <span className="absolute start-2.5 top-1/2 -translate-y-1/2 font-mono text-[12px] text-muted">@</span>
+                      <Input
+                        value={simFollower}
+                        onChange={(e) => setSimFollower(e.target.value)}
+                        placeholder="NewFollower"
+                        className="h-8 ps-6 font-mono text-[12px]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-3">
+                    <Button
+                      size="sm"
+                      onClick={() => void handleRunTest()}
+                      disabled={isExecuting || !sequence.enabled}
+                      className="w-full h-8 border border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-500 font-semibold"
+                    >
+                      <Play size={12} className="fill-current me-1.5" />
+                      <span>{t(lang, 'sequence.runTest')}</span>
+                    </Button>
+                  </div>
+                </div>
+              ) : simMode === 'raid' ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-12 items-end">
                   <div className="sm:col-span-6 flex flex-col gap-1">
                     <label className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.simRaider')}</label>
@@ -1396,12 +2018,27 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                     className="h-7.5 border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-[11.5px] font-medium"
                   >
                     <Plus size={12} className="me-1" />
-                    <span>Add</span>
+                    <span>{t(lang, 'sequence.add')}</span>
                     <ChevronDown size={11} className="ms-1 opacity-70" />
                   </Button>
 
                   {showAddTriggerMenu && (
                     <div className="absolute end-0 top-full z-30 mt-1 w-60 rounded-md border border-[#2e3448] bg-[#161a26] p-1.5 shadow-xl">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[12px] hover:bg-white/[0.08] text-pink-400 transition-colors"
+                        onClick={() => {
+                          const nt = addTrigger(sequence.id, 'twitch_follow');
+                          setShowAddTriggerMenu(false);
+                          setEditingTriggerId(nt.id);
+                        }}
+                      >
+                        <Heart size={14} />
+                        <div>
+                          <div className="font-medium text-white">{t(lang, 'sequence.triggerFollow')}</div>
+                          <div className="font-mono text-[10px] text-muted">{t(lang, 'sequence.sourceTwitchChannel')}</div>
+                        </div>
+                      </button>
                       <button
                         type="button"
                         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[12px] hover:bg-white/[0.08] text-orange-400 transition-colors"
@@ -1414,7 +2051,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                         <Flame size={14} />
                         <div>
                           <div className="font-medium text-white">{t(lang, 'sequence.triggerRaid')}</div>
-                          <div className="font-mono text-[10px] text-muted">Twitch &gt; Channel</div>
+                          <div className="font-mono text-[10px] text-muted">{t(lang, 'sequence.sourceTwitchChannel')}</div>
                         </div>
                       </button>
                       <button
@@ -1429,7 +2066,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                         <Terminal size={14} />
                         <div>
                           <div className="font-medium text-white">{t(lang, 'sequence.triggerChatCommand')}</div>
-                          <div className="font-mono text-[10px] text-muted">Core &gt; Commands</div>
+                          <div className="font-mono text-[10px] text-muted">{t(lang, 'sequence.sourceCoreCommands')}</div>
                         </div>
                       </button>
                       <button
@@ -1444,7 +2081,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                         <Coins size={14} />
                         <div>
                           <div className="font-medium text-white">{t(lang, 'sequence.triggerChannelPoints')}</div>
-                          <div className="font-mono text-[10px] text-muted">Twitch &gt; Channel Points</div>
+                          <div className="font-mono text-[10px] text-muted">{t(lang, 'sequence.sourceTwitchPoints')}</div>
                         </div>
                       </button>
                     </div>
@@ -1484,21 +2121,27 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   ) : (
                     triggers.map((trig) => {
                       const sourceText =
-                        trig.type === 'twitch_raid'
+                        trig.type === 'twitch_follow'
+                          ? t(lang, 'sequence.sourceTwitchChannel')
+                          : trig.type === 'twitch_raid'
                           ? t(lang, 'sequence.sourceTwitchChannel')
                           : trig.type === 'twitch_chat'
                           ? t(lang, 'sequence.sourceCoreCommands')
                           : t(lang, 'sequence.sourceTwitchPoints');
 
                       const typeText =
-                        trig.type === 'twitch_raid'
+                        trig.type === 'twitch_follow'
+                          ? t(lang, 'sequence.typeChannelFollow')
+                          : trig.type === 'twitch_raid'
                           ? t(lang, 'sequence.typeChannelRaid')
                           : trig.type === 'twitch_chat'
                           ? t(lang, 'sequence.typeCommandTriggered')
                           : t(lang, 'sequence.typeRewardRedemption');
 
                       const criteriaText =
-                        trig.type === 'twitch_raid'
+                        trig.type === 'twitch_follow'
+                          ? 'Any new follower'
+                          : trig.type === 'twitch_raid'
                           ? `Min: ${trig.minViewers ?? 1} viewers`
                           : trig.type === 'twitch_chat'
                           ? `${trig.chatCommand || '!command'} (${trig.matchMode || 'startsWith'})`
@@ -1515,7 +2158,9 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           {/* Source */}
                           <td className="py-2.5 px-3 font-mono text-[11.5px] text-zinc-300">
                             <div className="flex items-center gap-2">
-                              {trig.type === 'twitch_raid' ? (
+                              {trig.type === 'twitch_follow' ? (
+                                <Heart size={13} className="text-pink-400 shrink-0" />
+                              ) : trig.type === 'twitch_raid' ? (
                                 <Flame size={13} className="text-orange-400 shrink-0" />
                               ) : trig.type === 'twitch_chat' ? (
                                 <Terminal size={13} className="text-sky-400 shrink-0" />
@@ -1652,7 +2297,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   className="flex h-7.5 items-center gap-1.5 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 font-mono text-[11px] text-emerald-300 hover:bg-emerald-500/20 transition-colors"
                 >
                   <MessageSquare size={12} />
-                  <span>Comment</span>
+                  <span>{t(lang, 'sequence.comment')}</span>
                 </button>
 
                 {/* + Add Sub-Action button */}
@@ -1663,7 +2308,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                     className="h-7.5 border border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 text-[11.5px] font-medium"
                   >
                     <Plus size={12} className="me-1" />
-                    <span>Add</span>
+                    <span>{t(lang, 'sequence.add')}</span>
                     <ChevronDown size={11} className="ms-1 opacity-70" />
                   </Button>
 
@@ -1707,6 +2352,76 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                       >
                         <Shield size={13} />
                         <span>{t(lang, 'sequence.stepModeration')}</span>
+                      </button>
+
+                      <div className="my-1 h-px bg-white/[0.08]" />
+                      <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
+                        {t(lang, 'sequence.categoryAudioSpeech')}
+                      </div>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-indigo-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'sound');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <Volume2 size={13} />
+                        <span>{t(lang, 'sequence.stepSound')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-teal-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'tts');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <Mic size={13} />
+                        <span>{t(lang, 'sequence.stepTts')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-rose-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'mic_mute');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <MicOff size={13} />
+                        <span>{t(lang, 'sequence.stepMicMute')}</span>
+                      </button>
+
+                      <div className="my-1 h-px bg-white/[0.08]" />
+                      <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
+                        {t(lang, 'sequence.categoryInteractivity')}
+                      </div>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-amber-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'obs_text');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <FileText size={13} />
+                        <span>{t(lang, 'sequence.stepObsText')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-violet-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'poll');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <BarChart3 size={13} />
+                        <span>{t(lang, 'sequence.stepPoll')}</span>
                       </button>
 
                       <div className="my-1 h-px bg-white/[0.08]" />
@@ -1802,6 +2517,16 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                 ) : (
                                   <Shield size={13} className="text-rose-400 shrink-0" />
                                 )
+                              ) : st.type === 'sound' ? (
+                                <Volume2 size={13} className="text-indigo-400 shrink-0" />
+                              ) : st.type === 'tts' ? (
+                                <Mic size={13} className="text-teal-400 shrink-0" />
+                              ) : st.type === 'obs_text' ? (
+                                <FileText size={13} className="text-amber-400 shrink-0" />
+                              ) : st.type === 'poll' ? (
+                                <BarChart3 size={13} className="text-violet-400 shrink-0" />
+                              ) : st.type === 'mic_mute' ? (
+                                <MicOff size={13} className="text-rose-400 shrink-0" />
                               ) : st.type === 'wait' ? (
                                 <Clock size={13} className="text-amber-400 shrink-0" />
                               ) : st.type === 'counter' ? (
@@ -1935,6 +2660,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               </div>
               <button
                 type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-pink-400"
+                onClick={() => {
+                  const nt = addTrigger(sequence.id, 'twitch_follow');
+                  setContextMenu(null);
+                  setEditingTriggerId(nt.id);
+                }}
+              >
+                <Heart size={14} />
+                <span>{t(lang, 'sequence.triggerFollow')}</span>
+              </button>
+              <button
+                type="button"
                 className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-orange-400"
                 onClick={() => {
                   const nt = addTrigger(sequence.id, 'twitch_raid', { minViewers: 1 });
@@ -2048,6 +2785,66 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
                 {t(lang, 'sequence.contextAddSubAction')}
               </div>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-indigo-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'sound');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <Volume2 size={14} />
+                <span>{t(lang, 'sequence.stepSound')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-teal-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'tts');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <Mic size={14} />
+                <span>{t(lang, 'sequence.stepTts')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-rose-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'mic_mute');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <MicOff size={14} />
+                <span>{t(lang, 'sequence.stepMicMute')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-amber-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'obs_text');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <FileText size={14} />
+                <span>{t(lang, 'sequence.stepObsText')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-violet-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'poll');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <BarChart3 size={14} />
+                <span>{t(lang, 'sequence.stepPoll')}</span>
+              </button>
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-orange-400"

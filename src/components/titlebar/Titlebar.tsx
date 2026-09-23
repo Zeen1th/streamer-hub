@@ -45,19 +45,31 @@ export function Titlebar() {
       onDoubleClick={() => rpc.invoke(Channels.WindowMaximizeToggle).catch(() => undefined)}
     >
       <div className="flex items-center gap-2.5">
-        <svg className="size-[18px] shrink-0" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <svg className="size-[19px] shrink-0" viewBox="0 0 64 64" fill="none" aria-hidden="true">
           <defs>
-            <linearGradient id="tb-bm" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#8B6BF0" />
-              <stop offset="55%" stopColor="#5B6CF0" />
-              <stop offset="100%" stopColor="#1E8FE0" />
+            <linearGradient id="tb-tile-bg" x1="0" y1="0" x2="0" y2="64" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="#242C36" />
+              <stop offset="100%" stopColor="#11161B" />
+            </linearGradient>
+            <linearGradient id="tb-beacon-grad" x1="10" y1="10" x2="54" y2="54" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="#8B5CF6" />
+              <stop offset="50%" stopColor="#6366F1" />
+              <stop offset="100%" stopColor="#06B6D4" />
             </linearGradient>
           </defs>
-          <rect x="22" y="4" width="27" height="27" rx="8" transform="rotate(45 35.5 17.5)" fill="none" stroke="url(#tb-bm)" strokeWidth="6" />
-          <rect x="15" y="23" width="27" height="27" rx="8" transform="rotate(45 28.5 36.5)" fill="url(#tb-bm)" />
+          {/* App Tile Squircle */}
+          <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#tb-tile-bg)" stroke="rgba(255, 255, 255, 0.16)" strokeWidth="1.8" />
+          {/* Outer Diamond Pulse Ring */}
+          <rect x="14" y="14" width="36" height="36" rx="7.5" transform="rotate(45 32 32)" fill="none" stroke="url(#tb-beacon-grad)" strokeWidth="2.8" opacity="0.5" />
+          {/* Mid Diamond Pulse Ring */}
+          <rect x="19" y="19" width="26" height="26" rx="6" transform="rotate(45 32 32)" fill="none" stroke="url(#tb-beacon-grad)" strokeWidth="3.4" opacity="0.85" />
+          {/* Central Core Diamond */}
+          <rect x="24.5" y="24.5" width="15" height="15" rx="3.5" transform="rotate(45 32 32)" fill="url(#tb-beacon-grad)" />
+          {/* Center Beacon Dot */}
+          <circle cx="32" cy="32" r="2.8" fill="#FFFFFF" />
         </svg>
         <span className="font-sans text-[12.5px] font-bold tracking-tight text-ink">Streamer Hub</span>
-        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.3.6</span>
+        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.3.7</span>
       </div>
       <div data-drag-exclude className="flex h-full items-center gap-1 pe-1">
         {message && <span role="status" className="px-2 font-mono text-[10px] text-muted">{message}</span>}

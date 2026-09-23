@@ -46,6 +46,9 @@ public static class ChatOverlayProtocol
     public static string Preview(bool enabled, IReadOnlyList<ChatMessage>? sampleMessages = null) =>
         Serialize("preview", new { enabled, messages = sampleMessages ?? Array.Empty<ChatMessage>() });
 
+    public static string VoteState(PollState state) =>
+        Serialize("vote-state", state);
+
     private static string ScopeName(ChatClearScope scope) => scope switch
     {
         ChatClearScope.Message => "message",

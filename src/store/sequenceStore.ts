@@ -8,6 +8,7 @@ import type {
   CounterAction,
   SequenceStep,
   SequenceStepType,
+  TwitchFollowEvent,
   TwitchRaidEvent,
   TwitchRewardInfo,
 } from '../rpc/contracts';
@@ -22,6 +23,8 @@ import {
 } from '../lib/sequenceRunner';
 import { useCounterStore } from './counterStore';
 import { useLogStore } from './logStore';
+import { useVoteStore } from './voteStore';
+import { DEFAULT_OPTION_COLORS } from '../lib/voteRules';
 
 interface SequenceState {
   sequences: CommandSequence[];
@@ -49,6 +52,7 @@ interface SequenceState {
   handleChannelPointsRedemption(redemption: ChannelPointsRedemption): Promise<boolean>;
   handleChatMessage(message: ChatMessage): Promise<boolean>;
   handleRaid(raid: TwitchRaidEvent): Promise<boolean>;
+  handleFollow(follow: TwitchFollowEvent): Promise<boolean>;
 }
 
 const persist = (sequence: CommandSequence) => {
@@ -58,6 +62,13 @@ const persist = (sequence: CommandSequence) => {
 export const defaultTriggerForType = (type: ActionTriggerType, options?: Partial<ActionTrigger>): ActionTrigger => {
   const id = crypto.randomUUID();
   switch (type) {
+    case 'twitch_follow':
+      return {
+        id,
+        type: 'twitch_follow',
+        enabled: true,
+        ...options,
+      };
     case 'twitch_raid':
       return {
         id,
@@ -142,6 +153,49 @@ const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceSt
         targetUser: '{input}',
         durationSeconds: 60,
         reason: 'Channel Points Timeout',
+        ...options,
+      };
+    case 'sound':
+      return {
+        id,
+        type: 'sound',
+        soundPath: options?.soundPath ?? '',
+        soundVolume: options?.soundVolume ?? 1.0,
+        ...options,
+      };
+    case 'tts':
+      return {
+        id,
+        type: 'tts',
+        ttsText: options?.ttsText ?? 'Welcome to the stream {username}!',
+        ttsRate: options?.ttsRate ?? 1.0,
+        ttsPitch: options?.ttsPitch ?? 1.0,
+        ttsVolume: options?.ttsVolume ?? 1.0,
+        ...options,
+      };
+    case 'obs_text':
+      return {
+        id,
+        type: 'obs_text',
+        filePath: options?.filePath ?? 'C:\\stream\\latest_follower.txt',
+        fileContent: options?.fileContent ?? 'Latest Follower: {username}',
+        ...options,
+      };
+    case 'poll':
+      return {
+        id,
+        type: 'poll',
+        pollAction: options?.pollAction ?? 'start',
+        pollQuestion: options?.pollQuestion ?? 'What game should we play next?',
+        pollOptions: options?.pollOptions ?? ['Option A', 'Option B'],
+        pollDurationSeconds: options?.pollDurationSeconds ?? 60,
+        ...options,
+      };
+    case 'mic_mute':
+      return {
+        id,
+        type: 'mic_mute',
+        micMuteDurationSeconds: options?.micMuteDurationSeconds ?? 5,
         ...options,
       };
   }
@@ -519,6 +573,68 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
               return { ok: false, error: `Unknown moderation action: ${action}` };
           }
         },
+        playSound: async (soundPath, volume) => {
+          const res = await rpc.invoke(Channels.AudioPlaySound, { soundPath, volume });
+          return Boolean(res?.ok);
+        },
+        speakTts: async (text, voiceName, rate, pitch, volume) => {
+          if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            return new Promise<boolean>((resolve) => {
+              try {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                if (rate != null) utterance.rate = Math.max(0.1, Math.min(rate, 2.0));
+                if (pitch != null) utterance.pitch = Math.max(0.1, Math.min(pitch, 2.0));
+                if (volume != null) utterance.volume = Math.max(0.0, Math.min(volume, 1.0));
+                if (voiceName) {
+                  const voices = window.speechSynthesis.getVoices();
+                  const matched = voices.find((v) => v.name === voiceName || v.voiceURI === voiceName);
+                  if (matched) utterance.voice = matched;
+                }
+                utterance.onend = () => resolve(true);
+                utterance.onerror = () => resolve(false);
+                window.speechSynthesis.speak(utterance);
+              } catch {
+                resolve(false);
+              }
+            });
+          }
+          return false;
+        },
+        writeObsText: async (filePath, content) => {
+          const res = await rpc.invoke(Channels.ObsWrite, { filePath, content });
+          return Boolean(res?.ok);
+        },
+        executePollAction: async (action, question, options, durationSeconds) => {
+          const voteStore = useVoteStore.getState();
+          if (action === 'start') {
+            if (question) voteStore.setTitle(question);
+            if (options && options.length > 0) {
+              const newPoll = {
+                ...voteStore.poll,
+                title: question || voteStore.poll.title,
+                options: options.map((opt, idx) => ({
+                  id: `opt-${idx + 1}`,
+                  key: String(idx + 1),
+                  label: opt,
+                  votes: 0,
+                  color: DEFAULT_OPTION_COLORS[idx % DEFAULT_OPTION_COLORS.length],
+                })),
+              };
+              await voteStore.savePoll(newPoll);
+            }
+            return await voteStore.startPoll(durationSeconds);
+          } else if (action === 'end') {
+            return await voteStore.endPoll();
+          } else if (action === 'reset') {
+            return await voteStore.resetVotes();
+          }
+          return false;
+        },
+        muteMic: async (durationSeconds) => {
+          const res = await rpc.invoke(Channels.AudioMuteMic, { durationSeconds });
+          return Boolean(res?.ok);
+        },
         onStepStart: (index) => {
           set({ activeRunningStepIndex: index });
         },
@@ -614,6 +730,29 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
           raider: raid.fromUserName || raid.fromUserLogin,
           viewers: raid.viewers,
           userInput: `@${raid.fromUserName || raid.fromUserLogin}`,
+        });
+      }
+    }
+
+    return handled;
+  },
+
+  handleFollow: async (follow) => {
+    const sequences = get().sequences;
+    let handled = false;
+
+    for (const seq of sequences) {
+      if (!seq.enabled) continue;
+      const matches = matchesSequenceTrigger(seq, { follow });
+
+      if (matches) {
+        handled = true;
+        await get().runSequence(seq.id, {
+          username: follow.userName || follow.userLogin,
+          userLogin: follow.userLogin,
+          userId: follow.userId,
+          source: 'follow',
+          userInput: `@${follow.userName || follow.userLogin}`,
         });
       }
     }

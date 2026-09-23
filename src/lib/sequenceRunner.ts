@@ -4,7 +4,7 @@ export interface SequenceExecutionContext {
   username: string;
   userLogin?: string;
   userId?: string;
-  source: 'channel_points' | 'chat' | 'raid' | 'test';
+  source: 'channel_points' | 'chat' | 'raid' | 'follow' | 'test';
   userInput?: string;
   raider?: string;
   viewers?: number;
@@ -20,6 +20,22 @@ export interface SequenceExecutionSinks {
     durationSeconds?: number,
     reason?: string,
   ) => Promise<{ ok: boolean; wasMod?: boolean; error?: string }>;
+  playSound?: (soundPath: string, volume?: number) => Promise<boolean>;
+  speakTts?: (
+    text: string,
+    voice?: string,
+    rate?: number,
+    pitch?: number,
+    volume?: number,
+  ) => Promise<boolean>;
+  writeObsText?: (filePath: string, content: string) => Promise<boolean>;
+  executePollAction?: (
+    action: 'start' | 'end' | 'reset',
+    question?: string,
+    options?: string[],
+    durationSeconds?: number,
+  ) => Promise<boolean>;
+  muteMic?: (durationSeconds: number) => Promise<boolean>;
   delay?: (ms: number) => Promise<void>;
   onStepStart?: (stepIndex: number, step: SequenceStep) => void;
   onStepComplete?: (stepIndex: number, step: SequenceStep) => void;
@@ -94,6 +110,11 @@ export interface SequenceTriggerQuery {
     fromUserLogin: string;
     viewers: number;
   };
+  follow?: {
+    userId: string;
+    userName: string;
+    userLogin: string;
+  };
 }
 
 export function matchesSequenceTrigger(sequence: CommandSequence, query: SequenceTriggerQuery): boolean {
@@ -103,6 +124,10 @@ export function matchesSequenceTrigger(sequence: CommandSequence, query: Sequenc
   if (Array.isArray(sequence.triggers)) {
     for (const trigger of sequence.triggers) {
       if (!trigger.enabled) continue;
+
+      if (trigger.type === 'twitch_follow' && query.follow) {
+        return true;
+      }
 
       if (trigger.type === 'twitch_raid' && query.raid) {
         const min = trigger.minViewers ?? 1;
@@ -264,6 +289,69 @@ export async function executeSequence(
             } else if (res.wasMod) {
               log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Note: ${cleanTarget} is a mod — temporarily unmodded, timed out for ${duration}s, and will be re-modded automatically.`);
             }
+          }
+          break;
+        }
+
+        case 'sound': {
+          if (step.soundPath?.trim()) {
+            const vol = step.soundVolume ?? 1.0;
+            log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Play sound "${step.soundPath.trim()}" (vol: ${Math.round(vol * 100)}%)`);
+            if (sinks.playSound) {
+              await sinks.playSound(step.soundPath.trim(), vol);
+            }
+          }
+          break;
+        }
+
+        case 'tts': {
+          if (step.ttsText?.trim()) {
+            const resolvedText = replaceSequenceTokens(step.ttsText, ctx);
+            log('chat', `[Sequence ${sequence.name}] Step ${i + 1}: TTS speak "${resolvedText}"`);
+            if (sinks.speakTts) {
+              await sinks.speakTts(
+                resolvedText,
+                step.ttsVoice,
+                step.ttsRate ?? 1.0,
+                step.ttsPitch ?? 1.0,
+                step.ttsVolume ?? 1.0,
+              );
+            }
+          }
+          break;
+        }
+
+        case 'obs_text': {
+          if (step.filePath?.trim()) {
+            const content = step.fileContent !== undefined ? step.fileContent : '';
+            const resolvedContent = replaceSequenceTokens(content, ctx);
+            log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Write OBS text file "${step.filePath.trim()}" -> "${resolvedContent}"`);
+            if (sinks.writeObsText) {
+              await sinks.writeObsText(step.filePath.trim(), resolvedContent);
+            }
+          }
+          break;
+        }
+
+        case 'poll': {
+          const action = step.pollAction || 'start';
+          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Live Poll -> ${action}`);
+          if (sinks.executePollAction) {
+            await sinks.executePollAction(
+              action,
+              step.pollQuestion ? replaceSequenceTokens(step.pollQuestion, ctx) : undefined,
+              step.pollOptions,
+              step.pollDurationSeconds,
+            );
+          }
+          break;
+        }
+
+        case 'mic_mute': {
+          const duration = step.micMuteDurationSeconds && step.micMuteDurationSeconds > 0 ? step.micMuteDurationSeconds : 5;
+          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Mute streamer microphone for ${duration}s`);
+          if (sinks.muteMic) {
+            await sinks.muteMic(duration);
           }
           break;
         }

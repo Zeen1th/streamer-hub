@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import type { LogKind } from '../rpc/contracts';
 import { clampInspectorWidth, DEFAULT_INSPECTOR_WIDTH, type CommandGroup } from '../lib/commandProjection';
 
-export type ToolId = 'home' | 'counter' | 'autoReplies' | 'chat' | 'feed' | 'settings';
-export type AppTab = 'home' | 'commands' | 'overlay' | 'obs-chat' | 'activity' | 'settings';
+export type ToolId = 'home' | 'counter' | 'autoReplies' | 'chat' | 'feed' | 'settings' | 'votes';
+export type AppTab = 'home' | 'commands' | 'overlay' | 'obs-chat' | 'votes' | 'activity' | 'settings';
 export type SettingsSection = 'general' | 'system' | 'keybinds' | 'twitch' | 'ai' | 'guide';
 
 interface ToolState {
@@ -30,7 +30,17 @@ interface ToolState {
 }
 
 const toolToTab = (tool: ToolId): AppTab =>
-  tool === 'home' ? 'home' : tool === 'chat' ? 'overlay' : tool === 'feed' ? 'activity' : tool === 'settings' ? 'settings' : 'commands';
+  tool === 'home'
+    ? 'home'
+    : tool === 'chat'
+      ? 'overlay'
+      : tool === 'feed'
+        ? 'activity'
+        : tool === 'votes'
+          ? 'votes'
+          : tool === 'settings'
+            ? 'settings'
+            : 'commands';
 
 export const useToolStore = create<ToolState>((set) => ({
   activeTool: 'home',
@@ -55,11 +65,13 @@ export const useToolStore = create<ToolState>((set) => ({
         ? 'home'
         : activeTab === 'overlay' || activeTab === 'obs-chat'
           ? 'chat'
-          : activeTab === 'activity'
-            ? 'feed'
-            : activeTab === 'settings'
-              ? 'settings'
-              : 'counter',
+          : activeTab === 'votes'
+            ? 'votes'
+            : activeTab === 'activity'
+              ? 'feed'
+              : activeTab === 'settings'
+                ? 'settings'
+                : 'counter',
     menu: null,
   }),
   setGroup: (group) => set({ group, selected: [], menu: null }),

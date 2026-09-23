@@ -26,6 +26,7 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
     public event Action<ChannelPointsRedemption>? ChannelPointsRedeemed;
     public event Action<string>? ChannelTitleUpdated;
     public event Action<TwitchRaidEvent>? RaidReceived;
+    public event Action<TwitchFollowEvent>? FollowReceived;
     public event Action<string>? LogMessage;
 
     public void Connect(string accessToken, string broadcasterUserId)
@@ -152,6 +153,7 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
                         await SubscribeRedemptionsAsync(sessionId, ct).ConfigureAwait(false);
                         await SubscribeChannelUpdateAsync(sessionId, ct).ConfigureAwait(false);
                         await SubscribeRaidAsync(sessionId, ct).ConfigureAwait(false);
+                        await SubscribeFollowAsync(sessionId, ct).ConfigureAwait(false);
                     }
                 }
             }
@@ -183,6 +185,17 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
                             Log($"Twitch Channel Title Updated: \"{updatedTitle}\"");
                             ChannelTitleUpdated?.Invoke(updatedTitle);
                         }
+                    }
+                    else if (string.Equals(subType, "channel.follow", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var userId = ev.TryGetProperty("user_id", out var uId) ? uId.GetString() ?? string.Empty : string.Empty;
+                        var userName = ev.TryGetProperty("user_name", out var uName) ? uName.GetString() ?? string.Empty : string.Empty;
+                        var userLogin = ev.TryGetProperty("user_login", out var uLogin) ? uLogin.GetString() ?? string.Empty : string.Empty;
+                        var followedAt = ev.TryGetProperty("followed_at", out var fAt) ? fAt.GetString() ?? DateTime.UtcNow.ToString("O") : DateTime.UtcNow.ToString("O");
+
+                        var follow = new TwitchFollowEvent(userId, userName, userLogin, followedAt);
+                        Log($"Twitch EventSub Follow: {userName} followed!");
+                        FollowReceived?.Invoke(follow);
                     }
                     else
                     {
@@ -355,6 +368,52 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
         catch (Exception ex)
         {
             Log($"Error subscribing to channel raid events: {ex.Message}");
+        }
+    }
+
+    private async Task SubscribeFollowAsync(string sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_accessToken) || string.IsNullOrWhiteSpace(_broadcasterUserId)) return;
+
+        try
+        {
+            var body = new
+            {
+                type = "channel.follow",
+                version = "2",
+                condition = new
+                {
+                    broadcaster_user_id = _broadcasterUserId,
+                    moderator_user_id = _broadcasterUserId,
+                },
+                transport = new
+                {
+                    method = "websocket",
+                    session_id = sessionId,
+                }
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.twitch.tv/helix/eventsub/subscriptions")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+            };
+            request.Headers.TryAddWithoutValidation("Client-Id", TwitchConstants.ClientId);
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {_accessToken}");
+
+            using var response = await Http.SendAsync(request, ct).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+            {
+                Log("Subscribed to Twitch channel follow events successfully.");
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                Log($"Failed to subscribe to channel follow events: {response.StatusCode} - {error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Error subscribing to channel follow events: {ex.Message}");
         }
     }
 

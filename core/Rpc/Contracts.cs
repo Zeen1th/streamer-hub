@@ -128,7 +128,7 @@ public sealed record OpenRouterSettingsState
 public sealed record SequenceStep
 {
     public string Id { get; init; } = string.Empty;
-    public string Type { get; init; } = "chat"; // "chat" | "counter" | "command" | "wait" | "moderation"
+    public string Type { get; init; } = "chat"; // "chat" | "counter" | "command" | "wait" | "moderation" | "sound" | "tts" | "obs_text" | "poll" | "mic_mute"
     public double? WaitDuration { get; init; }
     public string? WaitUnit { get; init; } = "seconds"; // "seconds" | "minutes"
     public string? ChatMessage { get; init; }
@@ -140,6 +140,30 @@ public sealed record SequenceStep
     public int? DurationSeconds { get; init; }
     public string? Reason { get; init; }
     public string? CommentText { get; init; }
+
+    // Sound Effect
+    public string? SoundPath { get; init; }
+    public double? SoundVolume { get; init; } = 1.0;
+
+    // Text-To-Speech
+    public string? TtsText { get; init; }
+    public string? TtsVoice { get; init; }
+    public double? TtsRate { get; init; } = 1.0;
+    public double? TtsPitch { get; init; } = 1.0;
+    public double? TtsVolume { get; init; } = 1.0;
+
+    // OBS Text Output
+    public string? FilePath { get; init; }
+    public string? FileContent { get; init; }
+
+    // Live Poll
+    public string? PollAction { get; init; } // "start" | "end" | "reset"
+    public string? PollQuestion { get; init; }
+    public List<string>? PollOptions { get; init; }
+    public int? PollDurationSeconds { get; init; }
+
+    // Mute Mic
+    public int? MicMuteDurationSeconds { get; init; }
 }
 
 public sealed record ModerationTargetPayload(string? Target);
@@ -147,12 +171,14 @@ public sealed record ModerationTimeoutPayload(string? Target, int? DurationSecon
 public sealed record ModerationSmartTimeoutPayload(string? Target, int? DurationSeconds = null, string? Reason = null);
 public sealed record ModerationBanPayload(string? Target, string? Reason = null);
 public sealed record ModerationDeleteMessagePayload(string? MessageId);
-
+public sealed record AudioPlaySoundPayload(string? SoundPath, double? Volume = 1.0);
+public sealed record AudioMuteMicPayload(int DurationSeconds);
+public sealed record OpenFilePayload(string? Filter = null, string? Title = null);
 
 public sealed record ActionTrigger
 {
     public string Id { get; init; } = string.Empty;
-    public string Type { get; init; } = "twitch_chat"; // "twitch_raid" | "twitch_chat" | "twitch_channel_points"
+    public string Type { get; init; } = "twitch_chat"; // "twitch_raid" | "twitch_chat" | "twitch_channel_points" | "twitch_follow"
     public bool Enabled { get; init; } = true;
     public int? MinViewers { get; init; }
     public string? ChatCommand { get; init; }
@@ -162,6 +188,7 @@ public sealed record ActionTrigger
 }
 
 public sealed record TwitchRaidEvent(string FromUserId, string FromUserName, string FromUserLogin, int Viewers);
+public sealed record TwitchFollowEvent(string UserId, string UserName, string UserLogin, string FollowedAt);
 
 public sealed record CommandSequence
 {
@@ -294,3 +321,49 @@ public sealed record LogPayload
     public string? Username { get; init; }
     public int? Count { get; init; }
 }
+
+public sealed record VoteOption
+{
+    public string Id { get; init; } = string.Empty;
+    public string Key { get; init; } = string.Empty;
+    public string Label { get; init; } = string.Empty;
+    public int Votes { get; init; }
+    public string? Color { get; init; }
+    public string? ImageUrl { get; init; }
+}
+
+public sealed record PollState
+{
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public IReadOnlyList<VoteOption> Options { get; init; } = Array.Empty<VoteOption>();
+    public bool IsActive { get; init; }
+    public bool IsEnded { get; init; }
+    public bool AllowChatVotes { get; init; } = true;
+    public bool AllowChangeVote { get; init; } = true;
+    public int DurationSeconds { get; init; }
+    public long? StartedAt { get; init; }
+    public long? EndedAt { get; init; }
+    public int TotalVotes { get; init; }
+    public IReadOnlyDictionary<string, string> Voters { get; init; } = new Dictionary<string, string>();
+}
+
+public sealed record GenerateAiPollPayload(
+    string Topic,
+    string? Instructions = null,
+    int OptionCount = 4,
+    string? Language = "en"
+);
+
+public sealed record AiPollOptionDto(
+    string Label,
+    string? ImageUrl = null,
+    string? Color = null
+);
+
+public sealed record GenerateAiPollResponse(
+    bool Ok,
+    string? Title = null,
+    IReadOnlyList<AiPollOptionDto>? Options = null,
+    string? Error = null
+);

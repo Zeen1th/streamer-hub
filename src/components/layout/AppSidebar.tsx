@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   Activity,
+  BarChart3,
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
@@ -303,6 +304,23 @@ export function AppSidebar() {
         >
           <MessageSquare size={16} className="shrink-0" />
           <span className="flex-1 truncate">{t(lang, 'nav.obsChat')}</span>
+        </button>
+
+        {/* Live Votes Navigation Item */}
+        <button
+          type="button"
+          onClick={() => setTab('votes')}
+          data-nav="votes"
+          data-od-id="nav-votes"
+          className={cn(
+            'group relative mx-2 flex h-[34px] w-[calc(100%-16px)] items-center gap-[10px] rounded-[6px] px-[10px] text-start text-[12.5px] font-medium transition-colors',
+            activeTab === 'votes'
+              ? 'bg-[#2A3138] text-white font-bold before:content-[""] before:absolute before:-left-2 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-r-[3px] before:bg-accent'
+              : 'text-[#9aa3af] hover:bg-white/[0.05] hover:text-[#f0f3f7]',
+          )}
+        >
+          <BarChart3 size={16} className="shrink-0 text-cyan-400/90" />
+          <span className="flex-1 truncate">{t(lang, 'nav.votes')}</span>
         </button>
 
         {/* Activity Log Navigation Item */}

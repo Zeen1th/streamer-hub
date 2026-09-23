@@ -152,11 +152,22 @@ export type ModerationAction =
   | 'clear_chat'
   | 'shoutout';
 
-export type SequenceStepType = 'chat' | 'counter' | 'command' | 'wait' | 'moderation' | 'comment';
+export type SequenceStepType =
+  | 'chat'
+  | 'counter'
+  | 'command'
+  | 'wait'
+  | 'moderation'
+  | 'comment'
+  | 'sound'
+  | 'tts'
+  | 'obs_text'
+  | 'poll'
+  | 'mic_mute';
 export type SequenceWaitUnit = 'seconds' | 'minutes';
 export type SequenceTriggerType = 'channel_points' | 'chat' | 'both';
 
-export type ActionTriggerType = 'twitch_raid' | 'twitch_chat' | 'twitch_channel_points';
+export type ActionTriggerType = 'twitch_raid' | 'twitch_chat' | 'twitch_channel_points' | 'twitch_follow';
 
 export interface ActionTrigger {
   id: string;
@@ -176,6 +187,13 @@ export interface TwitchRaidEvent {
   viewers: number;
 }
 
+export interface TwitchFollowEvent {
+  userId: string;
+  userName: string;
+  userLogin: string;
+  followedAt: string;
+}
+
 export interface SequenceStep {
   id: string;
   type: SequenceStepType;
@@ -190,6 +208,30 @@ export interface SequenceStep {
   durationSeconds?: number;
   reason?: string;
   commentText?: string;
+
+  // Sound Effect
+  soundPath?: string;
+  soundVolume?: number;
+
+  // Text-To-Speech
+  ttsText?: string;
+  ttsVoice?: string;
+  ttsRate?: number;
+  ttsPitch?: number;
+  ttsVolume?: number;
+
+  // OBS Text Output
+  filePath?: string;
+  fileContent?: string;
+
+  // Live Poll
+  pollAction?: 'start' | 'end' | 'reset';
+  pollQuestion?: string;
+  pollOptions?: string[];
+  pollDurationSeconds?: number;
+
+  // Mute Mic
+  micMuteDurationSeconds?: number;
 }
 
 export interface CommandSequence {
@@ -470,6 +512,50 @@ export interface LogPayload {
   count?: number;
 }
 
+export interface VoteOption {
+  id: string;
+  key: string;
+  label: string;
+  votes: number;
+  color?: string;
+  imageUrl?: string;
+}
+
+export interface PollState {
+  id: string;
+  title: string;
+  options: VoteOption[];
+  isActive: boolean;
+  isEnded: boolean;
+  allowChatVotes: boolean;
+  allowChangeVote: boolean;
+  durationSeconds: number;
+  startedAt?: number;
+  endedAt?: number;
+  totalVotes: number;
+  voters: Record<string, string>;
+}
+
+export interface GenerateAiPollPayload {
+  topic: string;
+  instructions?: string;
+  optionCount?: number;
+  language?: string;
+}
+
+export interface AiPollOptionDto {
+  label: string;
+  imageUrl?: string;
+  color?: string;
+}
+
+export interface GenerateAiPollResponse {
+  ok: boolean;
+  title?: string;
+  options?: AiPollOptionDto[];
+  error?: string;
+}
+
 export const Channels = {
   WindowMinimize: 'window/minimize',
   WindowMaximizeToggle: 'window/maximize-toggle',
@@ -540,6 +626,13 @@ export const Channels = {
   ObsChatSetPreview: 'obs-chat/set-preview',
   UpdateCheck: 'update/check',
   UpdateInstall: 'update/install',
+  VotesGetState: 'votes/get-state',
+  VotesSave: 'votes/save',
+  VotesReset: 'votes/reset',
+  VotesGenerateAi: 'votes/generate-ai',
+  AudioPlaySound: 'audio/play-sound',
+  AudioMuteMic: 'audio/mute-mic',
+  DialogOpenFile: 'dialog/open-file',
 } as const;
 
 export type ChannelName = (typeof Channels)[keyof typeof Channels];
@@ -557,6 +650,8 @@ export const Events = {
   CoreLog: 'core/log',
   KeybindTriggered: 'keybind/triggered',
   TwitchRaid: 'twitch/raid',
+  TwitchFollow: 'twitch/follow',
+  VotesChanged: 'votes/changed',
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events];
@@ -692,6 +787,13 @@ export interface HostApi {
   [Channels.ObsChatSetPreview]: { request: { enabled: boolean; messages?: Partial<ChatMessage>[] }; response: { ok: boolean } };
   [Channels.UpdateCheck]: { request: undefined; response: UpdateState };
   [Channels.UpdateInstall]: { request: { downloadUrl: string }; response: { ok: boolean; error?: string } };
+  [Channels.VotesGetState]: { request: undefined; response: { poll: PollState; url: string } };
+  [Channels.VotesSave]: { request: { poll: PollState }; response: { ok: boolean; poll?: PollState } };
+  [Channels.VotesReset]: { request: undefined; response: { ok: boolean; poll?: PollState } };
+  [Channels.VotesGenerateAi]: { request: GenerateAiPollPayload; response: GenerateAiPollResponse };
+  [Channels.AudioPlaySound]: { request: { soundPath: string; volume?: number }; response: { ok: boolean; error?: string } };
+  [Channels.AudioMuteMic]: { request: { durationSeconds: number }; response: { ok: boolean; error?: string } };
+  [Channels.DialogOpenFile]: { request: { filter?: string; title?: string }; response: { path: string | null } };
 }
 
 export interface EventMap {
@@ -705,5 +807,7 @@ export interface EventMap {
   [Events.CoreLog]: { message: string };
   [Events.KeybindTriggered]: { bindingId: string };
   [Events.TwitchRaid]: TwitchRaidEvent;
+  [Events.TwitchFollow]: TwitchFollowEvent;
+  [Events.VotesChanged]: PollState;
 }
 
