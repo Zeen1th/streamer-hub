@@ -17,15 +17,17 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=..\assets\streamer-hub-icon.ico
-UninstallDisplayIcon={app}\StreamerHub.exe
+UninstallDisplayIcon={app}\streamer-hub-icon.ico
 ArchitecturesInstallIn64BitMode=x64
+ChangesAssociations=yes
 
 [Files]
 Source: "..\release\StreamerHub\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\assets\streamer-hub-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Streamer Hub"; Filename: "{app}\StreamerHub.exe"
-Name: "{autodesktop}\Streamer Hub"; Filename: "{app}\StreamerHub.exe"
+Name: "{autoprograms}\Streamer Hub"; Filename: "{app}\StreamerHub.exe"; IconFilename: "{app}\streamer-hub-icon.ico"; AppUserModelID: "Zeen1th.StreamerHub"
+Name: "{autodesktop}\Streamer Hub"; Filename: "{app}\StreamerHub.exe"; IconFilename: "{app}\streamer-hub-icon.ico"; AppUserModelID: "Zeen1th.StreamerHub"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "StreamerHub"; ValueData: """{app}\StreamerHub.exe"" --startup"; Flags: uninsdeletevalue

@@ -1,14 +1,40 @@
+using System.Runtime.InteropServices;
 using StreamerHub.Core.Host;
 
 namespace StreamerHub.Core;
 
 internal static class Program
 {
+    internal const string AppUserModelId = "Zeen1th.StreamerHub";
+
+    [DllImport("shell32.dll", SetLastError = true)]
+    private static extern void SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string AppID);
+
+    [DllImport("shell32.dll")]
+    private static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr dwItem1, IntPtr dwItem2);
+
     internal static bool StartedWithWindows { get; private set; }
 
     [STAThread]
     private static void Main(string[] args)
     {
+        try
+        {
+            SetCurrentProcessExplicitAppUserModelID(AppUserModelId);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            // Flush icon association cache on shell
+            SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);
+        }
+        catch
+        {
+        }
+
         StartedWithWindows = args.Any(arg => string.Equals(arg, "--startup", StringComparison.OrdinalIgnoreCase));
 
         // Windows Run launches processes with a system working directory. Set it

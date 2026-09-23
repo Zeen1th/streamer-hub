@@ -13,6 +13,9 @@ namespace StreamerHub.Core;
 internal static class Native
 {
     internal const int SwRestore = 9;
+    internal const int WmSetIcon = 0x0080;
+    internal const int IconSmall = 0;
+    internal const int IconBig = 1;
 
     [DllImport("user32.dll")]
     internal static extern bool ReleaseCapture();
@@ -107,11 +110,44 @@ public sealed class MainForm : Form
     private CloseTrigger _closeTrigger = CloseTrigger.UserClosedWindow;
     private int _initialized;
 
+    private static Icon? LoadAppIcon()
+    {
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "streamer-hub-icon.ico");
+            if (File.Exists(iconPath)) return new Icon(iconPath);
+        }
+        catch { }
+
+        try
+        {
+            using var stream = typeof(MainForm).Assembly.GetManifestResourceStream("StreamerHub.Core.streamer-hub-icon.ico");
+            if (stream != null) return new Icon(stream);
+        }
+        catch { }
+
+        try
+        {
+            var exePath = Environment.ProcessPath ?? Application.ExecutablePath;
+            if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+            {
+                var assoc = Icon.ExtractAssociatedIcon(exePath);
+                if (assoc != null) return assoc;
+            }
+        }
+        catch { }
+
+        return SystemIcons.Application;
+    }
+
     public MainForm()
     {
         Text = "Streamer Hub";
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "streamer-hub-icon.ico");
-        if (File.Exists(iconPath)) Icon = new Icon(iconPath);
+        var appIcon = LoadAppIcon();
+        if (appIcon != null)
+        {
+            Icon = appIcon;
+        }
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1280, 800);
@@ -123,10 +159,9 @@ public sealed class MainForm : Form
         Controls.Add(_webView);
         CreateResizeGrips();
 
-        var trayIconPath = Path.Combine(AppContext.BaseDirectory, "streamer-hub-icon.ico");
         _trayIcon = new NotifyIcon
         {
-            Icon = File.Exists(trayIconPath) ? new Icon(trayIconPath) : SystemIcons.Application,
+            Icon = appIcon ?? SystemIcons.Application,
             Text = "Streamer Hub",
             Visible = true,
             ContextMenuStrip = _trayMenu,
@@ -140,6 +175,20 @@ public sealed class MainForm : Form
         {
             WindowState = FormWindowState.Minimized;
             ShowInTaskbar = false;
+        }
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (Icon != null)
+        {
+            try
+            {
+                Native.SendMessage(Handle, Native.WmSetIcon, (IntPtr)Native.IconSmall, Icon.Handle);
+                Native.SendMessage(Handle, Native.WmSetIcon, (IntPtr)Native.IconBig, Icon.Handle);
+            }
+            catch { }
         }
     }
 

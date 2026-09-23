@@ -2063,7 +2063,7 @@ public sealed class HostController : IDisposable
         {
             var steamUrl = $"https://steamcommunity.com/actions/SearchApps/{Uri.EscapeDataString(query.Trim())}";
             using var req = new HttpRequestMessage(HttpMethod.Get, steamUrl);
-            req.Headers.Add("User-Agent", "StreamerHub/0.3.7");
+            req.Headers.Add("User-Agent", "StreamerHub/0.3.8");
             using var resp = await UpdateHttp.SendAsync(req, ct).ConfigureAwait(false);
             if (resp.IsSuccessStatusCode)
             {
