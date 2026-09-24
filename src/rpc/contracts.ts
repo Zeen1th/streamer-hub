@@ -110,6 +110,9 @@ export interface AutoReply {
   aiTargetUsers?: string[];
   aiConditions?: AiConditionRule[];
   senderRole?: 'default' | 'bot' | 'broadcaster';
+  aiWebSearch?: boolean;
+  channelPointsRewardId?: string;
+  channelPointsRewardTitle?: string;
 }
 
 export type AiUserRestriction = 'none' | 'allowlist' | 'blocklist';

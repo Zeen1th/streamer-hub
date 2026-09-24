@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
-
-**Version:** `v0.3.8`  
+ 
+**Version:** `v0.3.9`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 

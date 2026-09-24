@@ -109,6 +109,7 @@ export default function App() {
     });
     const offRedemption = rpc.on(Events.TwitchChannelPointsRedeemed, (redemption) => {
       useSequenceStore.getState().handleChannelPointsRedemption(redemption);
+      useAutoReplyStore.getState().handleChannelPointsRedemption(redemption);
     });
     const offRaid = rpc.on(Events.TwitchRaid, (raid) => {
       useSequenceStore.getState().handleRaid(raid);

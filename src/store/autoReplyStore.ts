@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AutoReply, AutoReplySettings, ChatMessage, TitleCounter } from '../rpc/contracts';
+import type { AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, TitleCounter } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 import {
@@ -39,6 +39,7 @@ interface AutoReplyState {
   triggerTitleAction(id: string, action: 'increase' | 'decrease' | 'reset' | 'apply'): boolean;
   detachTitleAction(id: string): Promise<boolean>;
   handleChatMessage(message: ChatMessage): void;
+  handleChannelPointsRedemption(redemption: ChannelPointsRedemption): void;
   flush(id?: string): void;
 }
 
@@ -135,12 +136,15 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       agentName: rule.agentName ?? '',
       agentRole: rule.agentRole ?? '',
       agentContext: rule.agentContext ?? '',
-      aiModel: rule.aiModel ?? (rule.aiProvider === 'openrouter' ? 'meta-llama/llama-3.2-3b-instruct:free' : 'llama-3.1-8b-instant'),
+      aiModel: rule.aiModel ?? (rule.aiProvider === 'openrouter' ? 'qwen/qwen3.8-27b:free' : 'llama-3.1-8b-instant'),
       aiProvider: rule.aiProvider ?? 'groq',
       aiMaxTokens: rule.aiMaxTokens ?? 120,
       aiFallback: rule.aiFallback ?? '',
       aiUserRestriction: rule.aiUserRestriction ?? 'none',
       aiTargetUsers: rule.aiTargetUsers ?? [],
+      aiWebSearch: rule.aiWebSearch ?? true,
+      channelPointsRewardId: rule.channelPointsRewardId ?? '',
+      channelPointsRewardTitle: rule.channelPointsRewardTitle ?? '',
     };
   }) }),
   add: () => {
@@ -175,6 +179,9 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       aiFallback: '',
       aiUserRestriction: 'none',
       aiTargetUsers: [],
+      aiWebSearch: true,
+      channelPointsRewardId: '',
+      channelPointsRewardTitle: '',
     };
     set((state) => ({ rules: [...state.rules, rule] }));
     persist(rule, true);
@@ -297,8 +304,20 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
         return false;
       }
 
-      const triggerMatches = (item.responseEnabled !== false || item.themeActionEnabled) && matchesAnyAutoReply(message.message, item.triggers, item.matchMode);
-      const titleMatches = item.titleActionEnabled && (matchesAnyAutoReply(message.message, item.triggers, item.matchMode) || titleActionDirection(message.message, item.titleIncreaseCommand ?? '', item.titleDecreaseCommand ?? '', item.matchMode) !== null);
+      const rewardMatches = Boolean(
+        message.customRewardId &&
+        item.channelPointsRewardId &&
+        item.channelPointsRewardId.trim().toLowerCase() === message.customRewardId.trim().toLowerCase()
+      );
+
+      const triggerMatches = (item.responseEnabled !== false || item.themeActionEnabled) && (
+        rewardMatches || matchesAnyAutoReply(message.message, item.triggers, item.matchMode)
+      );
+      const titleMatches = item.titleActionEnabled && (
+        rewardMatches ||
+        matchesAnyAutoReply(message.message, item.triggers, item.matchMode) ||
+        titleActionDirection(message.message, item.titleIncreaseCommand ?? '', item.titleDecreaseCommand ?? '', item.matchMode) !== null
+      );
 
       return triggerMatches || titleMatches;
     });
@@ -384,7 +403,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
         send: true,
         overrideInstructions: plan.isOverride ? plan.instructions : undefined,
         senderRole,
-      }).then((result) => {
+      }, 45000).then((result) => {
         if (result.ok && result.message) {
           const via = result.senderLogin ? ` (via @${result.senderLogin})` : '';
           const tag = plan.isOverride ? 'AI OVERRIDE' : 'AI AUTO REPLY';
@@ -425,5 +444,32 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
         });
       }
     }).catch(() => undefined);
+  },
+  handleChannelPointsRedemption: (redemption) => {
+    const matched = get().rules.some((item) =>
+      item.enabled &&
+      item.channelPointsRewardId &&
+      (
+        item.channelPointsRewardId.trim().toLowerCase() === redemption.rewardId.trim().toLowerCase() ||
+        (item.channelPointsRewardTitle && redemption.rewardTitle && item.channelPointsRewardTitle.trim().toLowerCase() === redemption.rewardTitle.trim().toLowerCase())
+      )
+    );
+    if (!matched) return;
+
+    const synthMessage: ChatMessage = {
+      id: `redemption-${redemption.id}`,
+      username: redemption.userName || redemption.userLogin || 'viewer',
+      isBroadcaster: false,
+      isMod: false,
+      isVip: false,
+      isSubscriber: false,
+      message: redemption.userInput?.trim() || redemption.rewardTitle || '',
+      timestamp: redemption.redeemedAt || new Date().toISOString(),
+      emotes: [],
+      customRewardId: redemption.rewardId,
+      userId: redemption.userId,
+    };
+
+    get().handleChatMessage(synthMessage);
   },
 }));

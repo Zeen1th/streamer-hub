@@ -87,7 +87,7 @@ public sealed record AutoReply
     public string AgentName { get; init; } = string.Empty;
     public string AgentRole { get; init; } = string.Empty;
     public string AgentContext { get; init; } = string.Empty;
-    public string AiModel { get; init; } = "meta-llama/llama-3.2-3b-instruct:free";
+    public string AiModel { get; init; } = "qwen/qwen3.8-27b:free";
     public string AiProvider { get; init; } = "openrouter";
     public int AiMaxTokens { get; init; } = 120;
     public string AiFallback { get; init; } = string.Empty;
@@ -95,6 +95,9 @@ public sealed record AutoReply
     public List<string> AiTargetUsers { get; init; } = new();
     public List<AiConditionRule> AiConditions { get; init; } = new();
     public string? SenderRole { get; init; } = "default";
+    public bool AiWebSearch { get; init; } = true;
+    public string? ChannelPointsRewardId { get; init; } = string.Empty;
+    public string? ChannelPointsRewardTitle { get; init; } = string.Empty;
 }
 
 public sealed record AiConditionRule

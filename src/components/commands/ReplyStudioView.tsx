@@ -119,7 +119,7 @@ export function ReplyStudioView({
           message: mockMsg,
           overrideInstructions: plan.isOverride ? plan.instructions : undefined,
           senderRole: rule.senderRole && rule.senderRole !== 'default' ? rule.senderRole : undefined,
-        });
+        }, 45000);
         const out = res.ok && res.message ? res.message : `[AI response with instructions: "${plan.instructions}"]`;
         const via = res.senderLogin ? ` (via @${res.senderLogin})` : '';
         useLogStore.getState().add({

@@ -610,7 +610,7 @@ public sealed class HostController : IDisposable
                 AgentName = agentName[..Math.Min(agentName.Length, 80)],
                 AgentRole = agentRole[..Math.Min(agentRole.Length, 300)],
                 AgentContext = agentContext[..Math.Min(agentContext.Length, 4000)],
-                AiModel = string.IsNullOrWhiteSpace(aiModel) ? (request.Rule.AiProvider == "openrouter" ? "meta-llama/llama-3.2-3b-instruct:free" : "llama-3.1-8b-instant") : aiModel[..Math.Min(aiModel.Length, 120)],
+                AiModel = string.IsNullOrWhiteSpace(aiModel) ? (request.Rule.AiProvider == "openrouter" ? "qwen/qwen3.8-27b:free" : "llama-3.1-8b-instant") : aiModel[..Math.Min(aiModel.Length, 120)],
                 AiProvider = request.Rule.AiProvider == "openrouter" ? "openrouter" : "groq",
                 AiMaxTokens = Math.Clamp(request.Rule.AiMaxTokens, 40, 240),
                 AiFallback = aiFallback[..Math.Min(aiFallback.Length, 500)],
@@ -625,6 +625,8 @@ public sealed class HostController : IDisposable
                     ThenValue = c.ThenValue?.Trim() ?? string.Empty,
                 }).ToList() ?? new(),
                 SenderRole = request.Rule.SenderRole is "bot" or "broadcaster" ? request.Rule.SenderRole : "default",
+                ChannelPointsRewardId = request.Rule.ChannelPointsRewardId?.Trim() ?? string.Empty,
+                ChannelPointsRewardTitle = request.Rule.ChannelPointsRewardTitle?.Trim() ?? string.Empty,
             });
             _settings.Flush();
             RefreshKeybinds();
@@ -1007,7 +1009,7 @@ public sealed class HostController : IDisposable
                 if (!await AllowAiRequestAsync().ConfigureAwait(false)) return new GenerateAutoReplyResponse(false, Error: "AI LIMIT REACHED");
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown);
-                timeout.CancelAfter(TimeSpan.FromSeconds(25));
+                timeout.CancelAfter(TimeSpan.FromSeconds(45));
                 var effectiveInstructions = !string.IsNullOrWhiteSpace(request.OverrideInstructions)
                     ? request.OverrideInstructions
                     : rule.AiInstructions;
@@ -1031,7 +1033,8 @@ public sealed class HostController : IDisposable
                     effectiveAgentName,
                     rule.AgentRole,
                     rule.AgentContext,
-                    _twitchChannel).ConfigureAwait(false);
+                    _twitchChannel,
+                    rule.AiWebSearch).ConfigureAwait(false);
                 if (!generated.Ok || string.IsNullOrWhiteSpace(generated.Message))
                 {
                     Log("system", $"AI reply failed ({provider}) · {generated.Error ?? "EMPTY RESPONSE"}");
@@ -1311,7 +1314,8 @@ public sealed class HostController : IDisposable
             if (isNew)
             {
                 PostEvent(Events.TwitchChannelPointsRedeemed, redemption);
-                Log("trigger", $"CHANNEL POINTS REDEEMED · {redemption.UserName} redeemed '{redemption.RewardTitle}'");
+                var title = !string.IsNullOrWhiteSpace(redemption.RewardTitle) ? redemption.RewardTitle : (!string.IsNullOrWhiteSpace(redemption.RewardId) ? $"Reward {redemption.RewardId}" : "Custom Reward");
+                Log("trigger", $"CHANNEL POINTS REDEEMED · {redemption.UserName} redeemed '{title}'");
             }
         };
         _eventSub.FollowReceived += follow =>
@@ -1866,6 +1870,10 @@ public sealed class HostController : IDisposable
         try
         {
             File.AppendAllText(_logPath, $"[{DateTime.Now:HH:mm:ss}] [{kind.ToUpperInvariant()}] {message}{Environment.NewLine}");
+            if (emitEvent)
+            {
+                PostEvent(Events.CoreLog, new { message = $"[{kind.ToUpperInvariant()}] {message}" });
+            }
         }
         catch
         {
@@ -1894,7 +1902,7 @@ public sealed class HostController : IDisposable
             {
                 var provider = !string.IsNullOrWhiteSpace(groqKey) ? "groq" : "openrouter";
                 var key = provider == "groq" ? groqKey : openRouterKey;
-                var model = provider == "groq" ? "openai/gpt-oss-20b" : "meta-llama/llama-3.2-3b-instruct:free";
+                var model = provider == "groq" ? "openai/gpt-oss-20b" : "qwen/qwen3.8-27b:free";
 
                 var sysPrompt = isArabic
                     ? $"أنت مساعد بث ذكي للمذيع المباشر على تويتش. مهمتك هي إنشاء استطلاع رأي جذاب وممتع للمشاهدين.\n" +

@@ -25,7 +25,8 @@ public sealed class OpenRouterClient
         string? agentName = null,
         string? agentRole = null,
         string? agentContext = null,
-        string? streamerChannel = null)
+        string? streamerChannel = null,
+        bool enableWebSearch = true)
     {
         if (string.IsNullOrWhiteSpace(apiKey)) return new(false, Error: "OPENROUTER KEY IS NOT CONFIGURED");
         if (string.IsNullOrWhiteSpace(instructions) && string.IsNullOrWhiteSpace(agentName) && string.IsNullOrWhiteSpace(agentRole) && string.IsNullOrWhiteSpace(agentContext))
@@ -33,10 +34,10 @@ public sealed class OpenRouterClient
 
         var safeProvider = provider == "groq" ? "groq" : "openrouter";
         var safeModel = string.IsNullOrWhiteSpace(model)
-            ? safeProvider == "groq" ? "openai/gpt-oss-20b" : "meta-llama/llama-3.2-3b-instruct:free"
+            ? safeProvider == "groq" ? "openai/gpt-oss-20b" : "qwen/qwen3.8-27b:free"
             : model.Trim()[..Math.Min(model.Trim().Length, 120)];
         if (safeProvider == "groq" && (safeModel == "llama-3.1-8b-instant" || safeModel == "groq/compound-mini")) safeModel = "openai/gpt-oss-20b";
-        if (safeProvider == "openrouter" && safeModel == "openrouter/free") safeModel = "meta-llama/llama-3.2-3b-instruct:free";
+        if (safeProvider == "openrouter" && safeModel == "openrouter/free") safeModel = "qwen/qwen3.8-27b:free";
 
         var safeInstructions = Limit(instructions?.Trim() ?? string.Empty, 8000);
         var name = string.IsNullOrWhiteSpace(agentName) ? string.Empty : Limit(agentName.Trim(), 80);
@@ -45,6 +46,25 @@ public sealed class OpenRouterClient
         var channel = string.IsNullOrWhiteSpace(streamerChannel) ? string.Empty : Limit(streamerChannel.Trim(), 80);
         var username = Limit(message.Username.Trim(), 80);
         var chatText = Limit(message.Message.Trim(), 1000);
+
+        var hasLocalLiveContext = false;
+        if (enableWebSearch)
+        {
+            try
+            {
+                var liveContext = await LiveInfoHelper.TryFetchLiveContextAsync(chatText, ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(liveContext))
+                {
+                    hasLocalLiveContext = true;
+                    context = string.IsNullOrWhiteSpace(context) ? liveContext : $"{context}\n\n{liveContext}";
+                }
+            }
+            catch
+            {
+                // Fail-safe: don't break AI reply if live web fetch encounters an issue
+            }
+        }
+
         var isGptOss = safeProvider == "groq" && safeModel.StartsWith("openai/gpt-oss", StringComparison.OrdinalIgnoreCase);
 
         var systemSb = new StringBuilder();
@@ -113,9 +133,29 @@ public sealed class OpenRouterClient
             payload["include_reasoning"] = false;
             payload["reasoning_effort"] = "low";
         }
+        else if (enableWebSearch && safeProvider == "openrouter")
+        {
+            payload["max_tokens"] = Math.Clamp(Math.Max(maxTokens, 350), 40, 500);
+        }
         else
         {
             payload["max_tokens"] = Math.Clamp(maxTokens, 40, 240);
+        }
+
+        if (safeProvider == "openrouter")
+        {
+            if (safeModel.EndsWith(":free", StringComparison.OrdinalIgnoreCase))
+            {
+                payload["models"] = new[] { safeModel, "nex-agi/nex-n2.5-pro:free" };
+            }
+
+            if (enableWebSearch && !hasLocalLiveContext && !safeModel.EndsWith(":free", StringComparison.OrdinalIgnoreCase))
+            {
+                payload["plugins"] = new[]
+                {
+                    new { id = "web", max_results = 2 }
+                };
+            }
         }
 
         var endpoint = safeProvider == "groq"
@@ -158,17 +198,17 @@ public sealed class OpenRouterClient
             }
             return new(true, content);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            return new(false, Error: $"{safeProvider.ToUpperInvariant()} REQUEST TIMED OUT");
+            return new(false, Error: $"{safeProvider.ToUpperInvariant()} REQUEST TIMED OUT (model took too long to respond)");
         }
         catch (JsonException)
         {
             return new(false, Error: $"{safeProvider.ToUpperInvariant()} RETURNED AN INVALID RESPONSE");
         }
-        catch
+        catch (Exception ex)
         {
-            return new(false, Error: $"{safeProvider.ToUpperInvariant()} REQUEST FAILED");
+            return new(false, Error: $"{safeProvider.ToUpperInvariant()} REQUEST FAILED: {ex.Message}");
         }
     }
 
@@ -176,15 +216,26 @@ public sealed class OpenRouterClient
 
     private static string? ReadMessageContent(JsonElement message)
     {
-        if (!message.TryGetProperty("content", out var content)) return null;
-        if (content.ValueKind == JsonValueKind.String) return content.GetString();
-        if (content.ValueKind != JsonValueKind.Array) return null;
+        if (message.TryGetProperty("content", out var content))
+        {
+            if (content.ValueKind == JsonValueKind.String) return content.GetString();
+            if (content.ValueKind == JsonValueKind.Array)
+            {
+                var parts = content.EnumerateArray()
+                    .Where(part => part.ValueKind == JsonValueKind.Object && part.TryGetProperty("text", out _))
+                    .Select(part => part.GetProperty("text").GetString())
+                    .Where(text => !string.IsNullOrWhiteSpace(text));
+                var joined = string.Join("\n", parts);
+                if (!string.IsNullOrWhiteSpace(joined)) return joined;
+            }
+        }
 
-        var parts = content.EnumerateArray()
-            .Where(part => part.ValueKind == JsonValueKind.Object && part.TryGetProperty("text", out _))
-            .Select(part => part.GetProperty("text").GetString())
-            .Where(text => !string.IsNullOrWhiteSpace(text));
-        return string.Join("\n", parts);
+        if (message.TryGetProperty("text", out var textElem) && textElem.ValueKind == JsonValueKind.String)
+        {
+            return textElem.GetString();
+        }
+
+        return null;
     }
 
     private static string? ExtractProviderError(string body)
@@ -194,8 +245,28 @@ public sealed class OpenRouterClient
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("error", out var error))
             {
-                if (error.ValueKind == JsonValueKind.Object && error.TryGetProperty("message", out var nestedMessage))
-                    return nestedMessage.GetString();
+                if (error.ValueKind == JsonValueKind.Object)
+                {
+                    if (error.TryGetProperty("metadata", out var metadata) &&
+                        metadata.ValueKind == JsonValueKind.Object &&
+                        metadata.TryGetProperty("raw", out var raw) &&
+                        !string.IsNullOrWhiteSpace(raw.GetString()))
+                    {
+                        return raw.GetString();
+                    }
+
+                    if (error.TryGetProperty("message", out var nestedMessage) &&
+                        !string.IsNullOrWhiteSpace(nestedMessage.GetString()))
+                    {
+                        var msg = nestedMessage.GetString()!;
+                        if (msg.Equals("Provider returned error", StringComparison.OrdinalIgnoreCase) &&
+                            error.TryGetProperty("code", out var code) && code.GetInt32() == 429)
+                        {
+                            return "Model is temporarily rate-limited upstream on OpenRouter free pool. Please retry in a few moments.";
+                        }
+                        return msg;
+                    }
+                }
                 if (error.ValueKind == JsonValueKind.String) return error.GetString();
             }
 
@@ -210,6 +281,10 @@ public sealed class OpenRouterClient
     private static string CleanChatReply(string value)
     {
         var cleaned = value.Trim().Replace("```", string.Empty).Trim();
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"(?s)<think>.*?</think>", string.Empty).Trim();
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"(?s)<thought>.*?</thought>", string.Empty).Trim();
+        // Convert markdown links [Label](url) into clean text Label
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\[([^\]]+)\]\([^\)]+\)", "$1").Trim();
         cleaned = string.Join("\n", cleaned
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Where(line => !IsSafetyLabel(line.Trim()))).Trim();

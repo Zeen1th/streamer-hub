@@ -7,6 +7,8 @@ import {
   Check,
   ChevronLeft,
   Clock,
+  Coins,
+  Globe,
   MessageSquare,
   Play,
   Plus,
@@ -87,10 +89,12 @@ const PERSONA_PRESETS = [
 ];
 
 const MODEL_PRESETS = [
-  { label: 'Llama 3.1 8B (Groq · Recommended)', value: 'llama-3.1-8b-instant', provider: 'groq' as const },
-  { label: 'Llama 3.3 70B (Groq · Powerful)', value: 'llama-3.3-70b-versatile', provider: 'groq' as const },
-  { label: 'GPT-OSS 20B (Groq)', value: 'openai/gpt-oss-20b', provider: 'groq' as const },
-  { label: 'Llama 3.2 3B (OpenRouter · Free)', value: 'meta-llama/llama-3.2-3b-instruct:free', provider: 'openrouter' as const },
+  { label: 'Llama 3.1 8B (Groq · Fast)', value: 'llama-3.1-8b-instant', provider: 'groq' as const },
+  { label: 'Allam 7B (Groq · Arabic)', value: 'allam-2-7b', provider: 'groq' as const },
+  { label: 'GPT-OSS 20B (Groq · Fast)', value: 'openai/gpt-oss-20b', provider: 'groq' as const },
+  { label: 'GPT-OSS 120B (Groq · Powerful)', value: 'openai/gpt-oss-120b', provider: 'groq' as const },
+  { label: 'Qwen 3.8 27B (OpenRouter · Free)', value: 'qwen/qwen3.8-27b:free', provider: 'openrouter' as const },
+  { label: 'Nex N2.5 Pro (OpenRouter · Free)', value: 'nex-agi/nex-n2.5-pro:free', provider: 'openrouter' as const },
 ];
 
 export function AiReplyStudioView({
@@ -112,7 +116,19 @@ export function AiReplyStudioView({
   const [newTriggerInput, setNewTriggerInput] = useState('');
   const [testSent, setTestSent] = useState(false);
   const [testUser, setTestUser] = useState('viewer');
+  const [testMessage, setTestMessage] = useState('');
   const [lastTestOutput, setLastTestOutput] = useState<string | null>(null);
+  const [twitchRewards, setTwitchRewards] = useState<{ id: string; title: string; cost: number }[]>([]);
+
+  useEffect(() => {
+    rpc.invoke(Channels.TwitchChannelPointsGetRewards, undefined)
+      .then((res) => {
+        if (res?.ok && res.rewards?.length) {
+          setTwitchRewards(res.rewards.map((r) => ({ id: r.id, title: r.title, cost: r.cost })));
+        }
+      })
+      .catch(() => undefined);
+  }, []);
   const [isTesting, setIsTesting] = useState(false);
 
   // Custom User Presets
@@ -213,7 +229,7 @@ export function AiReplyStudioView({
       isMod: false,
       isVip: false,
       isSubscriber: false,
-      message: rule.triggers[0] ? `!${rule.triggers[0]}` : 'hello',
+      message: testMessage.trim() || (rule.triggers[0] ? `!${rule.triggers[0]}` : 'hello'),
       timestamp: new Date().toISOString(),
       emotes: [],
     };
@@ -239,20 +255,29 @@ export function AiReplyStudioView({
           message: mockMsg,
           overrideInstructions: plan.isOverride ? plan.instructions : undefined,
           senderRole: rule.senderRole && rule.senderRole !== 'default' ? rule.senderRole : undefined,
-        });
-        const out = res.ok && res.message ? res.message : `[AI generated response with instructions: "${plan.instructions || rule.aiInstructions || 'Witty banter'}"]`;
-        setLastTestOutput(out);
-        const via = res.senderLogin ? ` (via @${res.senderLogin})` : '';
-        useLogStore.getState().add({
-          kind: 'chat',
-          message: `[Simulated AI Reply for @${cleanSimUser}${via}] ${out}`,
-        });
-      } catch {
-        const fallback = rule.aiFallback || `[Generated AI reply for instructions: "${plan.instructions || rule.aiInstructions || 'Witty banter'}"]`;
+        }, 45000);
+        if (res.ok && res.message) {
+          setLastTestOutput(res.message);
+          const via = res.senderLogin ? ` (via @${res.senderLogin})` : '';
+          useLogStore.getState().add({
+            kind: 'chat',
+            message: `[Simulated AI Reply for @${cleanSimUser}${via}] ${res.message}`,
+          });
+        } else {
+          const err = res.error || (res.usedFallback ? 'Used offline fallback' : 'AI generation failed');
+          setLastTestOutput(res.message ? `${res.message} (Fallback)` : `[Error: ${err}]`);
+          useLogStore.getState().add({
+            kind: 'system',
+            message: `[AI Test Failed for @${cleanSimUser}] ${err}`,
+          });
+        }
+      } catch (err: unknown) {
+        const errMessage = err instanceof Error ? err.message : String(err);
+        const fallback = rule.aiFallback || `[Error: ${errMessage}]`;
         setLastTestOutput(fallback);
         useLogStore.getState().add({
-          kind: 'chat',
-          message: `[Simulated AI Reply for @${cleanSimUser}] ${fallback}`,
+          kind: 'system',
+          message: `[AI Test Error for @${cleanSimUser}] ${errMessage}`,
         });
       }
       setIsTesting(false);
@@ -471,6 +496,69 @@ export function AiReplyStudioView({
                   ? 'Trigger word can appear anywhere inside the message.'
                   : 'Treats trigger word as a regular expression.'}
               </span>
+            </div>
+
+            {/* Optional Channel Points Trigger */}
+            <div className="md:col-span-2 flex flex-col gap-2 rounded-md border border-purple-500/20 bg-purple-500/5 p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Coins size={13} className="text-purple-400" />
+                  <span className="font-medium text-[12px] text-foreground">
+                    {lang === 'ar' ? 'ربط بنقاط القناة (Twitch Channel Points)' : 'Twitch Channel Points Trigger'}
+                  </span>
+                </div>
+                {rule.channelPointsRewardId && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => update(rule.id, { channelPointsRewardId: '', channelPointsRewardTitle: '' })}
+                    className="h-5 px-1.5 text-[10px] text-muted hover:text-red-400"
+                  >
+                    {lang === 'ar' ? 'إلغاء الربط' : 'Clear'}
+                  </Button>
+                )}
+              </div>
+              <p className="text-[10.5px] text-muted">
+                {lang === 'ar'
+                  ? 'يمكن للمشاهدين استبدال هذه المكافأة وكتابة سؤال للذكاء الاصطناعي ليرد عليهم فوراً في الشات.'
+                  : 'Viewers can redeem this reward to ask questions and receive instant AI answers in chat.'}
+              </p>
+
+              {twitchRewards.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {twitchRewards.map((reward) => {
+                    const isSelected = rule.channelPointsRewardId === reward.id;
+                    return (
+                      <button
+                        key={reward.id}
+                        type="button"
+                        onClick={() => update(rule.id, {
+                          channelPointsRewardId: isSelected ? '' : reward.id,
+                          channelPointsRewardTitle: isSelected ? '' : reward.title,
+                        })}
+                        className={`rounded border px-2 py-1 text-[11px] font-sans flex items-center gap-1.5 transition-colors ${
+                          isSelected
+                            ? 'border-purple-500 bg-purple-500/25 text-purple-300 font-bold shadow-xs'
+                            : 'border-rule bg-surface-2 text-muted hover:border-rule/80 hover:text-foreground'
+                        }`}
+                      >
+                        <Coins size={10} className="text-amber-400" />
+                        <span>{reward.title}</span>
+                        <span className="font-mono text-[9.5px] opacity-60">({reward.cost} pts)</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={rule.channelPointsRewardId ?? ''}
+                    onChange={(e) => update(rule.id, { channelPointsRewardId: e.target.value })}
+                    placeholder={lang === 'ar' ? 'معرّف المكافأة (Reward ID)...' : 'Twitch Custom Reward ID...'}
+                    className="h-7 text-[11px] font-mono"
+                  />
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -810,11 +898,37 @@ export function AiReplyStudioView({
                     </span>
                   )}
                 </div>
+
+                {/* Interactive Question Input */}
+                <div className="flex items-center gap-1.5 mt-1">
+                  <Input
+                    dir="auto"
+                    value={testMessage}
+                    onChange={(e) => setTestMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleTestSimulate();
+                      }
+                    }}
+                    placeholder={lang === 'ar' ? 'اكتب سؤالاً للتجربة (مثال: كم درجة الحرارة في حائل؟)' : 'Type a question to test (e.g. Weather in Hail?)...'}
+                    className="h-7 text-[11px] font-sans"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleTestSimulate}
+                    disabled={isTesting}
+                    className="h-7 border border-purple-500/40 bg-purple-600 hover:bg-purple-500 text-white px-2.5 text-[11px] shrink-0"
+                  >
+                    <Play size={10} className="fill-current me-1" />
+                    <span>{isTesting ? '…' : (lang === 'ar' ? 'اسأل' : 'Ask')}</span>
+                  </Button>
+                </div>
               </div>
 
               <div className="flex items-center justify-between border-t border-purple-500/20 pt-2.5 font-mono text-[10px] text-muted">
                 <span>Engine: {provider === 'openrouter' ? 'OpenRouter' : 'Groq'}</span>
-                <span>{rule.aiModel ?? 'llama-3.1-8b-instant'}</span>
+                <span>{rule.aiModel ?? (provider === 'openrouter' ? 'qwen/qwen3.8-27b:free' : 'openai/gpt-oss-20b')}</span>
               </div>
             </div>
           </div>
@@ -850,7 +964,7 @@ export function AiReplyStudioView({
                     aiModel:
                       aiProvider === 'groq'
                         ? 'llama-3.1-8b-instant'
-                        : 'meta-llama/llama-3.2-3b-instruct:free',
+                        : 'qwen/qwen3.8-27b:free',
                   })
                 }
               />
@@ -861,7 +975,7 @@ export function AiReplyStudioView({
               <Input
                 dir="ltr"
                 className="font-mono text-[11px] h-7"
-                value={rule.aiModel ?? 'llama-3.1-8b-instant'}
+                value={rule.aiModel ?? (provider === 'openrouter' ? 'qwen/qwen3.8-27b:free' : 'llama-3.1-8b-instant')}
                 onChange={(e) => update(rule.id, { aiModel: e.target.value })}
               />
               <div className="flex flex-wrap gap-1">
@@ -917,6 +1031,23 @@ export function AiReplyStudioView({
                   placeholder="Message to send if AI service is unavailable..."
                   value={rule.aiFallback ?? ''}
                   onChange={(e) => update(rule.id, { aiFallback: e.target.value })}
+                />
+              </div>
+
+              <div className="pt-2 border-t border-hair flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 font-medium text-[12px] text-foreground">
+                    <Globe size={13} className="text-sky-400" />
+                    <span>{t(lang, 'autoReplies.aiWebSearch')}</span>
+                  </div>
+                  <p className="text-[10px] text-muted">
+                    {t(lang, 'autoReplies.aiWebSearchHint')}
+                  </p>
+                </div>
+                <Switch
+                  checked={rule.aiWebSearch ?? true}
+                  onChange={(aiWebSearch) => update(rule.id, { aiWebSearch })}
+                  label={t(lang, 'autoReplies.aiWebSearch')}
                 />
               </div>
             </div>

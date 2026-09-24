@@ -1,4 +1,4 @@
-import { Download, Moon, Sun } from 'lucide-react';
+import { Download, Moon, Sun, Sparkles, Wrench, X, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { t } from '../../i18n/translations';
 import { rpc } from '../../rpc';
@@ -6,6 +6,7 @@ import { Channels } from '../../rpc/contracts';
 import { resolveTheme } from '../../lib/theme';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useUpdateStore } from '../../store/updateStore';
+import { parseReleaseNotes } from '../../lib/releaseNotes';
 import { WindowControls } from './WindowControls';
 
 export function Titlebar() {
@@ -18,6 +19,7 @@ export function Titlebar() {
   const systemIsDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
   const resolvedTheme = resolveTheme(theme, systemIsDark);
   const updateAvailable = useUpdateStore((s) => s.updateAvailable);
+  const currentVersion = useUpdateStore((s) => s.currentVersion);
   const latestVersion = useUpdateStore((s) => s.latestVersion);
   const releaseNotes = useUpdateStore((s) => s.releaseNotes);
   const installing = useUpdateStore((s) => s.installing);
@@ -27,6 +29,9 @@ export function Titlebar() {
   const clearDebugPrompt = useUpdateStore((s) => s.clearDebugPrompt);
   const [showUpdate, setShowUpdate] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  const parsedNotes = parseReleaseNotes(releaseNotes, lang);
+  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.3.9';
 
   useEffect(() => {
     if (!debugPromptRequested) return;
@@ -69,7 +74,7 @@ export function Titlebar() {
           <circle cx="32" cy="32" r="2.8" fill="#FFFFFF" />
         </svg>
         <span className="font-sans text-[12.5px] font-bold tracking-tight text-ink">Streamer Hub</span>
-        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.3.8</span>
+        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.3.9</span>
       </div>
       <div data-drag-exclude className="flex h-full items-center gap-1 pe-1">
         {message && <span role="status" className="px-2 font-mono text-[10px] text-muted">{message}</span>}
@@ -114,21 +119,115 @@ export function Titlebar() {
         <WindowControls />
       </div>
       {showUpdate && updateAvailable && (
-        <section data-drag-exclude className="absolute right-[120px] top-8 z-50 w-[360px] rounded-lg border border-rule bg-surface-3 p-4 shadow-xl text-start" aria-label={t(lang, 'updates.available')}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="font-sans text-[13px] font-bold text-ink">{t(lang, 'updates.available')} · v{latestVersion}</div>
-              <p className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap text-[11px] text-muted">{releaseNotes || t(lang, 'updates.fallbackNotes')}</p>
+        <section
+          data-drag-exclude
+          dir={lang === 'ar' ? 'rtl' : 'ltr'}
+          className="absolute end-3 top-9 z-50 w-[430px] max-w-[calc(100vw-24px)] rounded-xl border border-white/10 bg-[#171e25]/95 p-4 shadow-2xl backdrop-blur-md text-start select-text"
+          aria-label={t(lang, 'updates.available')}
+        >
+          {/* Header */}
+          <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="grid size-8 place-items-center rounded-lg bg-accent/15 text-accent-text border border-accent/25 shadow-inner">
+                <Sparkles size={16} className="text-accent" />
+              </div>
+              <div>
+                <h3 className="font-sans text-[13px] font-bold text-ink leading-tight">
+                  {t(lang, 'updates.available')}
+                </h3>
+                <div className="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-muted" dir="ltr">
+                  <span className="rounded bg-white/[0.06] px-1.5 py-0.5 border border-white/[0.08]">
+                    v{displayCurrentVersion}
+                  </span>
+                  <span className="text-accent font-sans">➜</span>
+                  <span className="rounded bg-accent/20 px-1.5 py-0.5 font-semibold text-accent-text border border-accent/30">
+                    v{latestVersion}
+                  </span>
+                </div>
+              </div>
             </div>
-            <button type="button" className="px-1 text-muted hover:text-ink rounded" onClick={() => setShowUpdate(false)}>✕</button>
+            <button
+              type="button"
+              className="grid size-6 place-items-center rounded-md text-muted hover:bg-white/[0.08] hover:text-ink transition-colors"
+              onClick={() => setShowUpdate(false)}
+              aria-label={t(lang, 'common.cancel')}
+            >
+              <X size={14} />
+            </button>
           </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <button type="button" className="h-[26px] rounded-md border border-rule bg-surface-2 px-2.5 text-[11px] hover:bg-surface-hover" onClick={() => setShowUpdate(false)}>{t(lang, 'common.cancel')}</button>
-            <button type="button" disabled={installing} className="h-[26px] rounded-md bg-accent-fill px-3 font-semibold text-on-accent hover:bg-accent disabled:cursor-not-allowed shadow-sm" onClick={async () => {
-              const started = await installUpdate();
-              if (!started) setMessage(t(lang, 'updates.installFailed'));
-            }}>
-              {installing ? t(lang, 'updates.installing') : t(lang, 'updates.installNow')}
+
+          {/* Release Notes Content */}
+          <div className="mt-3 max-h-[290px] overflow-y-auto space-y-3 pe-1 font-sans text-[12px] leading-relaxed">
+            {parsedNotes.whatsNew.length > 0 && (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] p-2.5">
+                <div className="flex items-center gap-1.5 font-semibold text-emerald-400 text-[11.5px] mb-2">
+                  <Sparkles size={13} className="shrink-0" />
+                  <span>{t(lang, 'updates.whatsNew')}</span>
+                </div>
+                <ul className="space-y-1.5 text-ink/90 text-[11.5px]">
+                  {parsedNotes.whatsNew.map((item, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="size-1.5 rounded-full bg-emerald-400/80 shrink-0 mt-1.5" />
+                      <span className="break-words">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {parsedNotes.whatsFixed.length > 0 && (
+              <div className="rounded-lg border border-sky-500/20 bg-sky-500/[0.06] p-2.5">
+                <div className="flex items-center gap-1.5 font-semibold text-sky-400 text-[11.5px] mb-2">
+                  <Wrench size={13} className="shrink-0" />
+                  <span>{t(lang, 'updates.whatsFixed')}</span>
+                </div>
+                <ul className="space-y-1.5 text-ink/90 text-[11.5px]">
+                  {parsedNotes.whatsFixed.map((item, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="size-1.5 rounded-full bg-sky-400/80 shrink-0 mt-1.5" />
+                      <span className="break-words">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {parsedNotes.whatsNew.length === 0 && parsedNotes.whatsFixed.length === 0 && (
+              <div className="rounded-lg border border-white/[0.08] bg-surface-2/60 p-2.5 text-muted">
+                <p className="whitespace-pre-wrap break-words">{parsedNotes.rawSummary || releaseNotes || t(lang, 'updates.fallbackNotes')}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Actions */}
+          <div className="mt-3.5 flex items-center justify-end gap-2 border-t border-white/[0.08] pt-3">
+            <button
+              type="button"
+              className="h-[28px] rounded-md border border-white/10 bg-surface-2 px-3 text-[11.5px] font-medium text-muted hover:bg-surface-hover hover:text-ink transition-colors"
+              onClick={() => setShowUpdate(false)}
+            >
+              {t(lang, 'updates.later')}
+            </button>
+            <button
+              type="button"
+              disabled={installing}
+              className="flex h-[28px] items-center gap-1.5 rounded-md bg-accent-fill px-3.5 text-[11.5px] font-semibold text-on-accent hover:bg-accent disabled:cursor-not-allowed shadow transition-colors"
+              onClick={async () => {
+                const started = await installUpdate();
+                if (!started) setMessage(t(lang, 'updates.installFailed'));
+              }}
+            >
+              {installing ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>{t(lang, 'updates.installing')}</span>
+                </>
+              ) : (
+                <>
+                  <Download size={13} />
+                  <span>{t(lang, 'updates.installNow')}</span>
+                </>
+              )}
             </button>
           </div>
         </section>

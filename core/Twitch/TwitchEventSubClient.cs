@@ -224,7 +224,8 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
                             RedeemedAt = redeemedAt,
                         };
 
-                        Log($"Channel Points Redemption: {userName} redeemed '{rewardTitle}'");
+                        var title = !string.IsNullOrWhiteSpace(rewardTitle) ? rewardTitle : (!string.IsNullOrWhiteSpace(rewardId) ? $"Reward {rewardId}" : "Custom Reward");
+                        Log($"Channel Points Redemption: {userName} redeemed '{title}'");
                         ChannelPointsRedeemed?.Invoke(redemption);
                     }
                 }
