@@ -38,6 +38,12 @@ Streamer Hub is a lightweight, local-first desktop companion for Twitch streamer
   - **Pixel-sharp at any size** — the size control scales real pixel values rather than stretching a rendered bitmap, so text stays crisp when scaled up
   - Flawless Arabic & English bidirectional (BiDi) text rendering
   - Moderated messages disappear from the overlay when a mod deletes them or times a user out
+- **Alert Studio & Transparent WebM Compressor**: 1-click Twitch & StreamElements alert optimizer guaranteeing output files stay under StreamElements' 30MB upload limit without losing alpha transparency or audio quality:
+  - **Dual-Stream Alpha Channel Preservation**: Enforces `yuva420p` pixel format and `alpha_mode=1` with VP9 Constrained Quality encoding to prevent black background flattening caused by conventional video tools.
+  - **Live Transparency Checkerboard**: In-app video preview with a toggleable transparency checkerboard pattern to verify crisp transparent borders before uploading.
+  - **Zero-Setup Portable FFmpeg Integration**: Auto-detects system FFmpeg or downloads portable essentials directly in the background with live progress indicators.
+  - **Smart Bitrate & CRF Optimization**: Automatically tunes constrained quality parameters based on clip duration for visually lossless 1080p output.
+  - **ProRes 4444 `.mov` Support**: Convert After Effects / Premiere alpha renders directly into StreamElements-ready WebM.
 - **Local & Private**: No cloud accounts or subscriptions required. Runs on your Windows PC and binds strictly to loopback (`127.0.0.1`).
 - **One-Click Auto-Updates**: In-app update notifications with background downloading and automated restart.
 

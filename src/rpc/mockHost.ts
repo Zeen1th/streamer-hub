@@ -1,4 +1,4 @@
-import type { ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, ConnectionStatus, Counter, GenerateAiPollPayload, PollState, RpcEnvelope, TwitchRewardInfo, TwitchSettings } from './contracts';
+import type { ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayImagePayload, TwitchRewardInfo, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -339,6 +339,10 @@ export class MockHost {
         break;
       case Channels.AudioMuteMic:
       case 'audio/mute-mic':
+        this.respond(request, { ok: true });
+        break;
+      case Channels.AudioSpeakTts:
+      case 'audio/speak-tts':
         this.respond(request, { ok: true });
         break;
       case Channels.DialogOpenFile:
@@ -740,6 +744,101 @@ export class MockHost {
       case Channels.TwitchModerationShoutout:
         this.respond(request, { ok: true, wasMod: false });
         break;
+      case Channels.AlertsGetFfmpegStatus:
+        this.respond(request, { available: true, path: 'ffmpeg', version: 'ffmpeg 7.0-mock' });
+        break;
+      case Channels.AlertsDownloadFfmpeg:
+        this.respond(request, { ok: true, status: { available: true, path: 'ffmpeg', version: 'ffmpeg 7.0-mock' } });
+        break;
+      case Channels.AlertsInspect: {
+        const payload = request.payload as { inputPath?: string } | undefined;
+        this.respond(request, {
+          ok: true,
+          info: {
+            filePath: payload?.inputPath || 'sample_alert.webm',
+            fileSizeBytes: 88595581,
+            durationSeconds: 32.0,
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            videoCodec: 'vp9',
+            audioCodec: 'opus',
+            hasAlpha: true,
+          },
+        });
+        break;
+      }
+      case Channels.AlertsCompress: {
+        const payload = request.payload as { inputPath?: string; targetSizeMb?: number } | undefined;
+        this.schedule(() => {
+          this.emitEvent(Events.AlertsProgress, {
+            percent: 50,
+            fps: 30,
+            sizeBytes: 12000000,
+            speed: '1.2x',
+            currentSeconds: 16,
+            totalSeconds: 32,
+          });
+          this.schedule(() => {
+            this.emitEvent(Events.AlertsProgress, {
+              percent: 100,
+              fps: 30,
+              sizeBytes: 24000000,
+              speed: '1.2x',
+              currentSeconds: 32,
+              totalSeconds: 32,
+            });
+            this.emitEvent(Events.AlertsCompleted, {
+              success: true,
+              inputPath: payload?.inputPath || 'sample_alert.webm',
+              outputPath: 'sample_alert_under30mb.webm',
+              originalSizeBytes: 88595581,
+              compressedSizeBytes: 24761340,
+              durationSeconds: 32.0,
+            });
+          }, 300);
+        }, 300);
+        this.respond(request, { ok: true });
+        break;
+      }
+      case Channels.AlertsCancel:
+        this.respond(request, { ok: true });
+        break;
+      case Channels.AlertsOpenFolder:
+        this.respond(request, { ok: true });
+        break;
+      case Channels.AlertsSaveDroppedFile: {
+        const payload = request.payload as { fileName?: string; fileBase64?: string } | undefined;
+        this.respond(request, {
+          ok: true,
+          filePath: payload?.fileName ? `mock_uploads/${payload.fileName}` : 'mock_uploads/dropped_alert.webm',
+        });
+        break;
+      }
+      case Channels.ChatOverlayShowImage: {
+        const _payload = request.payload as ShowOverlayImagePayload | undefined;
+        this.respond(request, { ok: true, payload: _payload });
+        break;
+      }
+      case Channels.ChatOverlayHideImage: {
+        this.respond(request, { ok: true });
+        break;
+      }
+      case Channels.ChatOverlayGetImageUrl: {
+        this.respond(request, { url: 'http://127.0.0.1:49178/image-overlay.html' });
+        break;
+      }
+      case Channels.AiGenerateTrivia: {
+        const payload = request.payload as GenerateGamingQuestionPayload | undefined;
+        const isAr = payload?.language === 'ar';
+        this.respond(request, {
+          ok: true,
+          question: isAr ? 'من هو بطل سلسلة ألعاب God of War؟' : 'Who is the main protagonist of God of War?',
+          answer: isAr ? 'كريتوس' : 'Kratos',
+          acceptableAnswers: isAr ? ['كريتوس', 'kratos'] : ['kratos', 'كريتوس'],
+        });
+        break;
+      }
       default:
         this.respond(request, undefined, `UNKNOWN CHANNEL: ${request.channel}`);
     }

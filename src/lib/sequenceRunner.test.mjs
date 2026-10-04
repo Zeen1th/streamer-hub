@@ -409,3 +409,93 @@ test('executeSequence executes all 5 new sub-actions (sound, tts, obs_text, poll
     { durationSeconds: 10 },
   ]);
 });
+
+test('executeSequence executes obs_image and duel steps and replaces tokens', async () => {
+  const seq = {
+    id: 'seq-img-duel',
+    enabled: true,
+    name: 'Image and Duel',
+    triggerType: 'chat',
+    cooldownSeconds: 0,
+    steps: [
+      {
+        id: 's-img',
+        type: 'obs_image',
+        imagePath: 'C:\\memes\\{username}.gif',
+        imageDurationSeconds: 8,
+        imagePosition: 'center',
+        imageAnimation: 'bounce',
+        imageScale: 1.5,
+        obsImageDestinationPath: 'C:\\obs\\current.gif',
+      },
+      {
+        id: 's-duel',
+        type: 'duel',
+        duelMode: 'ai_trivia',
+        duelOpponent: '{input}',
+        duelTimeoutDuration: 60,
+        duelTimerSeconds: 30,
+      },
+    ],
+  };
+
+  const imagesShown = [];
+  const duelsExecuted = [];
+
+  const result = await executeSequence(
+    seq,
+    { username: 'ChallengerX', userInput: '@OpponentY', source: 'chat' },
+    {
+      showObsImage: async (payload) => {
+        imagesShown.push(payload);
+        return true;
+      },
+      executeDuel: async (step, ctx) => {
+        duelsExecuted.push({ step, ctx });
+        return true;
+      },
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.executedSteps, 2);
+
+  assert.equal(imagesShown.length, 1);
+  assert.equal(imagesShown[0].imageUrl, 'C:\\memes\\ChallengerX.gif');
+  assert.equal(imagesShown[0].durationSeconds, 8);
+  assert.equal(imagesShown[0].position, 'center');
+  assert.equal(imagesShown[0].animation, 'bounce');
+  assert.equal(imagesShown[0].scale, 1.5);
+  assert.equal(imagesShown[0].destinationPath, 'C:\\obs\\current.gif');
+
+  assert.equal(duelsExecuted.length, 1);
+  assert.equal(duelsExecuted[0].step.duelMode, 'ai_trivia');
+  assert.equal(duelsExecuted[0].step.duelOpponent, 'OpponentY');
+  assert.equal(duelsExecuted[0].step.duelTimeoutDuration, 60);
+  assert.equal(duelsExecuted[0].step.duelTimerSeconds, 30);
+});
+
+test('reordering steps accurately repositions sequence actions', () => {
+  const steps = [
+    { id: '1', type: 'chat', chatMessage: 'step 1' },
+    { id: '2', type: 'wait', waitDuration: 2 },
+    { id: '3', type: 'sound', soundPath: 'alert.mp3' },
+    { id: '4', type: 'counter', counterAction: 'increase' },
+  ];
+
+  const reorder = (items, fromIndex, toIndex) => {
+    const next = [...items];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    return next;
+  };
+
+  // Move step 1 (index 0) to index 2
+  const reordered1 = reorder(steps, 0, 2);
+  assert.deepEqual(reordered1.map(s => s.id), ['2', '3', '1', '4']);
+
+  // Move step 4 (index 3) to index 0
+  const reordered2 = reorder(steps, 3, 0);
+  assert.deepEqual(reordered2.map(s => s.id), ['4', '1', '2', '3']);
+});
+

@@ -22,8 +22,11 @@ import {
   type SequenceExecutionContext,
 } from '../lib/sequenceRunner';
 import { useCounterStore } from './counterStore';
+import { useConnectionStore } from './connectionStore';
 import { useLogStore } from './logStore';
 import { useVoteStore } from './voteStore';
+import { useSettingsStore } from './settingsStore';
+import { duelGameManager } from '../lib/duelGameManager';
 import { DEFAULT_OPTION_COLORS } from '../lib/voteRules';
 
 interface SequenceState {
@@ -39,6 +42,7 @@ interface SequenceState {
   add(name?: string, options?: Partial<CommandSequence>): string;
   addSmartModTimeoutPreset(): string;
   addRaidShoutoutPreset(): string;
+  addTimeoutDuelPreset(): string;
   update(id: string, patch: Partial<CommandSequence>): void;
   remove(id: string): void;
   addTrigger(sequenceId: string, type: ActionTriggerType, options?: Partial<ActionTrigger>): ActionTrigger;
@@ -48,6 +52,7 @@ interface SequenceState {
   updateStep(sequenceId: string, stepId: string, patch: Partial<SequenceStep>): void;
   removeStep(sequenceId: string, stepId: string): void;
   moveStep(sequenceId: string, stepIndex: number, direction: 'up' | 'down'): void;
+  reorderSteps(sequenceId: string, fromIndex: number, toIndex: number): void;
   runSequence(id: string, customContext?: Partial<SequenceExecutionContext>): Promise<boolean>;
   handleChannelPointsRedemption(redemption: ChannelPointsRedemption): Promise<boolean>;
   handleChatMessage(message: ChatMessage): Promise<boolean>;
@@ -179,6 +184,28 @@ const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceSt
         type: 'obs_text',
         filePath: options?.filePath ?? 'C:\\stream\\latest_follower.txt',
         fileContent: options?.fileContent ?? 'Latest Follower: {username}',
+        ...options,
+      };
+    case 'obs_image':
+      return {
+        id,
+        type: 'obs_image',
+        imagePath: options?.imagePath ?? '',
+        imageDurationSeconds: options?.imageDurationSeconds ?? 5,
+        imagePosition: options?.imagePosition ?? 'center',
+        imageAnimation: options?.imageAnimation ?? 'bounce',
+        imageScale: options?.imageScale ?? 1.0,
+        obsImageDestinationPath: options?.obsImageDestinationPath ?? '',
+        ...options,
+      };
+    case 'duel':
+      return {
+        id,
+        type: 'duel',
+        duelMode: options?.duelMode ?? 'ai_trivia',
+        duelOpponent: options?.duelOpponent ?? '{input}',
+        duelTimeoutDuration: options?.duelTimeoutDuration ?? 60,
+        duelTimerSeconds: options?.duelTimerSeconds ?? 30,
         ...options,
       };
     case 'poll':
@@ -357,6 +384,50 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     return id;
   },
 
+  addTimeoutDuelPreset: () => {
+    const id = crypto.randomUUID();
+    const newSequence: CommandSequence = {
+      id,
+      enabled: true,
+      name: '⚔️ Timeout Duel (Random or AI Trivia)',
+      triggerType: 'chat',
+      cooldownSeconds: 15,
+      triggers: [
+        {
+          id: crypto.randomUUID(),
+          type: 'twitch_chat',
+          enabled: true,
+          chatCommand: '!duel',
+          matchMode: 'startsWith',
+        },
+        {
+          id: crypto.randomUUID(),
+          type: 'twitch_channel_points',
+          enabled: true,
+          rewardId: '',
+          rewardTitle: 'Timeout Duel',
+        },
+      ],
+      steps: [
+        {
+          id: crypto.randomUUID(),
+          type: 'duel',
+          duelMode: 'ai_trivia',
+          duelOpponent: '{input}',
+          duelTimeoutDuration: 60,
+          duelTimerSeconds: 30,
+          duelLanguage: 'auto',
+          duelCategory: 'general',
+          duelInstructions: 'Keep questions simple and focused on popular games like Souls games, Zelda, and Monster Hunter. The answer must be clear, well-known, and 1 to 3 words.',
+        },
+      ],
+    };
+
+    set((state) => ({ sequences: [...state.sequences, newSequence] }));
+    persist(newSequence);
+    return id;
+  },
+
   update: (id, patch) => {
     set((state) => {
       const next = state.sequences.map((s) => {
@@ -480,6 +551,26 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     });
   },
 
+  reorderSteps: (sequenceId, fromIndex, toIndex) => {
+    set((state) => {
+      const seq = state.sequences.find((s) => s.id === sequenceId);
+      if (!seq) return state;
+      if (fromIndex < 0 || fromIndex >= seq.steps.length || toIndex < 0 || toIndex >= seq.steps.length) return state;
+      if (fromIndex === toIndex) return state;
+
+      const nextSteps = [...seq.steps];
+      const [moved] = nextSteps.splice(fromIndex, 1);
+      nextSteps.splice(toIndex, 0, moved);
+
+      const updated = { ...seq, steps: nextSteps };
+      persist(updated);
+
+      return {
+        sequences: state.sequences.map((s) => (s.id === sequenceId ? updated : s)),
+      };
+    });
+  },
+
   runSequence: async (id, customContext) => {
     const seq = get().sequences.find((s) => s.id === id);
     if (!seq || !seq.enabled) return false;
@@ -578,19 +669,48 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
           return Boolean(res?.ok);
         },
         speakTts: async (text, voiceName, rate, pitch, volume) => {
+          const isArabic = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
+          let browserSpoke = false;
+
           if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-            return new Promise<boolean>((resolve) => {
+            browserSpoke = await new Promise<boolean>((resolve) => {
               try {
                 window.speechSynthesis.cancel();
                 const utterance = new SpeechSynthesisUtterance(text);
                 if (rate != null) utterance.rate = Math.max(0.1, Math.min(rate, 2.0));
                 if (pitch != null) utterance.pitch = Math.max(0.1, Math.min(pitch, 2.0));
                 if (volume != null) utterance.volume = Math.max(0.0, Math.min(volume, 1.0));
+
+                utterance.lang = isArabic ? 'ar-SA' : 'en-US';
+
+                const voices = window.speechSynthesis.getVoices();
+                const isArVoice = (v: SpeechSynthesisVoice) =>
+                  v.lang.toLowerCase().startsWith('ar') ||
+                  /arabic|naayf|hoda|tarik|zeina|salma|shakir|maged|leila/i.test(v.name);
+
+                let matched: SpeechSynthesisVoice | undefined;
                 if (voiceName) {
-                  const voices = window.speechSynthesis.getVoices();
-                  const matched = voices.find((v) => v.name === voiceName || v.voiceURI === voiceName);
-                  if (matched) utterance.voice = matched;
+                  matched = voices.find((v) => v.name === voiceName || v.voiceURI === voiceName);
                 }
+
+                if (isArabic) {
+                  if (!matched || !isArVoice(matched)) {
+                    const fallbackAr = voices.find(isArVoice);
+                    if (fallbackAr) matched = fallbackAr;
+                  }
+                }
+
+                if (matched) {
+                  utterance.voice = matched;
+                  if (matched.lang) utterance.lang = matched.lang;
+                }
+
+                // If text is Arabic but browser does not have any Arabic voice installed, fallback to backend
+                if (isArabic && (!utterance.voice || !isArVoice(utterance.voice))) {
+                  resolve(false);
+                  return;
+                }
+
                 utterance.onend = () => resolve(true);
                 utterance.onerror = () => resolve(false);
                 window.speechSynthesis.speak(utterance);
@@ -598,12 +718,85 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
                 resolve(false);
               }
             });
+
+            if (browserSpoke) return true;
           }
-          return false;
+
+          // Fallback to backend Windows WinRT SpeechSynthesis
+          try {
+            const res = await rpc.invoke(Channels.AudioSpeakTts, {
+              text,
+              voiceName: voiceName || undefined,
+              rate,
+              pitch,
+              volume,
+            });
+            return Boolean(res?.ok);
+          } catch {
+            return false;
+          }
         },
         writeObsText: async (filePath, content) => {
           const res = await rpc.invoke(Channels.ObsWrite, { filePath, content });
           return Boolean(res?.ok);
+        },
+        showObsImage: async (step) => {
+          try {
+            const res = await rpc.invoke(Channels.ChatOverlayShowImage, {
+              imagePath: step.imagePath,
+              durationSeconds: step.imageDurationSeconds ?? 5,
+              position: step.imagePosition ?? 'center',
+              animation: step.imageAnimation ?? 'bounce',
+              imageScale: step.imageScale ?? 1.0,
+              obsImageDestinationPath: step.obsImageDestinationPath,
+            });
+            return Boolean(res?.ok);
+          } catch {
+            return false;
+          }
+        },
+        executeDuel: async (step, ctx) => {
+          const broadcaster = useConnectionStore.getState().twitchChannel?.replace(/^#+/, '');
+          const appLang = useSettingsStore.getState().language;
+          const resolvedLang =
+            step.duelLanguage === 'auto' || !step.duelLanguage
+              ? (appLang === 'ar' ? 'ar' : 'en')
+              : step.duelLanguage;
+
+          const res = await duelGameManager.startDuel({
+            challenger: ctx.username,
+            opponentRaw: step.duelOpponent || ctx.userInput || '',
+            mode: step.duelMode || 'random',
+            timeoutDuration: step.duelTimeoutDuration ?? 60,
+            timerSeconds: step.duelTimerSeconds ?? 30,
+            broadcasterName: broadcaster,
+            language: resolvedLang,
+            category: step.duelCategory,
+            customInstructions: step.duelInstructions,
+            messageStart: step.duelMessageStart,
+            messageWin: step.duelMessageWin,
+            messageTimeout: step.duelMessageTimeout,
+            sinks: {
+              sendChatMessage: async (msg) => {
+                await rpc.invoke(Channels.TwitchSendChatMessage, { message: msg });
+                return true;
+              },
+              smartModTimeout: async (target, duration, reason) => {
+                return await rpc.invoke(Channels.TwitchModerationSmartTimeout, {
+                  target,
+                  durationSeconds: duration,
+                  reason,
+                });
+              },
+              generateTrivia: async (payload) => {
+                return await rpc.invoke(Channels.AiGenerateTrivia, payload);
+              },
+              log: (kind, msg) => {
+                useLogStore.getState().addLocal({ kind: kind as any, message: msg });
+              },
+            },
+          });
+          return res.ok;
         },
         executePollAction: async (action, question, options, durationSeconds) => {
           const voteStore = useVoteStore.getState();
@@ -683,7 +876,12 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
   },
 
   handleChatMessage: async (message) => {
+    // Check if chatter (including broadcaster testing or participating) is answering an active timeout trivia duel
+    const duelHandled = await duelGameManager.handleChatMessage(message);
+    if (duelHandled) return true;
+
     if (message.isSelf || message.id?.startsWith('self-')) return false;
+
     const sequences = get().sequences;
     let handled = false;
 

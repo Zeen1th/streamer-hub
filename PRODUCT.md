@@ -20,6 +20,7 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
 3. **OBS Chat Overlay & Multi-Overlay Profiles**: A zero-latency local HTTP overlay server (`127.0.0.1:49178`) supporting multiple independent overlay layouts with a full canvas editor — the streamer lays out and styles chat blocks on a 1920×1080 stage, with per-element control over every visual property, third-party emote rendering, display filters, and full Arabic/English BiDi text rendering.
 4. **OBS Streamer Chat Dock & Fast Moderation**: A dedicated streamer dock interface (`127.0.0.1:49178/obs-chat.html`) and in-app Chat tab providing bottom-up message flow, real-time streamer message reflection, and 1-click moderation (Timeout 60s, Ban, Delete, Shoutout, Mention).
 5. **Live Stream Title Sync**: Non-destructive stream title updates that preserve manual streamer titles while maintaining clean counter numbers.
+6. **Alert Studio & Transparent WebM Compressor**: Solves StreamElements' 30MB upload limit for custom Twitch alert animations by compressing WebM and ProRes 4444 `.mov` files to an exact target size (default 28MB) while guaranteeing alpha channel transparency and lossless audio.
 
 ## Operating Context
 
@@ -76,6 +77,15 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
   - High-contrast dark theme with automatic username luminance protection ($\ge 0.35$).
   - Full bidirectional typography: `Cairo` for Arabic and `Barlow` for Latin/English.
   - Instant cross-client synchronization of deletions, user timeouts, and full room clears.
+- **Alert Studio & Transparent WebM Compressor**:
+  - Dedicated compression workspace tailored for Twitch alerts and OBS media assets.
+  - Enforces dual-stream `yuva420p` pixel format and `alpha_mode=1` with VP9 Constrained Quality encoding to prevent black background flattening.
+  - Live HTML5 video player with toggleable transparency checkerboard pattern for verifying alpha blending before uploading.
+  - 1-Click StreamElements preset (< 30 MB) with smart bitrate ceiling and CRF auto-tuned to video duration.
+  - Custom target size slider (10 MB to 50 MB) for different streaming platforms and overlay hosts.
+  - Background portable FFmpeg auto-detection and zero-setup downloader for non-technical users.
+  - Real-time encoding metrics: progress percentage, FPS, current size, speed multiplier, and elapsed/total duration.
+  - Results card with before/after byte comparison, percentage saved, and 1-click Windows Explorer folder selection.
 - **Settings & UI**:
   - Sectioned navigation: General, Twitch Connection, Bot Account, Appearance, and Step-by-Step Setup Guide.
   - High-contrast, unwashed dark themes: Solar Amber, Abyss Sapphire, Midnight Violet, Tokyo Rose, and Crimson Dark.

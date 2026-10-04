@@ -104,7 +104,19 @@ public static class Channels
     public const string VotesGenerateAi = "votes/generate-ai";
     public const string AudioPlaySound = "audio/play-sound";
     public const string AudioMuteMic = "audio/mute-mic";
+    public const string AudioSpeakTts = "audio/speak-tts";
     public const string DialogOpenFile = "dialog/open-file";
+    public const string AlertsGetFfmpegStatus = "alerts/get-ffmpeg-status";
+    public const string AlertsDownloadFfmpeg = "alerts/download-ffmpeg";
+    public const string AlertsInspect = "alerts/inspect";
+    public const string AlertsCompress = "alerts/compress";
+    public const string AlertsCancel = "alerts/cancel";
+    public const string AlertsOpenFolder = "alerts/open-folder";
+    public const string AlertsSaveDroppedFile = "alerts/save-dropped-file";
+    public const string ChatOverlayShowImage = "chat-overlay/show-image";
+    public const string ChatOverlayHideImage = "chat-overlay/hide-image";
+    public const string ChatOverlayGetImageUrl = "chat-overlay/get-image-url";
+    public const string AiGenerateTrivia = "ai/generate-trivia";
 }
 
 public static class Events
@@ -123,6 +135,10 @@ public static class Events
     public const string TwitchRaid = "twitch/raid";
     public const string TwitchFollow = "twitch/follow";
     public const string VotesChanged = "votes/changed";
+    public const string AlertsProgress = "alerts/progress";
+    public const string AlertsCompleted = "alerts/completed";
+    public const string AlertsDownloadProgress = "alerts/download-progress";
+    public const string AlertsFileDropped = "alerts/file-dropped";
 }
 
 

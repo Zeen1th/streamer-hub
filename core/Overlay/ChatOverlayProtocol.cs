@@ -49,6 +49,12 @@ public static class ChatOverlayProtocol
     public static string VoteState(PollState state) =>
         Serialize("vote-state", state);
 
+    public static string ShowImage(object payload) =>
+        Serialize("show-image", payload);
+
+    public static string HideImage() =>
+        Serialize("hide-image", new { });
+
     private static string ScopeName(ChatClearScope scope) => scope switch
     {
         ChatClearScope.Message => "message",

@@ -22,8 +22,8 @@ import { evaluateRuleExecution, renderAutoReply } from '../../lib/autoReplyRules
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
-import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
+import { DurationPicker } from '../ui/DurationPicker';
 import { TriggerTitleAction } from '../tools/auto-replies/TriggerTitleAction';
 import { ChatterOverridesSection } from './ChatterOverridesSection';
 
@@ -449,39 +449,27 @@ export function ReplyStudioView({
             </div>
 
             <div className="space-y-3">
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-medium">Global:</span>
-                  <span className="font-mono text-muted">{rule.cooldownSeconds || 0}s</span>
-                </div>
-                <Slider
-                  value={rule.cooldownSeconds || 0}
-                  min={0}
-                  max={300}
-                  step={5}
-                  onChange={(v) => update(rule.id, { cooldownSeconds: v })}
-                  ariaLabel="Cooldown"
-                />
-              </div>
+              <DurationPicker
+                value={rule.cooldownSeconds || 0}
+                onChange={(v) => update(rule.id, { cooldownSeconds: v })}
+                min={0}
+                max={300}
+                step={5}
+                presets={[0, 15, 30, 60, 120]}
+                label="Global Cooldown"
+                accentColor="default"
+              />
 
-              <div className="flex items-center justify-between gap-2 pt-1 border-t border-hair">
-                <span className="text-[11px] font-medium">{t(lang, 'autoReplies.userCooldown')}:</span>
-                <div className="flex items-center gap-1">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={3600}
-                    value={rule.userCooldownSeconds ?? 0}
-                    onChange={(e) =>
-                      update(rule.id, {
-                        userCooldownSeconds: Math.max(0, Number(e.target.value) || 0),
-                      })
-                    }
-                    className="h-7 w-20 text-center font-mono text-[11px]"
-                  />
-                  <span className="text-[11px] text-muted">s</span>
-                </div>
-              </div>
+              <DurationPicker
+                value={rule.userCooldownSeconds || 0}
+                onChange={(v) => update(rule.id, { userCooldownSeconds: v })}
+                min={0}
+                max={600}
+                step={5}
+                presets={[0, 30, 60, 120, 300]}
+                label={t(lang, 'autoReplies.userCooldown')}
+                accentColor="default"
+              />
             </div>
           </div>
         </section>

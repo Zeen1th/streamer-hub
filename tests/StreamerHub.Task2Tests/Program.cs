@@ -20,6 +20,15 @@ await RunAsync("single_instance_coordinator_enforces_single_instance_and_notifie
 await RunAsync("pending_remod_manager_persists_and_restores_queue", PendingRemodManagerPersistsAndRestoresQueueAsync);
 await RunAsync("pending_remod_manager_calculates_backoff_and_records_retries", PendingRemodManagerCalculatesBackoffAndRecordsRetriesAsync);
 await RunAsync("parse_privmsg_extracts_lead_moderator_badge", ParsePrivmsgExtractsLeadModeratorBadgeAsync);
+await RunAsync("parse_privmsg_with_emotes_and_replies_extracts_correct_login", ParsePrivmsgWithEmotesAndRepliesExtractsCorrectLoginAsync);
+await RunAsync("test_windows_mic", TestWindowsMicAsync);
+
+Task TestWindowsMicAsync()
+{
+    using var mic = new StreamerHub.Core.Audio.WindowsMicController();
+    mic.SetMicrophoneMute(false);
+    return Task.CompletedTask;
+}
 
 if (failures.Count > 0)
 {
@@ -32,7 +41,7 @@ if (failures.Count > 0)
     return;
 }
 
-Console.WriteLine("PASS 15/15");
+Console.WriteLine("PASS 16/16");
 
 async Task RunAsync(string name, Func<Task> test)
 {
@@ -462,6 +471,28 @@ Task ParsePrivmsgExtractsLeadModeratorBadgeAsync()
 
     AssertTrue(message2.IsMod, "lead-moderator badge must set IsMod to true");
     AssertTrue(message2.IsLeadMod, "lead-moderator badge must set IsLeadMod to true");
+
+    return Task.CompletedTask;
+}
+
+Task ParsePrivmsgWithEmotesAndRepliesExtractsCorrectLoginAsync()
+{
+    const string line = "@badge-info=;badges=moderator/1;color=#FF0000;display-name=مارون;emotes=25:7-13,15-21;first-msg=0;flags=;id=f4e563b4-789c-43c6-bd3e-0a4c8b602e86;mod=1;reply-parent-display-name=مارون;reply-parent-msg-body=@rq7q\\sموجود\\s؟;reply-parent-msg-id=bd9d6938-cc71-47c0-81e8-30750d72aeef;reply-parent-user-id=492095146;reply-parent-user-login=qvivp;reply-thread-parent-display-name=مارون;reply-thread-parent-msg-id=bd9d6938-cc71-47c0-81e8-30750d72aeef;reply-thread-parent-user-id=492095146;reply-thread-parent-user-login=qvivp;returning-chatter=0;room-id=12345;subscriber=0;tmi-sent-ts=1727490000000;turbo=0;user-id=492095146;user-type=mod :qvivp!qvivp@qvivp.tmi.twitch.tv PRIVMSG #channel :@rq7q موجود ؟";
+
+    if (!TwitchPrivmsgParser.TryParse(line, DateTime.UtcNow, out var message))
+    {
+        throw new InvalidOperationException("expected TwitchPrivmsgParser to parse reply message with emotes");
+    }
+
+    AssertEqual("qvivp", message.UserLogin, "user-login must be qvivp without tag pollution");
+    AssertEqual("مارون", message.Username, "username must match display-name");
+    AssertEqual("مارون", message.DisplayName, "display-name must match Arabic display name");
+    AssertEqual("492095146", message.UserId, "user-id");
+    AssertTrue(message.IsMod, "is-mod");
+    AssertEqual("@rq7q موجود ؟", message.Message, "message");
+    AssertEqual(2, message.Emotes.Count, "emotes count");
+    AssertEqual("25", message.Emotes[0].Id, "first emote id");
+    AssertEqual("25", message.Emotes[1].Id, "second emote id");
 
     return Task.CompletedTask;
 }

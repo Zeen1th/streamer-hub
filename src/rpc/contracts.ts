@@ -165,6 +165,8 @@ export type SequenceStepType =
   | 'sound'
   | 'tts'
   | 'obs_text'
+  | 'obs_image'
+  | 'duel'
   | 'poll'
   | 'mic_mute';
 export type SequenceWaitUnit = 'seconds' | 'minutes';
@@ -226,6 +228,31 @@ export interface SequenceStep {
   // OBS Text Output
   filePath?: string;
   fileContent?: string;
+
+  // OBS Image / Picture Display
+  imagePath?: string;
+  imageUrl?: string;
+  imageDurationSeconds?: number;
+  imagePosition?: 'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top-center' | 'bottom-center' | 'fullscreen';
+  position?: 'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top-center' | 'bottom-center' | 'fullscreen';
+  imageAnimation?: 'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none';
+  animation?: 'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none';
+  imageScale?: number;
+  scale?: number;
+  obsImageDestinationPath?: string;
+  destinationPath?: string;
+
+  // Mini-Game: Timeout Duel
+  duelMode?: 'random' | 'ai_trivia';
+  duelOpponent?: string;
+  duelTimeoutDuration?: number;
+  duelTimerSeconds?: number;
+  duelLanguage?: 'auto' | 'en' | 'ar';
+  duelCategory?: string;
+  duelInstructions?: string;
+  duelMessageStart?: string;
+  duelMessageWin?: string;
+  duelMessageTimeout?: string;
 
   // Live Poll
   pollAction?: 'start' | 'end' | 'reset';
@@ -635,7 +662,19 @@ export const Channels = {
   VotesGenerateAi: 'votes/generate-ai',
   AudioPlaySound: 'audio/play-sound',
   AudioMuteMic: 'audio/mute-mic',
+  AudioSpeakTts: 'audio/speak-tts',
   DialogOpenFile: 'dialog/open-file',
+  AlertsGetFfmpegStatus: 'alerts/get-ffmpeg-status',
+  AlertsDownloadFfmpeg: 'alerts/download-ffmpeg',
+  AlertsInspect: 'alerts/inspect',
+  AlertsCompress: 'alerts/compress',
+  AlertsCancel: 'alerts/cancel',
+  AlertsOpenFolder: 'alerts/open-folder',
+  AlertsSaveDroppedFile: 'alerts/save-dropped-file',
+  ChatOverlayShowImage: 'chat-overlay/show-image',
+  ChatOverlayHideImage: 'chat-overlay/hide-image',
+  ChatOverlayGetImageUrl: 'chat-overlay/get-image-url',
+  AiGenerateTrivia: 'ai/generate-trivia',
 } as const;
 
 export type ChannelName = (typeof Channels)[keyof typeof Channels];
@@ -655,6 +694,10 @@ export const Events = {
   TwitchRaid: 'twitch/raid',
   TwitchFollow: 'twitch/follow',
   VotesChanged: 'votes/changed',
+  AlertsProgress: 'alerts/progress',
+  AlertsCompleted: 'alerts/completed',
+  AlertsDownloadProgress: 'alerts/download-progress',
+  AlertsFileDropped: 'alerts/file-dropped',
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events];
@@ -796,7 +839,92 @@ export interface HostApi {
   [Channels.VotesGenerateAi]: { request: GenerateAiPollPayload; response: GenerateAiPollResponse };
   [Channels.AudioPlaySound]: { request: { soundPath: string; volume?: number }; response: { ok: boolean; error?: string } };
   [Channels.AudioMuteMic]: { request: { durationSeconds: number }; response: { ok: boolean; error?: string } };
+  [Channels.AudioSpeakTts]: { request: { text: string; voiceName?: string; rate?: number; pitch?: number; volume?: number }; response: { ok: boolean; error?: string } };
   [Channels.DialogOpenFile]: { request: { filter?: string; title?: string }; response: { path: string | null } };
+  [Channels.AlertsGetFfmpegStatus]: { request: undefined; response: FfmpegStatus };
+  [Channels.AlertsDownloadFfmpeg]: { request: undefined; response: { ok: boolean; status: FfmpegStatus } };
+  [Channels.AlertsInspect]: { request: { inputPath: string }; response: { ok: boolean; info?: AlertMediaInfo; error?: string } };
+  [Channels.AlertsCompress]: { request: CompressAlertPayload; response: { ok: boolean; error?: string } };
+  [Channels.AlertsCancel]: { request: undefined; response: { ok: boolean } };
+  [Channels.AlertsOpenFolder]: { request: { path: string }; response: { ok: boolean } };
+  [Channels.AlertsSaveDroppedFile]: { request: { fileName: string; fileBase64: string }; response: { ok: boolean; filePath?: string; error?: string } };
+  [Channels.ChatOverlayShowImage]: { request: ShowOverlayImagePayload; response: { ok: boolean; error?: string } };
+  [Channels.ChatOverlayHideImage]: { request: undefined; response: { ok: boolean } };
+  [Channels.ChatOverlayGetImageUrl]: { request: undefined; response: { url: string } };
+  [Channels.AiGenerateTrivia]: { request: GenerateGamingQuestionPayload | undefined; response: GenerateGamingQuestionResponse };
+}
+
+export interface ShowOverlayImagePayload {
+  imageUrl?: string;
+  imagePath?: string;
+  durationSeconds?: number;
+  position?: 'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top-center' | 'bottom-center' | 'fullscreen';
+  animation?: 'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none';
+  imageScale?: number;
+  scale?: number;
+  obsImageDestinationPath?: string;
+  destinationPath?: string;
+}
+
+export interface GenerateGamingQuestionPayload {
+  category?: string;
+  language?: 'en' | 'ar' | 'auto';
+  difficulty?: 'easy' | 'medium' | 'hard';
+  customInstructions?: string;
+  recentQuestions?: string[];
+}
+
+export interface GenerateGamingQuestionResponse {
+  ok: boolean;
+  question: string;
+  answer: string;
+  acceptableAnswers: string[];
+  error?: string;
+}
+
+export interface FfmpegStatus {
+  available: boolean;
+  path?: string | null;
+  version?: string | null;
+}
+
+export interface AlertMediaInfo {
+  filePath: string;
+  fileSizeBytes: number;
+  durationSeconds: number;
+  width: number;
+  height: number;
+  fps: number;
+  videoCodec: string;
+  audioCodec: string;
+  hasAlpha: boolean;
+}
+
+export interface CompressionProgress {
+  percent: number;
+  fps: number;
+  sizeBytes: number;
+  speed: string;
+  currentSeconds: number;
+  totalSeconds: number;
+}
+
+export interface CompressionResult {
+  success: boolean;
+  inputPath: string;
+  outputPath: string;
+  originalSizeBytes: number;
+  compressedSizeBytes: number;
+  durationSeconds: number;
+  error?: string | null;
+}
+
+export interface CompressAlertPayload {
+  inputPath: string;
+  outputPath?: string;
+  targetSizeMb?: number;
+  customCrf?: number;
+  customMaxBitrateK?: number;
 }
 
 export interface EventMap {
@@ -812,5 +940,10 @@ export interface EventMap {
   [Events.TwitchRaid]: TwitchRaidEvent;
   [Events.TwitchFollow]: TwitchFollowEvent;
   [Events.VotesChanged]: PollState;
+  [Events.AlertsProgress]: CompressionProgress;
+  [Events.AlertsCompleted]: CompressionResult;
+  [Events.AlertsDownloadProgress]: { percent: number };
+  [Events.AlertsFileDropped]: { filePath: string };
 }
+
 

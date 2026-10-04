@@ -7,7 +7,7 @@ public sealed record PendingRemodEntry
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
     public string BroadcasterId { get; init; } = string.Empty;
     public string TargetUserId { get; init; } = string.Empty;
-    public string TargetLogin { get; init; } = string.Empty;
+    public string TargetLogin { get; set; } = string.Empty;
     public bool WasLeadMod { get; init; }
     public DateTime RemodAtUtc { get; set; }
     public int Attempts { get; set; }
@@ -49,6 +49,15 @@ public sealed class PendingRemodManager
 
     public void Enqueue(string broadcasterId, string targetUserId, string targetLogin, DateTime remodAtUtc, bool wasLeadMod = false)
     {
+        var cleanLogin = !string.IsNullOrWhiteSpace(targetLogin)
+            ? targetLogin.TrimStart('@', '!', '#').TrimEnd(',', ':', ';', '.').Trim()
+            : string.Empty;
+
+        if (cleanLogin.Contains(';') || cleanLogin.Contains('='))
+        {
+            cleanLogin = string.Empty;
+        }
+
         lock (_lock)
         {
             // If an entry for the same user already exists, update it to the later time
@@ -62,6 +71,10 @@ public sealed class PendingRemodManager
                 {
                     existing.RemodAtUtc = remodAtUtc;
                 }
+                if (!string.IsNullOrWhiteSpace(cleanLogin))
+                {
+                    existing.TargetLogin = cleanLogin;
+                }
                 existing.Attempts = 0;
             }
             else
@@ -70,7 +83,7 @@ public sealed class PendingRemodManager
                 {
                     BroadcasterId = broadcasterId,
                     TargetUserId = targetUserId,
-                    TargetLogin = targetLogin,
+                    TargetLogin = cleanLogin,
                     WasLeadMod = wasLeadMod,
                     RemodAtUtc = remodAtUtc,
                     Attempts = 0,
@@ -211,7 +224,17 @@ public sealed class PendingRemodManager
                 if (loaded != null)
                 {
                     _entries.Clear();
-                    _entries.AddRange(loaded);
+                    foreach (var entry in loaded)
+                    {
+                        var sanitizedLogin = !string.IsNullOrWhiteSpace(entry.TargetLogin)
+                            ? entry.TargetLogin.TrimStart('@', '!', '#').TrimEnd(',', ':', ';', '.').Trim()
+                            : string.Empty;
+                        if (sanitizedLogin.Contains(';') || sanitizedLogin.Contains('='))
+                        {
+                            sanitizedLogin = string.Empty;
+                        }
+                        _entries.Add(entry with { TargetLogin = sanitizedLogin });
+                    }
                 }
             }
             catch

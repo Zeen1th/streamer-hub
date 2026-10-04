@@ -154,6 +154,9 @@ public sealed class MainForm : Form
         MinimumSize = new Size(960, 640);
         BackColor = Color.FromArgb(0x0a, 0x0a, 0x0a);
         Padding = Padding.Empty;
+        AllowDrop = true;
+        DragEnter += HandleFileDragEnter;
+        DragDrop += HandleFileDragDrop;
         _webView.DefaultBackgroundColor = Color.FromArgb(0x0a, 0x0a, 0x0a);
         _webView.Dock = DockStyle.Fill;
         Controls.Add(_webView);
@@ -644,6 +647,30 @@ public sealed class MainForm : Form
             _webView.Invalidate();
             _webView.Update();
         });
+    }
+
+    private static void HandleFileDragEnter(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+        {
+            e.Effect = DragDropEffects.Copy;
+        }
+    }
+
+    private void HandleFileDragDrop(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+        {
+            var first = files[0];
+            if (!string.IsNullOrWhiteSpace(first) && File.Exists(first))
+            {
+                var ext = Path.GetExtension(first).ToLowerInvariant();
+                if (ext is ".webm" or ".mov" or ".mp4" or ".mkv" or ".avi")
+                {
+                    _host?.PostEvent(StreamerHub.Core.Rpc.Events.AlertsFileDropped, new { filePath = first });
+                }
+            }
+        }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)

@@ -23,8 +23,9 @@ import {
 import { applyChatFilters } from './lib/chatOverlayFilters';
 import { mergeEmoteProviders, type ThirdPartyEmoteMap } from './lib/chatEmotes';
 import { ChatScene } from './overlay/ChatScene';
+import { ImageOverlayScene } from './overlay/ImageOverlayScene';
 import { CHAT_OVERLAY_CANVAS } from './rpc/contracts';
-import type { ChatMessage, ChatOverlaySettings } from './rpc/contracts';
+import type { ChatMessage, ChatOverlaySettings, ShowOverlayImagePayload } from './rpc/contracts';
 
 type EnvelopeKind =
   | 'hello'
@@ -36,7 +37,9 @@ type EnvelopeKind =
   | 'clear'
   | 'emotes'
   | 'reload'
-  | 'preview';
+  | 'preview'
+  | 'show-image'
+  | 'hide-image';
 
 const KNOWN_KINDS: readonly EnvelopeKind[] = [
   'hello',
@@ -49,6 +52,8 @@ const KNOWN_KINDS: readonly EnvelopeKind[] = [
   'emotes',
   'reload',
   'preview',
+  'show-image',
+  'hide-image',
 ];
 
 interface OverlayEnvelope {
@@ -98,6 +103,7 @@ function OverlayApp() {
   const [messages, setMessages] = useState<NormalizedChatOverlayMessage[]>([]);
   const [previewMessages, setPreviewMessages] = useState<NormalizedChatOverlayMessage[] | null>(null);
   const [providers, setProviders] = useState<Record<string, ThirdPartyEmoteMap>>({});
+  const [overlayImage, setOverlayImage] = useState<ShowOverlayImagePayload | null>(null);
   const [fit, setFit] = useState(1);
 
   const seenMessageIds = useRef(new Set<string>());
@@ -256,6 +262,14 @@ function OverlayApp() {
             }
             return;
           }
+          case 'show-image': {
+            setOverlayImage(envelope.payload as ShowOverlayImagePayload);
+            return;
+          }
+          case 'hide-image': {
+            setOverlayImage(null);
+            return;
+          }
           default:
             return;
         }
@@ -321,6 +335,7 @@ function OverlayApp() {
         thirdParty={thirdParty}
         alwaysRenderBlock={Boolean(previewMessages && previewMessages.length > 0)}
       />
+      <ImageOverlayScene image={overlayImage} onDismiss={() => setOverlayImage(null)} />
     </div>
   );
 }

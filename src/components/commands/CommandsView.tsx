@@ -29,6 +29,7 @@ import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
+import { DurationPicker } from '../ui/DurationPicker';
 import { FeatureKeybindEditor } from '../tools/settings/FeatureKeybindEditor';
 import { CounterActionsGridView } from './CounterActionsGridView';
 import { AiReplyStudioView } from './AiReplyStudioView';
@@ -1827,8 +1828,22 @@ function PermissionField({ value, onChange }: { value: PermissionLevel; onChange
 }
 
 function CooldownField({ value, onChange }: { value: number; onChange: (value: number) => void }) {
-  const language = useSettingsStore((s) => s.language); const lang = language === 'ar' ? 'ar' : 'en';
-  return <InspectorField label={`${t(lang, 'workspace.cooldown')} · ${value}s`}><Slider value={value} min={0} max={300} step={5} onChange={onChange} ariaLabel={t(lang, 'workspace.cooldown')} /><div className="flex justify-between font-mono text-[9.5px] text-faint"><span>0s</span><span>300s</span></div></InspectorField>;
+  const language = useSettingsStore((s) => s.language);
+  const lang = language === 'ar' ? 'ar' : 'en';
+  return (
+    <div className="py-1">
+      <DurationPicker
+        value={value}
+        onChange={onChange}
+        min={0}
+        max={300}
+        step={5}
+        presets={[0, 15, 30, 60, 120, 300]}
+        label={t(lang, 'workspace.cooldown')}
+        accentColor="default"
+      />
+    </div>
+  );
 }
 
 function SinkRow({ label, detail, checked, onChange }: { label: string; detail: string; checked: boolean; onChange: (value: boolean) => void }) {

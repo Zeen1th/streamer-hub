@@ -555,7 +555,12 @@ public sealed class TwitchIrcClient : ITwitchClient
     {
         if (string.IsNullOrWhiteSpace(input)) return string.Empty;
         var firstWord = input.Trim().Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)[0];
-        return firstWord.TrimStart('@', '!', '#').TrimEnd(',', ':', ';', '.');
+        var cleaned = firstWord.TrimStart('@', '!', '#').TrimEnd(',', ':', ';', '.');
+        if (cleaned.Contains(';') || cleaned.Contains('='))
+        {
+            return string.Empty;
+        }
+        return cleaned;
     }
 
     private void EnsureRemodTimerStarted()
@@ -578,15 +583,31 @@ public sealed class TwitchIrcClient : ITwitchClient
                 {
                     if (success)
                     {
-                        Info?.Invoke(new TwitchInfo("remod-success", entry.TargetLogin));
-                        if (entry.WasLeadMod)
+                        var safeLogin = CleanUsername(entry.TargetLogin);
+                        if (string.IsNullOrWhiteSpace(safeLogin) && !string.IsNullOrWhiteSpace(entry.TargetUserId))
                         {
-                            Info?.Invoke(new TwitchInfo("remod-lead-mod-notice", $"{entry.TargetLogin}: Moderator privileges restored. (Lead Moderator: check Twitch Roles Manager if badge re-grant is needed)"));
-                            await SendChatMessageAsync($"[Moderation] Restored moderator privileges for @{entry.TargetLogin}. (Lead Moderator)").ConfigureAwait(false);
+                            if (_knownChatters.TryGetValue(entry.TargetUserId, out var known))
+                            {
+                                safeLogin = CleanUsername(known.Login);
+                            }
+                        }
+
+                        Info?.Invoke(new TwitchInfo("remod-success", !string.IsNullOrWhiteSpace(safeLogin) ? safeLogin : entry.TargetUserId));
+                        if (!string.IsNullOrWhiteSpace(safeLogin))
+                        {
+                            if (entry.WasLeadMod)
+                            {
+                                Info?.Invoke(new TwitchInfo("remod-lead-mod-notice", $"{safeLogin}: Moderator privileges restored. (Lead Moderator: check Twitch Roles Manager if badge re-grant is needed)"));
+                                await SendChatMessageAsync($"[Moderation] Restored moderator privileges for @{safeLogin}. (Lead Moderator)").ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                await SendChatMessageAsync($"[Moderation] Restored moderator privileges for @{safeLogin}.").ConfigureAwait(false);
+                            }
                         }
                         else
                         {
-                            await SendChatMessageAsync($"[Moderation] Restored moderator privileges for @{entry.TargetLogin}.").ConfigureAwait(false);
+                            Info?.Invoke(new TwitchInfo("remod-warning", $"Moderator privileges restored for user ID {entry.TargetUserId}, but username was missing or invalid."));
                         }
                     }
                     else
@@ -1355,12 +1376,43 @@ public static class TwitchPrivmsgParser
         if (colon < 0) return false;
         var messageText = rest[(colon + 1)..];
 
-        var sender = "unknown";
-        var bang = prefix.IndexOf('!');
-        if (bang > 0)
+        string tagsPart = string.Empty;
+        string sourcePart = prefix;
+
+        if (prefix.StartsWith('@'))
         {
-            var nameStart = prefix.IndexOf(':');
-            sender = prefix[(nameStart + 1)..bang];
+            var spaceIdx = prefix.IndexOf(' ');
+            if (spaceIdx > 0)
+            {
+                tagsPart = prefix[1..spaceIdx];
+                sourcePart = prefix[(spaceIdx + 1)..].TrimStart();
+            }
+            else
+            {
+                tagsPart = prefix[1..];
+                sourcePart = string.Empty;
+            }
+        }
+
+        var sender = "unknown";
+        var rawSource = sourcePart.Trim();
+        if (rawSource.StartsWith(':'))
+        {
+            rawSource = rawSource[1..];
+        }
+        var bang = rawSource.IndexOf('!');
+        if (bang >= 0)
+        {
+            sender = rawSource[..bang].Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(rawSource))
+        {
+            sender = rawSource.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(sender))
+        {
+            sender = "unknown";
         }
 
         string? userId = null;
@@ -1375,9 +1427,9 @@ public static class TwitchPrivmsgParser
         var isVip = false;
         var isSubscriber = false;
 
-        if (prefix.StartsWith('@'))
+        if (!string.IsNullOrEmpty(tagsPart))
         {
-            foreach (var tag in prefix[1..].Split(';'))
+            foreach (var tag in tagsPart.Split(';', StringSplitOptions.RemoveEmptyEntries))
             {
                 var eq = tag.IndexOf('=');
                 if (eq < 0) continue;
@@ -1455,6 +1507,11 @@ public static class TwitchPrivmsgParser
             ? sender.ToLowerInvariant()
             : null;
 
+        if (cleanSender != null && !IsValidLogin(cleanSender))
+        {
+            cleanSender = null;
+        }
+
         message = new ChatMessage
         {
             Id = !string.IsNullOrWhiteSpace(messageId) ? messageId : Guid.NewGuid().ToString(),
@@ -1473,6 +1530,16 @@ public static class TwitchPrivmsgParser
             Color = color,
             CustomRewardId = customRewardId,
         };
+        return true;
+    }
+
+    private static bool IsValidLogin(string login)
+    {
+        if (login.Length is < 1 or > 25) return false;
+        foreach (var ch in login)
+        {
+            if (!char.IsAsciiLetterOrDigit(ch) && ch != '_') return false;
+        }
         return true;
     }
 

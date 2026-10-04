@@ -12,8 +12,12 @@ import {
   FileText,
   Flame,
   FolderOpen,
+  Gamepad2,
+  GripVertical,
   Heart,
+  Image as ImageIcon,
   Info,
+  Languages,
   Layers,
   Megaphone,
   MessageSquare,
@@ -23,10 +27,12 @@ import {
   Plus,
   Radio,
   RefreshCw,
+  RotateCcw,
   Search,
   Shield,
   Sliders,
   Sparkles,
+  Swords,
   Terminal,
   Trash2,
   Volume2,
@@ -50,12 +56,14 @@ import { normalizeTriggers, useSequenceStore } from '../../store/sequenceStore';
 import { useCounterStore } from '../../store/counterStore';
 import { useConnectionStore } from '../../store/connectionStore';
 import { useSettingsStore } from '../../store/settingsStore';
+import { DEFAULT_DUEL_MESSAGES } from '../../lib/duelGameManager';
 import { t } from '../../i18n/translations';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
+import { DurationPicker } from '../ui/DurationPicker';
 
 interface SequenceStudioViewProps {
   sequence: CommandSequence;
@@ -79,10 +87,11 @@ interface EditTriggerModalProps {
   availableRewards: Array<{ id: string; title: string; cost: number }>;
   lang: 'en' | 'ar';
   onSave: (patch: Partial<ActionTrigger>) => void;
+  onDelete?: () => void;
   onClose: () => void;
 }
 
-function EditTriggerModal({ trigger, availableRewards, lang, onSave, onClose }: EditTriggerModalProps) {
+function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, onClose }: EditTriggerModalProps) {
   const [enabled, setEnabled] = useState(trigger.enabled);
   const [minViewers, setMinViewers] = useState(trigger.minViewers ?? 1);
   const [chatCommand, setChatCommand] = useState(trigger.chatCommand ?? '!command');
@@ -282,11 +291,32 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onClose }: 
           )}
         </div>
 
-        <footer className="flex items-center justify-end border-t border-white/[0.08] bg-[#12141c] px-5 py-3">
-          <Button size="sm" onClick={handleApply} className="bg-accent text-white hover:bg-accent-hover font-semibold">
-            <Check size={13} className="me-1.5" />
-            <span>{t(lang, 'autoReplies.done')}</span>
-          </Button>
+        <footer className="flex items-center justify-between border-t border-white/[0.08] bg-[#12141c] px-5 py-3">
+          {onDelete ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                onDelete();
+                onClose();
+              }}
+              className="text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 font-semibold cursor-pointer"
+            >
+              <Trash2 size={13} className="me-1.5" />
+              <span>{t(lang, 'sequence.deleteTrigger')}</span>
+            </Button>
+          ) : (
+            <div />
+          )}
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              {t(lang, 'autoReplies.cancel')}
+            </Button>
+            <Button size="sm" onClick={handleApply} className="bg-accent text-white hover:bg-accent-hover font-semibold">
+              <Check size={13} className="me-1.5" />
+              <span>{t(lang, 'autoReplies.done')}</span>
+            </Button>
+          </div>
         </footer>
       </section>
     </div>
@@ -359,6 +389,37 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   const [micMuteDurationSeconds, setMicMuteDurationSeconds] = useState(step.micMuteDurationSeconds ?? 5);
   const [isTestMuting, setIsTestMuting] = useState(false);
 
+  // OBS Image state
+  const [imagePath, setImagePath] = useState(step.imagePath ?? '');
+  const [imageDurationSeconds, setImageDurationSeconds] = useState(step.imageDurationSeconds ?? 5);
+  const [imagePosition, setImagePosition] = useState<
+    'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top-center' | 'bottom-center' | 'fullscreen'
+  >(step.imagePosition ?? 'center');
+  const [imageAnimation, setImageAnimation] = useState<
+    'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none'
+  >(step.imageAnimation ?? 'bounce');
+  const [imageScale, setImageScale] = useState(step.imageScale ?? 1.0);
+  const [obsImageDestinationPath, setObsImageDestinationPath] = useState(step.obsImageDestinationPath ?? '');
+  const [isPreviewingImage, setIsPreviewingImage] = useState(false);
+
+  // Mini-Game Duel state
+  const [duelMode, setDuelMode] = useState<'random' | 'ai_trivia'>(step.duelMode ?? 'ai_trivia');
+  const [duelOpponent, setDuelOpponent] = useState(step.duelOpponent ?? '{input}');
+  const [duelTimeoutDuration, setDuelTimeoutDuration] = useState(step.duelTimeoutDuration ?? 60);
+  const [duelTimerSeconds, setDuelTimerSeconds] = useState(step.duelTimerSeconds ?? 30);
+  const [duelLanguage, setDuelLanguage] = useState<'auto' | 'en' | 'ar'>(step.duelLanguage ?? 'auto');
+  const [duelCategory, setDuelCategory] = useState<string>(step.duelCategory ?? 'general');
+  const defaultDuelInstructions = lang === 'ar'
+    ? 'اجعل السؤال بسيطاً ومتنوعاً عن ألعاب مشهورة (مثل ألعاب السولز، زيلدا، مونستر هنتر، ماريو، جود أوف وار، ويتشر، كود، ماينكرافت، إلخ). نوّع الأسئلة ولا تكرر نفس اللعبة في كل مرة. يجب أن تكون الإجابة واضحة ومعروفة ومن كلمة إلى 3 كلمات.'
+    : 'Keep questions simple, diverse, and focused on popular games (such as Souls games, Zelda, Monster Hunter, Mario, God of War, Witcher, CoD, Minecraft, etc.). Vary games every round and never repeat the same game consecutively. The answer must be clear, well-known, and 1 to 3 words.';
+  const [duelInstructions, setDuelInstructions] = useState<string>(step.duelInstructions ?? defaultDuelInstructions);
+  const [duelMessageStart, setDuelMessageStart] = useState<string>(step.duelMessageStart ?? '');
+  const [duelMessageWin, setDuelMessageWin] = useState<string>(step.duelMessageWin ?? '');
+  const [duelMessageTimeout, setDuelMessageTimeout] = useState<string>(step.duelMessageTimeout ?? '');
+  const [showAdvancedDuelMessages, setShowAdvancedDuelMessages] = useState<boolean>(
+    Boolean(step.duelMessageStart || step.duelMessageWin || step.duelMessageTimeout)
+  );
+
   useEffect(() => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       const loadVoices = () => {
@@ -390,23 +451,83 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
     }
   };
 
-  const handleTestTts = () => {
-    if (!ttsText.trim() || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(
-      ttsText.replace(/\{username\}/gi, 'Viewer').replace(/\{user\}/gi, 'Viewer').replace(/\{input\}/gi, 'hello')
-    );
-    if (ttsRate != null) utterance.rate = ttsRate;
-    if (ttsPitch != null) utterance.pitch = ttsPitch;
-    if (ttsVolume != null) utterance.volume = ttsVolume;
-    if (ttsVoice) {
-      const matched = availableVoices.find((v) => v.name === ttsVoice || v.voiceURI === ttsVoice);
-      if (matched) utterance.voice = matched;
-    }
+  const handleTestTts = async () => {
+    const raw = ttsText
+      .replace(/\{username\}/gi, 'Viewer')
+      .replace(/\{user\}/gi, 'Viewer')
+      .replace(/\{input\}/gi, 'hello')
+      .trim();
+    if (!raw) return;
+
     setIsSpeakingTts(true);
-    utterance.onend = () => setIsSpeakingTts(false);
-    utterance.onerror = () => setIsSpeakingTts(false);
-    window.speechSynthesis.speak(utterance);
+
+    const isArabic = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(raw);
+    const isArVoice = (v: SpeechSynthesisVoice) =>
+      v.lang.toLowerCase().startsWith('ar') ||
+      /arabic|naayf|hoda|tarik|zeina|salma|shakir|maged|leila/i.test(v.name);
+
+    let handledByBrowser = false;
+
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(raw);
+        if (ttsRate != null) utterance.rate = Math.max(0.1, Math.min(ttsRate, 2.0));
+        if (ttsPitch != null) utterance.pitch = Math.max(0.1, Math.min(ttsPitch, 2.0));
+        if (ttsVolume != null) utterance.volume = Math.max(0.0, Math.min(ttsVolume, 1.0));
+
+        utterance.lang = isArabic ? 'ar-SA' : 'en-US';
+
+        let matched = ttsVoice
+          ? availableVoices.find((v) => v.name === ttsVoice || v.voiceURI === ttsVoice)
+          : undefined;
+
+        if (isArabic) {
+          if (!matched || !isArVoice(matched)) {
+            const fallbackAr = availableVoices.find(isArVoice);
+            if (fallbackAr) matched = fallbackAr;
+          }
+        }
+
+        if (matched) {
+          utterance.voice = matched;
+          if (matched.lang) utterance.lang = matched.lang;
+        }
+
+        const canBrowserSpeak = !isArabic || (matched && isArVoice(matched));
+
+        if (canBrowserSpeak) {
+          await new Promise<boolean>((resolve) => {
+            utterance.onend = () => {
+              setIsSpeakingTts(false);
+              resolve(true);
+            };
+            utterance.onerror = () => {
+              setIsSpeakingTts(false);
+              resolve(false);
+            };
+            window.speechSynthesis.speak(utterance);
+          });
+          handledByBrowser = true;
+        }
+      } catch {
+        handledByBrowser = false;
+      }
+    }
+
+    if (!handledByBrowser) {
+      try {
+        await rpc.invoke(Channels.AudioSpeakTts, {
+          text: raw,
+          voiceName: ttsVoice || undefined,
+          rate: ttsRate,
+          pitch: ttsPitch,
+          volume: ttsVolume,
+        });
+      } finally {
+        setIsSpeakingTts(false);
+      }
+    }
   };
 
   const handleBrowseTextFile = async () => {
@@ -414,6 +535,45 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
       const res = await rpc.invoke(Channels.DialogSaveFile, { defaultName: 'stream-text.txt' });
       if (res?.path) setFilePath(res.path);
     } catch { }
+  };
+
+  const handleBrowseImage = async () => {
+    try {
+      const res = await rpc.invoke(Channels.DialogOpenFile, {
+        filter: 'Image files (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp|All files (*.*)|*.*',
+        title: 'Select Image or GIF for OBS',
+      });
+      if (res?.path) setImagePath(res.path);
+    } catch { }
+  };
+
+  const handleBrowseObsDestination = async () => {
+    try {
+      const res = await rpc.invoke(Channels.DialogSaveFile, {
+        defaultName: 'obs-overlay-image.png',
+      });
+      if (res?.path) setObsImageDestinationPath(res.path);
+    } catch { }
+  };
+
+  const handleTestImage = async () => {
+    if (!imagePath.trim()) return;
+    setIsPreviewingImage(true);
+    try {
+      await rpc.invoke(Channels.ChatOverlayShowImage, {
+        imageUrl: imagePath.trim(),
+        imagePath: imagePath.trim(),
+        durationSeconds: imageDurationSeconds,
+        position: imagePosition,
+        animation: imageAnimation,
+        scale: imageScale,
+        imageScale,
+        destinationPath: obsImageDestinationPath.trim() || undefined,
+        obsImageDestinationPath: obsImageDestinationPath.trim() || undefined,
+      });
+    } finally {
+      setTimeout(() => setIsPreviewingImage(false), 2000);
+    }
   };
 
   const handleTestMicMute = async () => {
@@ -464,6 +624,30 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
         break;
       case 'obs_text':
         onSave({ filePath: filePath.trim(), fileContent });
+        break;
+      case 'obs_image':
+        onSave({
+          imagePath: imagePath.trim(),
+          imageDurationSeconds: Math.max(1, Number(imageDurationSeconds) || 5),
+          imagePosition,
+          imageAnimation,
+          imageScale,
+          obsImageDestinationPath: obsImageDestinationPath.trim() || undefined,
+        });
+        break;
+      case 'duel':
+        onSave({
+          duelMode,
+          duelOpponent: duelOpponent.trim(),
+          duelTimeoutDuration: Math.max(5, Number(duelTimeoutDuration) || 60),
+          duelTimerSeconds: Math.max(5, Number(duelTimerSeconds) || 30),
+          duelLanguage,
+          duelCategory: duelCategory.trim(),
+          duelInstructions: duelInstructions.trim(),
+          duelMessageStart: duelMessageStart.trim() || undefined,
+          duelMessageWin: duelMessageWin.trim() || undefined,
+          duelMessageTimeout: duelMessageTimeout.trim() || undefined,
+        });
         break;
       case 'poll':
         onSave({
@@ -519,6 +703,10 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                   ? (lang === 'ar' ? 'الكلام > قراءة النص صوتياً' : 'Speech > Text-To-Speech')
                   : step.type === 'obs_text'
                   ? (lang === 'ar' ? 'OBS > إخراج ملف نصي' : 'OBS > Text File Output')
+                  : step.type === 'obs_image'
+                  ? (lang === 'ar' ? 'OBS > عرض صورة أو GIF' : 'OBS > Display Picture or GIF')
+                  : step.type === 'duel'
+                  ? (lang === 'ar' ? 'التفاعل > تحدي التايم آوت (المبارزة)' : 'Interactivity > Timeout Duel')
                   : step.type === 'poll'
                   ? (lang === 'ar' ? 'التفاعل > استطلاع وتصويت مباشر' : 'Interactivity > Live Poll')
                   : step.type === 'mic_mute'
@@ -642,41 +830,19 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
               )}
 
               {(moderationAction === 'smart_timeout' || moderationAction === 'timeout') && (
-                <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-sans text-[12px] font-medium text-zinc-300">
-                      {t(lang, 'sequence.modDuration')}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1">
-                        {[10, 30, 60, 120, 300, 600].map((sec) => (
-                          <button
-                            key={sec}
-                            type="button"
-                            onClick={() => setDurationSeconds(sec)}
-                            className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
-                              durationSeconds === sec
-                                ? 'border border-rose-500/40 bg-rose-500/20 text-rose-400'
-                                : 'bg-white/5 text-muted hover:text-white'
-                            }`}
-                          >
-                            {sec}s
-                          </button>
-                        ))}
-                      </div>
-                      <span className="font-mono text-[11px] text-zinc-400">{durationSeconds}s</span>
-                    </div>
-                  </div>
-                  <Slider
+                <div className="flex flex-col gap-2">
+                  <DurationPicker
                     value={durationSeconds}
+                    onChange={setDurationSeconds}
                     min={5}
                     max={1800}
                     step={5}
-                    onChange={setDurationSeconds}
-                    ariaLabel={t(lang, 'sequence.modDuration')}
+                    presets={[10, 30, 60, 120, 300, 600]}
+                    label={t(lang, 'sequence.modDuration')}
+                    accentColor="rose"
                   />
                   {moderationAction === 'smart_timeout' && (
-                    <div className="mt-1 flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-300">
+                    <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-300">
                       <Zap size={14} className="mt-0.5 shrink-0 text-amber-400" />
                       <span>{t(lang, 'sequence.smartModNotice', { s: String(durationSeconds) })}</span>
                     </div>
@@ -702,23 +868,21 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
 
           {/* WAIT */}
           {step.type === 'wait' && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-3">
+              <DurationPicker
+                value={waitDuration}
+                onChange={setWaitDuration}
+                min={waitUnit === 'minutes' ? 0.5 : 0.1}
+                max={waitUnit === 'minutes' ? 60 : 300}
+                step={waitUnit === 'minutes' ? 0.5 : 0.5}
+                presets={waitUnit === 'minutes' ? [0.5, 1, 2, 5, 10] : [1, 3, 5, 10, 30, 60]}
+                unit={waitUnit === 'minutes' ? 'm' : 's'}
+                label={t(lang, 'sequence.duration')}
+                accentColor="sky"
+              />
               <div className="flex flex-col gap-1.5">
                 <label className="font-sans text-[12px] font-medium text-zinc-300">
-                  {t(lang, 'sequence.duration')}
-                </label>
-                <Input
-                  type="number"
-                  min={0.1}
-                  step={0.5}
-                  value={waitDuration}
-                  onChange={(e) => setWaitDuration(Math.max(0.1, Number(e.target.value)))}
-                  className="h-9 font-mono text-[13px]"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="font-sans text-[12px] font-medium text-zinc-300">
-                  {t(lang, 'sequence.duration')}
+                  {lang === 'ar' ? 'وحدة الوقت' : 'Time Unit'}
                 </label>
                 <SegmentedControl<SequenceWaitUnit>
                   value={waitUnit}
@@ -880,25 +1044,55 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                 </div>
               </div>
 
-              {availableVoices.length > 0 && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-sans text-[12px] font-medium text-zinc-300">
-                    {t(lang, 'sequence.ttsVoice')}
-                  </label>
-                  <select
-                    value={ttsVoice}
-                    onChange={(e) => setTtsVoice(e.target.value)}
-                    className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
-                  >
-                    <option value="">{t(lang, 'sequence.defaultVoice')}</option>
-                    {availableVoices.map((v) => (
-                      <option key={v.name} value={v.name}>
-                        {v.name} ({v.lang})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.ttsVoice')}
+                </label>
+                <select
+                  value={ttsVoice}
+                  onChange={(e) => setTtsVoice(e.target.value)}
+                  className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
+                >
+                  <option value="">{t(lang, 'sequence.autoVoice')}</option>
+                  {availableVoices.length > 0 ? (
+                    (() => {
+                      const isArVoice = (v: SpeechSynthesisVoice) =>
+                        v.lang.toLowerCase().startsWith('ar') ||
+                        /arabic|naayf|hoda|tarik|zeina|salma|shakir|maged|leila/i.test(v.name);
+                      const arVoices = availableVoices.filter(isArVoice);
+                      const otherVoices = availableVoices.filter((v) => !isArVoice(v));
+                      return (
+                        <>
+                          {arVoices.length > 0 && (
+                            <optgroup label={lang === 'ar' ? 'الأصوات العربية (Arabic)' : 'Arabic Voices'}>
+                              {arVoices.map((v) => (
+                                <option key={v.name} value={v.name}>
+                                  {v.name} ({v.lang})
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {otherVoices.length > 0 && (
+                            <optgroup label={lang === 'ar' ? 'أصوات أخرى (Other Voices)' : 'Other Voices'}>
+                              {otherVoices.map((v) => (
+                                <option key={v.name} value={v.name}>
+                                  {v.name} ({v.lang})
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <>
+                      <option value="Microsoft Naayf">Microsoft Naayf (ar-SA - Arabic)</option>
+                      <option value="Microsoft David">Microsoft David (en-US)</option>
+                      <option value="Microsoft Zira">Microsoft Zira (en-US)</option>
+                    </>
+                  )}
+                </select>
+              </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1 rounded-md border border-white/[0.08] bg-[#11131a] p-2.5">
@@ -1062,22 +1256,16 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                     />
                   </div>
 
-                  <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-sans text-[12px] font-medium text-zinc-300">
-                        {t(lang, 'sequence.pollDuration')}
-                      </span>
-                      <span className="font-mono text-[11px] text-zinc-400">{pollDurationSeconds}s</span>
-                    </div>
-                    <Slider
-                      value={pollDurationSeconds}
-                      min={10}
-                      max={600}
-                      step={5}
-                      onChange={setPollDurationSeconds}
-                      ariaLabel={t(lang, 'sequence.pollDuration')}
-                    />
-                  </div>
+                  <DurationPicker
+                    value={pollDurationSeconds}
+                    onChange={setPollDurationSeconds}
+                    min={10}
+                    max={600}
+                    step={5}
+                    presets={[15, 30, 60, 120, 300]}
+                    label={t(lang, 'sequence.pollDuration')}
+                    accentColor="sky"
+                  />
                 </>
               )}
             </div>
@@ -1086,40 +1274,16 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
           {/* MIC MUTE */}
           {step.type === 'mic_mute' && (
             <div className="flex flex-col gap-3.5">
-              <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-sans text-[12px] font-medium text-zinc-300">
-                    {t(lang, 'sequence.micMuteDuration')}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1">
-                      {[5, 10, 15, 30, 60].map((sec) => (
-                        <button
-                          key={sec}
-                          type="button"
-                          onClick={() => setMicMuteDurationSeconds(sec)}
-                          className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
-                            micMuteDurationSeconds === sec
-                              ? 'border border-rose-500/40 bg-rose-500/20 text-rose-400'
-                              : 'bg-white/5 text-muted hover:text-white'
-                          }`}
-                        >
-                          {sec}s
-                        </button>
-                      ))}
-                    </div>
-                    <span className="font-mono text-[11px] text-zinc-400">{micMuteDurationSeconds}s</span>
-                  </div>
-                </div>
-                <Slider
-                  value={micMuteDurationSeconds}
-                  min={1}
-                  max={300}
-                  step={1}
-                  onChange={setMicMuteDurationSeconds}
-                  ariaLabel={t(lang, 'sequence.micMuteDuration')}
-                />
-              </div>
+              <DurationPicker
+                value={micMuteDurationSeconds}
+                onChange={setMicMuteDurationSeconds}
+                min={1}
+                max={300}
+                step={1}
+                presets={[5, 10, 15, 30, 60]}
+                label={t(lang, 'sequence.micMuteDuration')}
+                accentColor="rose"
+              />
 
               <div className="flex items-start gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-[11.5px] text-rose-300">
                 <MicOff size={15} className="mt-0.5 shrink-0 text-rose-400" />
@@ -1138,6 +1302,498 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                   <VolumeX size={13} className={isTestMuting ? 'animate-pulse' : ''} />
                   <span>{isTestMuting ? t(lang, 'sequence.muting') : t(lang, 'sequence.testMicMute')}</span>
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {/* OBS IMAGE */}
+          {step.type === 'obs_image' && (
+            <div className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.imageSource')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={imagePath}
+                    onChange={(e) => setImagePath(e.target.value)}
+                    placeholder="C:\stream\meme.gif or https://.../image.png"
+                    className="h-9 font-mono text-[12.5px] flex-1"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleBrowseImage()}
+                    className="h-9 shrink-0 gap-1.5"
+                  >
+                    <FolderOpen size={13} />
+                    <span>{t(lang, 'sequence.browse')}</span>
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
+                  {['{username}', '{input}', '{target}'].map((tok) => (
+                    <button
+                      key={tok}
+                      type="button"
+                      onClick={() => insertToken(tok, setImagePath)}
+                      className="rounded border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[11px] text-accent-text hover:border-accent hover:bg-accent/10 transition-colors"
+                    >
+                      {tok}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Preview Box */}
+              {imagePath.trim() && (
+                <div className="flex items-center gap-3 rounded-md border border-white/[0.08] bg-[#11131a] p-2.5">
+                  <div className="flex size-14 shrink-0 items-center justify-center rounded bg-black/40 border border-white/10 overflow-hidden">
+                    <img
+                      src={
+                        imagePath.startsWith('http://') || imagePath.startsWith('https://') || imagePath.startsWith('data:')
+                          ? imagePath
+                          : `http://127.0.0.1:49178/media?path=${encodeURIComponent(imagePath)}`
+                      }
+                      alt="Preview"
+                      className="max-h-full max-w-full object-contain"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1 text-[11.5px]">
+                    <div className="font-medium text-white truncate">{imagePath.split(/[/\\]/).pop()}</div>
+                    <div className="text-[10.5px] text-muted truncate">{imagePath}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Position and Animation */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-sans text-[12px] font-medium text-zinc-300">
+                    {t(lang, 'sequence.imagePosition')}
+                  </label>
+                  <select
+                    value={imagePosition}
+                    onChange={(e) => setImagePosition(e.target.value as any)}
+                    className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
+                  >
+                    <option value="center">{lang === 'ar' ? 'المنتصف' : 'Center'}</option>
+                    <option value="top-center">{lang === 'ar' ? 'أعلى الوسط' : 'Top Center'}</option>
+                    <option value="bottom-center">{lang === 'ar' ? 'أسفل الوسط' : 'Bottom Center'}</option>
+                    <option value="top-left">{lang === 'ar' ? 'أعلى اليسار' : 'Top Left'}</option>
+                    <option value="top-right">{lang === 'ar' ? 'أعلى اليمين' : 'Top Right'}</option>
+                    <option value="bottom-left">{lang === 'ar' ? 'أسفل اليسار' : 'Bottom Left'}</option>
+                    <option value="bottom-right">{lang === 'ar' ? 'أسفل اليمين' : 'Bottom Right'}</option>
+                    <option value="fullscreen">{lang === 'ar' ? 'ملء الشاشة' : 'Fullscreen'}</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-sans text-[12px] font-medium text-zinc-300">
+                    {t(lang, 'sequence.imageAnimation')}
+                  </label>
+                  <select
+                    value={imageAnimation}
+                    onChange={(e) => setImageAnimation(e.target.value as any)}
+                    className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
+                  >
+                    <option value="bounce">{lang === 'ar' ? 'قفز / ارتداد (Bounce)' : 'Bounce'}</option>
+                    <option value="zoom">{lang === 'ar' ? 'تكبير (Zoom In)' : 'Zoom In'}</option>
+                    <option value="fade">{lang === 'ar' ? 'تلاشي تدريجي (Fade In)' : 'Fade In'}</option>
+                    <option value="slide-up">{lang === 'ar' ? 'انزلاق من الأسفل (Slide Up)' : 'Slide Up'}</option>
+                    <option value="slide-down">{lang === 'ar' ? 'انزلاق من الأعلى (Slide Down)' : 'Slide Down'}</option>
+                    <option value="none">{lang === 'ar' ? 'بدون تأثير (None)' : 'None'}</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Sliders: Duration and Scale */}
+              <div className="grid grid-cols-2 gap-3">
+                <DurationPicker
+                  value={imageDurationSeconds}
+                  onChange={setImageDurationSeconds}
+                  min={1}
+                  max={60}
+                  step={1}
+                  presets={[3, 5, 8, 10, 15]}
+                  label={t(lang, 'sequence.imageDuration')}
+                  accentColor="purple"
+                />
+
+                <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-sans text-[12px] font-medium text-zinc-300">
+                      {t(lang, 'sequence.imageScale')}
+                    </span>
+                    <span className="font-mono text-[11px] text-zinc-400">{imageScale.toFixed(1)}x</span>
+                  </div>
+                  <Slider
+                    value={Math.round(imageScale * 10)}
+                    min={2}
+                    max={30}
+                    step={1}
+                    onChange={(v) => setImageScale(v / 10)}
+                    ariaLabel={t(lang, 'sequence.imageScale')}
+                  />
+                </div>
+              </div>
+
+              {/* Optional OBS Destination Path */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.obsDestinationPath')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={obsImageDestinationPath}
+                    onChange={(e) => setObsImageDestinationPath(e.target.value)}
+                    placeholder="Optional: C:\stream\current_image.png"
+                    className="h-8 font-mono text-[11.5px] flex-1"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleBrowseObsDestination()}
+                    className="h-8 shrink-0 gap-1 text-[11px]"
+                  >
+                    <FolderOpen size={12} />
+                    <span>{t(lang, 'sequence.browse')}</span>
+                  </Button>
+                </div>
+                <p className="text-[10.5px] text-muted">
+                  {lang === 'ar'
+                    ? 'سيتم نسخ الصورة إلى هذا المسار أيضاً ليقرأها OBS Image Source الثابت إذا رغبت.'
+                    : 'The file will also be copied here so static OBS Image sources can read it if desired.'}
+                </p>
+              </div>
+
+              {/* Test Button & Browser Source URL hint */}
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-muted">
+                  Browser Source: <code className="text-zinc-300 bg-white/5 px-1 py-0.5 rounded">/image-overlay.html</code>
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleTestImage()}
+                  disabled={isPreviewingImage || !imagePath.trim()}
+                  className="gap-1.5 text-pink-400 hover:text-pink-300 border-pink-500/30 bg-pink-500/10 hover:bg-pink-500/20"
+                >
+                  <ImageIcon size={13} className={isPreviewingImage ? 'animate-bounce' : ''} />
+                  <span>{isPreviewingImage ? t(lang, 'sequence.previewingImage') : t(lang, 'sequence.testImage')}</span>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* MINI-GAME DUEL */}
+          {step.type === 'duel' && (
+            <div className="flex flex-col gap-3.5">
+              {/* Mode Selector */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.duelMode')}
+                </label>
+                <SegmentedControl<'random' | 'ai_trivia'>
+                  value={duelMode}
+                  onChange={setDuelMode}
+                  options={[
+                    { value: 'random', label: t(lang, 'sequence.duelModeRandom') },
+                    { value: 'ai_trivia', label: t(lang, 'sequence.duelModeAiTrivia') },
+                  ]}
+                />
+              </div>
+
+              {/* Target Opponent */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.duelOpponent')}
+                </label>
+                <Input
+                  value={duelOpponent}
+                  onChange={(e) => setDuelOpponent(e.target.value)}
+                  placeholder="{input}"
+                  className="h-9 font-mono text-[12.5px]"
+                />
+                <p className="text-[11px] text-muted">
+                  {t(lang, 'sequence.duelOpponentHint')}
+                </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
+                  {['{input}', '{target}', '{raider}'].map((tok) => (
+                    <button
+                      key={tok}
+                      type="button"
+                      onClick={() => setDuelOpponent(tok)}
+                      className="rounded border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[11px] text-accent-text hover:border-accent hover:bg-accent/10 transition-colors cursor-pointer"
+                    >
+                      {tok}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Timeout Duration */}
+              <DurationPicker
+                value={duelTimeoutDuration}
+                onChange={setDuelTimeoutDuration}
+                min={5}
+                max={600}
+                step={5}
+                presets={[15, 30, 60, 120, 300]}
+                label={t(lang, 'sequence.duelTimeoutDuration')}
+                accentColor="amber"
+              />
+
+              {/* AI Trivia Specific Settings */}
+              {duelMode === 'ai_trivia' && (
+                <div className="flex flex-col gap-3 rounded-md border border-white/[0.08] bg-[#12151e] p-3.5 animate-in fade-in duration-100">
+                  {/* Language Selector */}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Languages size={13} className="text-sky-400" />
+                      <label className="font-sans text-[12px] font-medium text-zinc-300">
+                        {t(lang, 'sequence.duelLanguage')}
+                      </label>
+                    </div>
+                    <SegmentedControl<'auto' | 'en' | 'ar'>
+                      value={duelLanguage}
+                      onChange={setDuelLanguage}
+                      options={[
+                        { value: 'auto', label: t(lang, 'sequence.duelLanguageAuto') },
+                        { value: 'en', label: t(lang, 'sequence.duelLanguageEn') },
+                        { value: 'ar', label: t(lang, 'sequence.duelLanguageAr') },
+                      ]}
+                    />
+                  </div>
+
+                  {/* Trivia Question Countdown Timer */}
+                  <DurationPicker
+                    value={duelTimerSeconds}
+                    onChange={setDuelTimerSeconds}
+                    min={5}
+                    max={90}
+                    step={5}
+                    presets={[10, 15, 20, 30, 45, 60]}
+                    label={t(lang, 'sequence.duelTimerSeconds')}
+                    accentColor="sky"
+                  />
+
+                  {/* Preset Ideas / Categories Chips */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Gamepad2 size={13} className="text-amber-400" />
+                        <label className="font-sans text-[12px] font-medium text-zinc-300">
+                          {t(lang, 'sequence.duelCategory')}
+                        </label>
+                      </div>
+                      <span className="font-mono text-[10.5px] text-muted">
+                        {duelCategory || 'general'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { id: 'general', label: t(lang, 'sequence.duelCategoryGeneral'), emoji: '🎮' },
+                        { id: 'souls', label: t(lang, 'sequence.duelCategorySouls'), emoji: '⚔️' },
+                        { id: 'monster_hunter', label: t(lang, 'sequence.duelCategoryMonsterHunter'), emoji: '🐉' },
+                        { id: 'zelda', label: t(lang, 'sequence.duelCategoryZelda'), emoji: '🗡️' },
+                        { id: 'esports', label: t(lang, 'sequence.duelCategoryEsports'), emoji: '🎯' },
+                        { id: 'rpg', label: t(lang, 'sequence.duelCategoryRpg'), emoji: '🧙‍♂️' },
+                      ].map((cat) => {
+                        const isSelected = duelCategory.toLowerCase() === cat.id;
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setDuelCategory(cat.id)}
+                            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer border ${
+                              isSelected
+                                ? 'border-amber-500/40 bg-amber-500/20 text-amber-300'
+                                : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <span>{cat.emoji}</span>
+                            <span>{cat.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom Topic Input */}
+                    <Input
+                      value={duelCategory}
+                      onChange={(e) => setDuelCategory(e.target.value)}
+                      placeholder={t(lang, 'sequence.duelCategoryCustom')}
+                      className="h-8 text-[12px] font-mono mt-0.5"
+                    />
+                  </div>
+
+                  {/* Custom AI Instructions */}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles size={13} className="text-purple-400" />
+                        <label className="font-sans text-[12px] font-medium text-zinc-300">
+                          {t(lang, 'sequence.duelInstructions')}
+                        </label>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDuelInstructions(defaultDuelInstructions)}
+                        className="flex items-center gap-1 text-[10.5px] text-muted hover:text-accent transition-colors cursor-pointer"
+                        title={t(lang, 'sequence.duelResetInstructions')}
+                      >
+                        <RotateCcw size={11} />
+                        <span>{t(lang, 'sequence.duelResetInstructions')}</span>
+                      </button>
+                    </div>
+                    <textarea
+                      value={duelInstructions}
+                      onChange={(e) => setDuelInstructions(e.target.value)}
+                      placeholder={defaultDuelInstructions}
+                      rows={3}
+                      className="w-full rounded-md border border-white/15 bg-[#0e1017] p-2.5 font-sans text-[12px] text-foreground focus:border-accent focus:outline-none resize-y"
+                    />
+                    <p className="text-[10.5px] text-muted">
+                      {t(lang, 'sequence.duelInstructionsHint')}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Customizable Message Templates Accordion */}
+              <div className="flex flex-col rounded-md border border-white/[0.08] bg-[#12151e] overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedDuelMessages(!showAdvancedDuelMessages)}
+                  className="flex items-center justify-between px-3.5 py-2.5 hover:bg-white/[0.04] transition-colors cursor-pointer text-start"
+                >
+                  <div className="flex items-center gap-2">
+                    <MessageSquare size={14} className="text-teal-400 shrink-0" />
+                    <div>
+                      <div className="text-[12px] font-medium text-zinc-200">
+                        {t(lang, 'sequence.duelCustomMessages')}
+                      </div>
+                      <div className="text-[10.5px] text-muted">
+                        {t(lang, 'sequence.duelCustomMessagesHint')}
+                      </div>
+                    </div>
+                  </div>
+                  {showAdvancedDuelMessages ? (
+                    <ChevronUp size={14} className="text-muted shrink-0" />
+                  ) : (
+                    <ChevronDown size={14} className="text-muted shrink-0" />
+                  )}
+                </button>
+
+                {showAdvancedDuelMessages && (
+                  <div className="flex flex-col gap-3 p-3.5 border-t border-white/[0.06] bg-[#0f1118] animate-in fade-in duration-100">
+                    {/* Available tokens chips */}
+                    <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                      <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
+                      {(duelMode === 'ai_trivia'
+                        ? ['{challenger}', '{opponent}', '{winner}', '{loser}', '{question}', '{answer}', '{timer}', '{duration}']
+                        : ['{challenger}', '{opponent}', '{winner}', '{loser}', '{duration}']
+                      ).map((tok) => (
+                        <button
+                          key={tok}
+                          type="button"
+                          onClick={() => {
+                            insertToken(tok, setDuelMessageStart);
+                          }}
+                          className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10.5px] text-teal-300 hover:border-teal-400 hover:bg-teal-500/10 transition-colors cursor-pointer"
+                        >
+                          {tok}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Start Announcement */}
+                    <div className="flex flex-col gap-1">
+                      <label className="font-sans text-[11.5px] font-medium text-zinc-300">
+                        {t(lang, 'sequence.duelMsgStart')}
+                      </label>
+                      <Input
+                        value={duelMessageStart}
+                        onChange={(e) => setDuelMessageStart(e.target.value)}
+                        placeholder={
+                          duelMode === 'ai_trivia'
+                            ? DEFAULT_DUEL_MESSAGES.triviaStart
+                            : DEFAULT_DUEL_MESSAGES.randomStart
+                        }
+                        className="h-8.5 font-mono text-[11.5px]"
+                      />
+                    </div>
+
+                    {/* Win Announcement */}
+                    <div className="flex flex-col gap-1">
+                      <label className="font-sans text-[11.5px] font-medium text-zinc-300">
+                        {t(lang, 'sequence.duelMsgWin')}
+                      </label>
+                      <Input
+                        value={duelMessageWin}
+                        onChange={(e) => setDuelMessageWin(e.target.value)}
+                        placeholder={
+                          duelMode === 'ai_trivia'
+                            ? DEFAULT_DUEL_MESSAGES.triviaWin
+                            : DEFAULT_DUEL_MESSAGES.randomWin
+                        }
+                        className="h-8.5 font-mono text-[11.5px]"
+                      />
+                    </div>
+
+                    {/* Timeout Announcement (AI Trivia only) */}
+                    {duelMode === 'ai_trivia' && (
+                      <div className="flex flex-col gap-1">
+                        <label className="font-sans text-[11.5px] font-medium text-zinc-300">
+                          {t(lang, 'sequence.duelMsgTimeout')}
+                        </label>
+                        <Input
+                          value={duelMessageTimeout}
+                          onChange={(e) => setDuelMessageTimeout(e.target.value)}
+                          placeholder={DEFAULT_DUEL_MESSAGES.triviaTimeout}
+                          className="h-8.5 font-mono text-[11.5px]"
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDuelMessageStart('');
+                          setDuelMessageWin('');
+                          setDuelMessageTimeout('');
+                        }}
+                        className="flex items-center gap-1 text-[11px] text-muted hover:text-rose-400 transition-colors cursor-pointer"
+                      >
+                        <RotateCcw size={11} />
+                        <span>{t(lang, 'sequence.duelResetMessages')}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Explanation Banner */}
+              <div className="flex items-start gap-2.5 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-[11.5px] text-amber-200">
+                <Swords size={16} className="mt-0.5 shrink-0 text-amber-400" />
+                <div className="space-y-1">
+                  <div className="font-semibold text-white">
+                    {duelMode === 'random' ? t(lang, 'sequence.duelModeRandom') : t(lang, 'sequence.duelModeAiTrivia')}
+                  </div>
+                  <p className="text-zinc-300 text-[11px] leading-relaxed">
+                    {t(lang, 'sequence.duelExplanation')}
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -1166,6 +1822,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
   const updateStep = useSequenceStore((s) => s.updateStep);
   const removeStep = useSequenceStore((s) => s.removeStep);
   const moveStep = useSequenceStore((s) => s.moveStep);
+  const reorderSteps = useSequenceStore((s) => s.reorderSteps);
   const runSequence = useSequenceStore((s) => s.runSequence);
   const availableRewards = useSequenceStore((s) => s.availableRewards);
   const fetchAvailableRewards = useSequenceStore((s) => s.fetchAvailableRewards);
@@ -1179,6 +1836,10 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
   const twitchChannel = useConnectionStore((s) => s.twitchChannel);
   const preferredChatSender = useSettingsStore((s) => s.preferredChatSender);
   const setPreferredChatSender = useSettingsStore((s) => s.setPreferredChatSender);
+
+  // Drag and Drop step reordering
+  const [draggedStepIndex, setDraggedStepIndex] = useState<number | null>(null);
+  const [dragOverStepIndex, setDragOverStepIndex] = useState<number | null>(null);
 
   // Search & Autocomplete
   const [searchTriggerQuery, setSearchTriggerQuery] = useState('');
@@ -1387,6 +2048,27 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     });
   };
 
+  const handleAppendTimeoutDuelPreset = () => {
+    update(sequence.id, {
+      steps: [
+        ...sequence.steps,
+        {
+          id: crypto.randomUUID(),
+          type: 'chat',
+          chatMessage: '⚔️ @{username} has challenged @{input} to a Timeout Duel!',
+        },
+        {
+          id: crypto.randomUUID(),
+          type: 'duel',
+          duelMode: 'ai_trivia',
+          duelOpponent: '{input}',
+          duelTimeoutDuration: 60,
+          duelTimerSeconds: 30,
+        },
+      ],
+    });
+  };
+
   const openContextMenu = (
     e: React.MouseEvent,
     type: ContextMenuState['type'],
@@ -1430,6 +2112,16 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       case 'obs_text': {
         const fileName = st.filePath ? st.filePath.split(/[/\\]/).pop() : 'file.txt';
         return `${lang === 'ar' ? 'نص OBS: كتابة إلى' : 'OBS Text: ->'} "${fileName}"`;
+      }
+      case 'obs_image': {
+        const fileName = st.imagePath ? st.imagePath.split(/[/\\]/).pop() : 'image.png';
+        return `${lang === 'ar' ? 'صورة OBS: عرض' : 'OBS Image: Show'} "${fileName}" (${st.imageDurationSeconds ?? 5}s, ${st.imagePosition ?? 'center'})`;
+      }
+      case 'duel': {
+        const modeLabel = st.duelMode === 'random'
+          ? (lang === 'ar' ? 'قرعة 50/50' : 'Random 50/50')
+          : (lang === 'ar' ? 'سؤال ألعاب بالذكاء الاصطناعي' : 'AI Gaming Trivia');
+        return `${lang === 'ar' ? 'تحدي تايم آوت: ضد' : 'Timeout Duel: vs'} ${st.duelOpponent || '{input}'} (${modeLabel}, ${st.duelTimeoutDuration ?? 60}s)`;
       }
       case 'poll':
         return st.pollAction === 'start'
@@ -1526,6 +2218,22 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       title: lang === 'ar' ? 'OBS: كتابة إلى ملف نصي' : 'OBS: Write to Text File',
       desc: lang === 'ar' ? 'تحديث ملف نصي محلي ليظهر في مصادر نصوص OBS' : 'Update local text file for OBS text source overlays',
       icon: FileText,
+      color: 'text-amber-400',
+    },
+    {
+      id: 'obs_image',
+      type: 'obs_image' as SequenceStepType,
+      title: lang === 'ar' ? 'OBS: عرض صورة أو GIF على الشاشة' : 'OBS: Display Picture / GIF on Screen',
+      desc: lang === 'ar' ? 'عرض صور ميمز أو GIFs أو تنبيهات على بث OBS عبر الأوفرلاي' : 'Show memes, GIFs, or alert pictures on OBS screen via overlay',
+      icon: ImageIcon,
+      color: 'text-pink-400',
+    },
+    {
+      id: 'duel',
+      type: 'duel' as SequenceStepType,
+      title: lang === 'ar' ? 'التفاعل: تحدي التايم آوت (المبارزة)' : 'Interactivity: Timeout Duel (Showdown)',
+      desc: lang === 'ar' ? 'مبارزة بين مشاهدين: قرعة 50/50 أو سؤال ألعاب بالذكاء الاصطناعي والخاسر يُعاقب بالتايم آوت' : 'Mini-game showdown: 50/50 roulette or AI gaming trivia; loser gets timed out',
+      icon: Swords,
       color: 'text-amber-400',
     },
     {
@@ -1685,6 +2393,20 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   <div>
                     <div className="font-medium text-white">{t(lang, 'sequence.presetSmartTimeout')}</div>
                     <div className="text-[10px] text-muted">{t(lang, 'sequence.presetSmartTimeoutDesc')}</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-start text-[12px] hover:bg-white/[0.06] transition-colors"
+                  onClick={() => {
+                    handleAppendTimeoutDuelPreset();
+                    setShowPresetsMenu(false);
+                  }}
+                >
+                  <Swords size={14} className="text-amber-400 shrink-0" />
+                  <div>
+                    <div className="font-medium text-white">{t(lang, 'sequence.presetTimeoutDuel')}</div>
+                    <div className="text-[10px] text-muted">{t(lang, 'sequence.presetTimeoutDuelDesc')}</div>
                   </div>
                 </button>
               </div>
@@ -2194,19 +2916,32 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
 
                           {/* Criteria */}
                           <td className="py-2.5 px-3 font-mono text-[11.5px] text-zinc-300">
-                            <div className="flex items-center justify-between">
-                              <span>{criteriaText}</span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingTriggerId(trig.id);
-                                }}
-                                className="opacity-0 group-hover:opacity-100 p-1 text-muted hover:text-white transition-opacity"
-                                title={t(lang, 'sequence.editTrigger')}
-                              >
-                                <Edit3 size={12} />
-                              </button>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate">{criteriaText}</span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingTriggerId(trig.id);
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 p-1 text-muted hover:text-white rounded hover:bg-white/10 transition-opacity"
+                                  title={t(lang, 'sequence.editTrigger')}
+                                >
+                                  <Edit3 size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeTrigger(sequence.id, trig.id);
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 p-1 text-muted hover:text-rose-400 rounded hover:bg-rose-500/10 transition-opacity"
+                                  title={t(lang, 'sequence.deleteTrigger')}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -2413,6 +3148,35 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                       </button>
                       <button
                         type="button"
+                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-pink-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'obs_image');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <ImageIcon size={13} />
+                        <span>{t(lang, 'sequence.stepObsImage')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-amber-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'duel', {
+                            duelMode: 'ai_trivia',
+                            duelOpponent: '{input}',
+                            duelTimeoutDuration: 60,
+                            duelTimerSeconds: 30,
+                          });
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <Swords size={13} />
+                        <span>{t(lang, 'sequence.stepDuel')}</span>
+                      </button>
+                      <button
+                        type="button"
                         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-violet-400 transition-colors"
                         onClick={() => {
                           const ns = addStep(sequence.id, 'poll');
@@ -2482,23 +3246,68 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   sequence.steps.map((st, idx) => {
                     const isStepRunning = isExecuting && activeRunningStepIndex === idx;
                     const isComment = st.type === 'comment';
+                    const isDraggingThis = draggedStepIndex === idx;
+                    const isDragOverThis = dragOverStepIndex === idx && draggedStepIndex !== null && draggedStepIndex !== idx;
 
                     return (
                       <div
                         key={st.id}
+                        draggable={!isExecuting}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', String(idx));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDraggedStepIndex(idx);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverStepIndex !== idx) {
+                            setDragOverStepIndex(idx);
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                          if (dragOverStepIndex === idx) {
+                            setDragOverStepIndex(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (draggedStepIndex !== null && draggedStepIndex !== idx) {
+                            reorderSteps(sequence.id, draggedStepIndex, idx);
+                          }
+                          setDraggedStepIndex(null);
+                          setDragOverStepIndex(null);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedStepIndex(null);
+                          setDragOverStepIndex(null);
+                        }}
                         onDoubleClick={() => setEditingStepId(st.id)}
                         onContextMenu={(e) => openContextMenu(e, 'action_row', st.id, idx)}
-                        className={`group flex items-center justify-between rounded px-2.5 py-1.5 border transition-all cursor-pointer select-none ${
+                        className={`group relative flex items-center justify-between rounded px-2 py-1.5 border transition-all cursor-pointer select-none ${
                           isStepRunning
                             ? 'border-accent bg-accent/15 ring-2 ring-accent text-white animate-pulse'
+                            : isDraggingThis
+                            ? 'opacity-35 border-dashed border-sky-400/80 bg-sky-500/10'
+                            : isDragOverThis
+                            ? 'border-sky-400 bg-sky-500/20 ring-2 ring-sky-400/70 text-white shadow-lg'
                             : isComment
                             ? 'border-emerald-500/20 bg-emerald-950/20 text-emerald-400 hover:bg-emerald-950/30'
                             : 'border-transparent hover:border-[#2b3142] hover:bg-[#161a26] text-zinc-200'
                         }`}
-                        title="Double-click to edit, right-click for options"
+                        title="Drag handle to reorder, double-click to edit, right-click for options"
                       >
-                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <span className="w-5 text-end text-[11px] text-zinc-600 font-mono select-none">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div
+                            className="cursor-grab active:cursor-grabbing text-zinc-500 hover:text-sky-400 p-0.5 rounded transition-colors shrink-0"
+                            title="Drag to reorder"
+                          >
+                            <GripVertical size={13} />
+                          </div>
+
+                          <span className="w-4 text-end text-[11px] text-zinc-600 font-mono select-none shrink-0">
                             {idx + 1}
                           </span>
 
@@ -2523,6 +3332,10 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                 <Mic size={13} className="text-teal-400 shrink-0" />
                               ) : st.type === 'obs_text' ? (
                                 <FileText size={13} className="text-amber-400 shrink-0" />
+                              ) : st.type === 'obs_image' ? (
+                                <ImageIcon size={13} className="text-pink-400 shrink-0" />
+                              ) : st.type === 'duel' ? (
+                                <Swords size={13} className="text-amber-400 shrink-0" />
                               ) : st.type === 'poll' ? (
                                 <BarChart3 size={13} className="text-violet-400 shrink-0" />
                               ) : st.type === 'mic_mute' ? (
@@ -2835,6 +3648,35 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               </button>
               <button
                 type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-pink-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'obs_image');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <ImageIcon size={14} />
+                <span>{t(lang, 'sequence.stepObsImage')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-amber-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'duel', {
+                    duelMode: 'ai_trivia',
+                    duelOpponent: '{input}',
+                    duelTimeoutDuration: 60,
+                    duelTimerSeconds: 30,
+                  });
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <Swords size={14} />
+                <span>{t(lang, 'sequence.stepDuel')}</span>
+              </button>
+              <button
+                type="button"
                 className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-violet-400"
                 onClick={() => {
                   const ns = addStep(sequence.id, 'poll');
@@ -2932,6 +3774,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
             availableRewards={availableRewards}
             lang={lang}
             onSave={(patch) => updateTrigger(sequence.id, trig.id, patch)}
+            onDelete={() => removeTrigger(sequence.id, trig.id)}
             onClose={() => setEditingTriggerId(null)}
           />
         );

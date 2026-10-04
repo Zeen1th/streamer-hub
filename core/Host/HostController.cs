@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using StreamerHub.Core.Audio;
+using StreamerHub.Core.Media;
 using StreamerHub.Core.Obs;
 using StreamerHub.Core.AI;
 using StreamerHub.Core.Overlay;
@@ -46,8 +47,18 @@ public sealed class ChatOverlayHostBridge
 
     public string GetVoteOverlayUrl() => _server.VoteOverlayUrl?.ToString() ?? string.Empty;
 
+    public string GetImageOverlayUrl() => _server.ImageOverlayUrl?.ToString() ?? string.Empty;
+
+    public int Port => _server.Port;
+
     public async Task PublishVoteStateAsync(PollState state, CancellationToken cancellationToken = default) =>
         await _server.PublishVoteStateAsync(state, cancellationToken).ConfigureAwait(false);
+
+    public async Task PublishShowImageAsync(object payload, CancellationToken cancellationToken = default) =>
+        await _server.PublishShowImageAsync(payload, cancellationToken).ConfigureAwait(false);
+
+    public async Task PublishHideImageAsync(CancellationToken cancellationToken = default) =>
+        await _server.PublishHideImageAsync(cancellationToken).ConfigureAwait(false);
 
     public async Task<bool> SaveOverlayAsync(ChatOverlayInstance overlay, CancellationToken cancellationToken = default)
     {
@@ -162,11 +173,36 @@ public sealed class HostController : IDisposable
     private readonly TwitchEventSubClient _eventSub = new();
     private readonly WindowsMicController _micController = new();
     private readonly SoundEffectPlayer _soundPlayer = new();
+    private readonly WindowsTtsService _ttsService;
     private readonly HashSet<string> _seenRedemptionIds = new(StringComparer.Ordinal);
     private readonly object _seenRedemptionsLock = new();
     private readonly Dictionary<string, DateTime> _seenRaids = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _seenRaidsLock = new();
     private readonly TwitchUserProfileCache _twitchUserProfiles = new();
+    private readonly List<string> _recentGamingQuestions = new();
+    private readonly object _recentGamingQuestionsLock = new();
+
+    private void RecordRecentGamingQuestion(string question)
+    {
+        if (string.IsNullOrWhiteSpace(question)) return;
+        lock (_recentGamingQuestionsLock)
+        {
+            _recentGamingQuestions.RemoveAll(q => string.Equals(q, question, StringComparison.OrdinalIgnoreCase));
+            _recentGamingQuestions.Add(question.Trim());
+            while (_recentGamingQuestions.Count > 30)
+            {
+                _recentGamingQuestions.RemoveAt(0);
+            }
+        }
+    }
+
+    private List<string> GetRecentGamingQuestions()
+    {
+        lock (_recentGamingQuestionsLock)
+        {
+            return new List<string>(_recentGamingQuestions);
+        }
+    }
     private readonly HostMessageEchoTracker _echoTracker = new();
     private readonly EmoteRegistry _emotes = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string UserId, string Login, string DisplayName, string? AvatarUrl)> _knownChatters = new(StringComparer.OrdinalIgnoreCase);
@@ -177,6 +213,7 @@ public sealed class HostController : IDisposable
     private readonly Dictionary<string, string> _pendingProfileNames = new(StringComparer.Ordinal);
     private System.Threading.Timer? _profileFlushTimer;
     private readonly RpcDispatcher _dispatcher = new();
+    private readonly AlertCompressorService _alertCompressor;
     private readonly string _logPath;
     private IReadOnlyList<KeybindRegistration> _keybindRegistrations = Array.Empty<KeybindRegistration>();
 
@@ -210,6 +247,9 @@ public sealed class HostController : IDisposable
         _botTokens = new TokenVault(Path.Combine(appData, "bot-token.bin"));
         _openRouterKey = new SecretVault(Path.Combine(appData, "openrouter-key.bin"));
         _groqKey = new SecretVault(Path.Combine(appData, "groq-key.bin"));
+        _alertCompressor = new AlertCompressorService(appData);
+        _ttsService = new WindowsTtsService(_soundPlayer);
+        _ttsService.LogMessage += msg => Log("audio", msg);
         _logPath = Path.Combine(appData, "logs", $"session-{DateTime.Now:yyyyMMdd}.log");
         Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!);
         RegisterHandlers();
@@ -392,6 +432,13 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<AudioMuteMicPayload>(payload ?? default);
             var duration = request?.DurationSeconds ?? 5;
             var success = await _micController.MuteForDurationAsync(duration, ct).ConfigureAwait(false);
+            return new { ok = success };
+        });
+        _dispatcher.Register(Channels.AudioSpeakTts, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<AudioSpeakTtsPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Text)) return new { ok = false, error = "MISSING_TEXT" };
+            var success = await _ttsService.SpeakAsync(request.Text, request.VoiceName, request.Rate, request.Pitch, request.Volume, ct).ConfigureAwait(false);
             return new { ok = success };
         });
         _dispatcher.Register(Channels.LogAppend, (payload, _) =>
@@ -1065,6 +1112,179 @@ public sealed class HostController : IDisposable
             {
                 _aiGenerateLock.Release();
             }
+        });
+        _dispatcher.Register(Channels.AlertsGetFfmpegStatus, (_, _) =>
+            Task.FromResult<object?>(_alertCompressor.CheckFfmpegStatus()));
+        _dispatcher.Register(Channels.AlertsDownloadFfmpeg, async (_, ct) =>
+        {
+            var success = await _alertCompressor.DownloadFfmpegAsync(percent =>
+            {
+                PostEvent(Events.AlertsDownloadProgress, new { percent });
+            }, ct).ConfigureAwait(false);
+            return new { ok = success, status = _alertCompressor.CheckFfmpegStatus() };
+        });
+        _dispatcher.Register(Channels.AlertsInspect, async (payload, ct) =>
+        {
+            var req = Json.Deserialize<InspectAlertPayload>(payload ?? default);
+            if (req is null || string.IsNullOrWhiteSpace(req.InputPath))
+                return new { ok = false, error = "MISSING_INPUT_PATH" };
+
+            try
+            {
+                var info = await _alertCompressor.InspectVideoAsync(req.InputPath, ct).ConfigureAwait(false);
+                return new { ok = true, info };
+            }
+            catch (Exception ex)
+            {
+                return new { ok = false, error = ex.Message };
+            }
+        });
+        _dispatcher.Register(Channels.AlertsCompress, (payload, ct) =>
+        {
+            var req = Json.Deserialize<CompressAlertPayload>(payload ?? default);
+            if (req is null || string.IsNullOrWhiteSpace(req.InputPath))
+                return Task.FromResult<object?>(new { ok = false, error = "MISSING_INPUT_PATH" });
+
+            _ = Task.Run(async () =>
+            {
+                var result = await _alertCompressor.CompressAsync(
+                    req.InputPath,
+                    req.OutputPath,
+                    req.TargetSizeMb,
+                    req.CustomCrf,
+                    req.CustomMaxBitrateK,
+                    progress => PostEvent(Events.AlertsProgress, progress),
+                    ct
+                ).ConfigureAwait(false);
+
+                PostEvent(Events.AlertsCompleted, result);
+            }, ct);
+
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.AlertsCancel, (_, _) =>
+        {
+            _alertCompressor.CancelActiveProcess();
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.AlertsOpenFolder, (payload, _) =>
+        {
+            var req = Json.Deserialize<OpenFolderPayload>(payload ?? default);
+            if (req is not null && !string.IsNullOrWhiteSpace(req.Path))
+            {
+                try
+                {
+                    if (File.Exists(req.Path))
+                        Process.Start("explorer.exe", $"/select,\"{req.Path}\"");
+                    else if (Directory.Exists(req.Path))
+                        Process.Start("explorer.exe", $"\"{req.Path}\"");
+                }
+                catch { }
+            }
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.AlertsSaveDroppedFile, async (payload, ct) =>
+        {
+            var req = Json.Deserialize<SaveDroppedFilePayload>(payload ?? default);
+            if (req is null || string.IsNullOrWhiteSpace(req.FileBase64))
+                return new { ok = false, error = "MISSING_DATA" };
+
+            try
+            {
+                var fileName = string.IsNullOrWhiteSpace(req.FileName) ? "dropped_alert.webm" : Path.GetFileName(req.FileName);
+                var tempDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StreamerHub", "TempAlerts");
+                Directory.CreateDirectory(tempDir);
+                var targetPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}_{fileName}");
+
+                var bytes = Convert.FromBase64String(req.FileBase64);
+                await File.WriteAllBytesAsync(targetPath, bytes, ct).ConfigureAwait(false);
+                return new { ok = true, filePath = targetPath };
+            }
+            catch (Exception ex)
+            {
+                return new { ok = false, error = ex.Message };
+            }
+        });
+        _dispatcher.Register(Channels.ChatOverlayShowImage, async (payload, ct) =>
+        {
+            var req = Json.Deserialize<ShowOverlayImagePayload>(payload ?? default);
+            if (req is null) return new { ok = false, error = "MISSING_PAYLOAD" };
+
+            var imagePath = req.ImagePath?.Trim();
+            var imageUrl = req.ImageUrl?.Trim();
+
+            var destPath = !string.IsNullOrWhiteSpace(req.ObsImageDestinationPath) ? req.ObsImageDestinationPath : req.DestinationPath;
+            // 1. If an OBS native destination path is specified, copy file to destination
+            if (!string.IsNullOrWhiteSpace(destPath) && !string.IsNullOrWhiteSpace(imagePath) && File.Exists(imagePath))
+            {
+                try
+                {
+                    var dest = Path.GetFullPath(destPath);
+                    var destDir = Path.GetDirectoryName(dest);
+                    if (!string.IsNullOrEmpty(destDir)) Directory.CreateDirectory(destDir);
+                    File.Copy(imagePath, dest, overwrite: true);
+                }
+                catch (Exception ex)
+                {
+                    Log("obs-error", $"Failed copying OBS image to destination: {ex.Message}");
+                }
+            }
+
+            // 2. Resolve image URL for web / overlay
+            string finalUrl;
+            if (!string.IsNullOrWhiteSpace(imageUrl) && (imageUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || imageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || imageUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase)))
+            {
+                finalUrl = imageUrl;
+            }
+            else if (!string.IsNullOrWhiteSpace(imagePath))
+            {
+                if (imagePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || imagePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || imagePath.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    finalUrl = imagePath;
+                }
+                else if (File.Exists(imagePath))
+                {
+                    var full = Path.GetFullPath(imagePath);
+                    finalUrl = $"http://127.0.0.1:{_chatOverlay.Port}/media?path={Uri.EscapeDataString(full)}";
+                }
+                else
+                {
+                    return new { ok = false, error = "FILE_NOT_FOUND" };
+                }
+            }
+            else
+            {
+                return new { ok = false, error = "NO_IMAGE_SPECIFIED" };
+            }
+
+            var broadcastPayload = new
+            {
+                imageUrl = finalUrl,
+                durationSeconds = req.DurationSeconds > 0 ? req.DurationSeconds : 5.0,
+                position = string.IsNullOrWhiteSpace(req.Position) ? "center" : req.Position,
+                animation = string.IsNullOrWhiteSpace(req.Animation) ? "bounce" : req.Animation,
+                scale = req.ImageScale ?? req.Scale ?? 1.0,
+            };
+
+            await _chatOverlay.PublishShowImageAsync(broadcastPayload, ct).ConfigureAwait(false);
+            return new { ok = true, payload = broadcastPayload };
+        });
+        _dispatcher.Register(Channels.ChatOverlayHideImage, async (_, ct) =>
+        {
+            await _chatOverlay.PublishHideImageAsync(ct).ConfigureAwait(false);
+            return new { ok = true };
+        });
+        _dispatcher.Register(Channels.ChatOverlayGetImageUrl, (_, _) =>
+        {
+            var url = _chatOverlay.GetImageOverlayUrl();
+            if (string.IsNullOrWhiteSpace(url))
+                url = $"http://127.0.0.1:{_chatOverlay.Port}/image-overlay.html";
+            return Task.FromResult<object?>(new { url });
+        });
+        _dispatcher.Register(Channels.AiGenerateTrivia, async (payload, ct) =>
+        {
+            var req = Json.Deserialize<GenerateGamingQuestionPayload>(payload ?? default);
+            return await GenerateGamingQuestionAsync(req ?? new(), ct).ConfigureAwait(false);
         });
     }
 
@@ -2103,11 +2323,260 @@ public sealed class HostController : IDisposable
         return null;
     }
 
+    private async Task<GenerateGamingQuestionResponse> GenerateGamingQuestionAsync(GenerateGamingQuestionPayload request, CancellationToken ct)
+    {
+        var isArabic = string.Equals(request.Language, "ar", StringComparison.OrdinalIgnoreCase) ||
+                       (request.Category?.Any(c => c >= '\u0600' && c <= '\u06FF') ?? false) ||
+                       (request.CustomInstructions?.Any(c => c >= '\u0600' && c <= '\u06FF') ?? false);
+
+        var recentList = GetRecentGamingQuestions();
+        if (request.RecentQuestions != null)
+        {
+            foreach (var rq in request.RecentQuestions)
+            {
+                if (!string.IsNullOrWhiteSpace(rq) && !recentList.Contains(rq.Trim(), StringComparer.OrdinalIgnoreCase))
+                {
+                    recentList.Add(rq.Trim());
+                }
+            }
+        }
+
+        var groqKey = _groqKey.Load();
+        var openRouterKey = _openRouterKey.Load();
+        var hasKey = !string.IsNullOrWhiteSpace(groqKey) || !string.IsNullOrWhiteSpace(openRouterKey);
+
+        if (hasKey)
+        {
+            try
+            {
+                var provider = !string.IsNullOrWhiteSpace(groqKey) ? "groq" : "openrouter";
+                var key = provider == "groq" ? groqKey : openRouterKey;
+                var model = provider == "groq" ? "openai/gpt-oss-20b" : "qwen/qwen3.8-27b:free";
+
+                var sysPrompt = isArabic
+                    ? "أنت محرك أسئلة مسابقات ألعاب فيديو لبث مباشر على تويتش.\n" +
+                      "القواعد الصارمة والواجب اتباعها:\n" +
+                      "1. أنشئ سؤالاً عاماً واحداً وممتعاً وموجزاً عن ألعاب الفيديو الشهيرة.\n" +
+                      "2. يجب أن تكون الإجابة حقيقية ومؤكدة وصحيحة 100% في عالم ألعاب الفيديو من كلمة إلى 3 كلمات فقط. لا تخترع أو تخمّن إجابة خاطئة إطلاقاً.\n" +
+                      "3. حقل acceptableAnswers يجب أن يشمل الإجابة باللغتين العربية والإنجليزية (مثال: إذا كان السؤال عن بطل زيلدا، تكون الإجابة 'لينك' ومصفوفة acceptableAnswers تحتوي على [\"لينك\", \"Link\"]).\n" +
+                      "4. التنوع والتجديد إجباري: يُمنع تكرار نفس السؤال أو نفس اللعبة المطروحة مؤخراً. نوّع بين مختلف الألعاب والاستوديوهات والشخصيات والأدوات والعوالم.\n" +
+                      "5. أرجع النتيجة بتنسيق JSON حصراً بدون أي كتل كود أو نصوص إضافية:\n" +
+                      "{\n  \"question\": \"السؤال هنا؟\",\n  \"answer\": \"الإجابة\",\n  \"acceptableAnswers\": [\"الإجابة بالعربي\", \"EnglishAnswer\"]\n}"
+                    : "You are a gaming trivia engine for a live Twitch stream showdown.\n" +
+                      "Strict factual rules:\n" +
+                      "1. Generate exactly 1 concise, fun trivia question about famous video games.\n" +
+                      "2. The answer MUST be 100% factually correct, real, and well-known (1 to 3 words max). Never hallucinate or guess.\n" +
+                      "3. The acceptableAnswers array MUST include both English and Arabic transliterations (e.g. for Link: [\"Link\", \"لينك\"]).\n" +
+                      "4. Variety is mandatory: NEVER repeat recent questions or the same game/character. Vary across different franchises, worlds, items, and protagonists.\n" +
+                      "5. Return ONLY a valid JSON object with NO markdown fences and no extra text:\n" +
+                      "{\n  \"question\": \"Question here?\",\n  \"answer\": \"Primary Answer\",\n  \"acceptableAnswers\": [\"Primary Answer\", \"alias1\", \"ArabicOrEnglishVariant\"]\n}";
+
+                var category = string.IsNullOrWhiteSpace(request.Category) ? (isArabic ? "ألعاب فيديو عامة" : "general gaming") : request.Category.Trim();
+                var userPrompt = isArabic
+                    ? $"أنشئ سؤال مسابقة ألعاب فيديو واحد بصيغة JSON الآن. التصنيف أو اللعبة: {category}."
+                    : $"Generate 1 video game trivia question now in JSON. Category or game: {category}.";
+
+                if (!string.IsNullOrWhiteSpace(request.CustomInstructions))
+                {
+                    userPrompt += isArabic
+                        ? $"\nتعليمات وقواعد مخصصة:\n{request.CustomInstructions.Trim()}"
+                        : $"\nCustom rules and instructions:\n{request.CustomInstructions.Trim()}";
+                }
+
+                if (recentList.Count > 0)
+                {
+                    var recentItems = recentList.TakeLast(10).Select(q => $"- {q}");
+                    userPrompt += isArabic
+                        ? $"\n\nملاحظة هامة جداً لمنع التكرار - هذه الأسئلة طُرحت مؤخراً في الجولات السابقة (يُمنع تكرار أي منها أو طرح سؤال عن نفس اللعبة أو البطل، اختر لعبة وموضوعاً مختلفاً تماماً):\n{string.Join("\n", recentItems)}"
+                        : $"\n\nCRITICAL - Prevent repetition - These questions were recently asked (do NOT repeat them or ask about the same franchise/hero, pick a completely different game):\n{string.Join("\n", recentItems)}";
+                }
+
+                var genResult = await _openRouter.GenerateRawCompletionAsync(
+                    provider,
+                    key!,
+                    model,
+                    sysPrompt,
+                    userPrompt,
+                    300,
+                    0.3,
+                    ct
+                ).ConfigureAwait(false);
+
+                if (genResult.Ok && !string.IsNullOrWhiteSpace(genResult.Message))
+                {
+                    var raw = genResult.Message.Trim();
+                    var startIdx = raw.IndexOf('{');
+                    var endIdx = raw.LastIndexOf('}');
+                    if (startIdx >= 0 && endIdx > startIdx)
+                    {
+                        raw = raw.Substring(startIdx, endIdx - startIdx + 1);
+                    }
+
+                    using var doc = JsonDocument.Parse(raw);
+                    var q = doc.RootElement.TryGetProperty("question", out var qElem) ? qElem.GetString()?.Trim() : null;
+                    var a = doc.RootElement.TryGetProperty("answer", out var aElem) ? aElem.GetString()?.Trim() : null;
+                    var aliases = new List<string>();
+                    if (doc.RootElement.TryGetProperty("acceptableAnswers", out var acc) && acc.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in acc.EnumerateArray())
+                        {
+                            var s = item.GetString()?.Trim();
+                            if (!string.IsNullOrWhiteSpace(s)) aliases.Add(s);
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(q) && !string.IsNullOrWhiteSpace(a))
+                    {
+                        var isDuplicate = recentList.Any(rq =>
+                            string.Equals(rq, q, StringComparison.OrdinalIgnoreCase) ||
+                            (q.Length > 10 && rq.Length > 10 && (q.Contains(rq, StringComparison.OrdinalIgnoreCase) || rq.Contains(q, StringComparison.OrdinalIgnoreCase))) ||
+                            string.Equals(rq, a, StringComparison.OrdinalIgnoreCase)
+                        );
+
+                        if (!isDuplicate)
+                        {
+                            if (!aliases.Contains(a, StringComparer.OrdinalIgnoreCase)) aliases.Insert(0, a);
+                            RecordRecentGamingQuestion(q);
+                            return new GenerateGamingQuestionResponse(true, q, a, aliases);
+                        }
+
+                        Log("system", $"AI generated a duplicate/recent trivia question ('{q}'), falling back to fresh catalog question.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("system", $"AI Gaming trivia generation fallback triggered: {ex.Message}");
+            }
+        }
+
+        // Curated bilingual gaming trivia catalog with topical tags
+        var catalog = new (string Question, string Answer, string[] Aliases, bool Arabic, string[] Tags)[]
+        {
+            // English questions
+            ("Who is the main protagonist of God of War?", "Kratos", new[] { "kratos", "كرايتوس", "كريتوس" }, false, new[] { "general", "playstation", "action" }),
+            ("In Minecraft, what tool is required to mine obsidian?", "Diamond Pickaxe", new[] { "diamond pickaxe", "netherite pickaxe", "pickaxe" }, false, new[] { "general", "survival", "minecraft" }),
+            ("What is the name of Mario's green-clad brother?", "Luigi", new[] { "luigi", "لويجي" }, false, new[] { "general", "nintendo", "mario" }),
+            ("Which studio developed Elden Ring, Bloodborne, and Dark Souls?", "FromSoftware", new[] { "fromsoftware", "fromsoft", "فروم سوفتوير" }, false, new[] { "souls", "fromsoftware", "rpg" }),
+            ("What game franchise features the phrase 'Praise the Sun'?", "Dark Souls", new[] { "dark souls", "دارك سولز" }, false, new[] { "souls", "dark souls" }),
+            ("What is the name of the final boss in Elden Ring before the Elden Beast?", "Radagon", new[] { "radagon", "radagon of the golden order", "راداغون" }, false, new[] { "souls", "elden ring" }),
+            ("In Bloodborne, what is the currency/experience gained from defeating enemies?", "Blood Echoes", new[] { "blood echoes", "echoes", "بلود ايكوز" }, false, new[] { "souls", "bloodborne" }),
+            ("In Sekiro: Shadows Die Twice, what is Wolf's primary katana named?", "Kusabimaru", new[] { "kusabimaru", "katana", "sword", "كوسابيمارو" }, false, new[] { "souls", "sekiro" }),
+            ("What is the flagship flying wyvern monster in Monster Hunter known as the King of the Skies?", "Rathalos", new[] { "rathalos", "راثالوس" }, false, new[] { "monster hunter", "capcom" }),
+            ("In Monster Hunter, what are the feline companion hunters called?", "Palico", new[] { "palico", "palicoes", "felyne", "باليكو" }, false, new[] { "monster hunter" }),
+            ("Which heavy weapon in Monster Hunter features a built-in explosive Wyvern's Fire attack?", "Gunlance", new[] { "gunlance", "غانلانس" }, false, new[] { "monster hunter" }),
+            ("Which Japanese company created Resident Evil and Monster Hunter?", "Capcom", new[] { "capcom", "كابكوم" }, false, new[] { "monster hunter", "capcom" }),
+            ("Who is the main protagonist of The Legend of Zelda series?", "Link", new[] { "link", "لينك", "لنك" }, false, new[] { "zelda", "nintendo", "general" }),
+            ("What kingdom does Princess Zelda rule over?", "Hyrule", new[] { "hyrule", "هايرول" }, false, new[] { "zelda", "nintendo" }),
+            ("What sacred triangular artifact in Zelda represents Power, Wisdom, and Courage?", "Triforce", new[] { "triforce", "ترايفورس" }, false, new[] { "zelda", "nintendo" }),
+            ("What legendary blade sleeps in the Lost Woods in The Legend of Zelda?", "Master Sword", new[] { "master sword", "سيف الماستر", "ماستر سورد" }, false, new[] { "zelda", "nintendo" }),
+            ("In Breath of the Wild, what are the tiny hidden forest spirits with leaf masks called?", "Koroks", new[] { "korok", "koroks", "كوروكس" }, false, new[] { "zelda", "nintendo" }),
+            ("What is the name of the protagonist in The Witcher series?", "Geralt", new[] { "geralt", "geralt of rivia", "جيرالت" }, false, new[] { "rpg", "witcher" }),
+            ("In Skyrim, what is the Dragonborn known as in the dragon language?", "Dovahkiin", new[] { "dovahkiin", "دوفاكين" }, false, new[] { "rpg", "skyrim" }),
+            ("What is the name of Master Chief's AI companion in Halo?", "Cortana", new[] { "cortana", "كورتانا" }, false, new[] { "fps", "halo" }),
+            ("Who is the main protagonist of Red Dead Redemption 2?", "Arthur Morgan", new[] { "arthur", "arthur morgan", "آرثر" }, false, new[] { "rpg", "rockstar" }),
+            ("In Grand Theft Auto V, which character is a retired bank robber living in Rockford Hills?", "Michael", new[] { "michael", "michael de santa", "مايكل" }, false, new[] { "rpg", "gta" }),
+            ("What puzzle game popularised the phrase 'The Cake is a Lie'?", "Portal", new[] { "portal", "بورتال" }, false, new[] { "general", "valve" }),
+            ("What is the name of the underwater city in BioShock?", "Rapture" , new[] { "rapture", "رابتشر" }, false, new[] { "general", "fps" }),
+            ("Who is the protagonist of the Tomb Raider series?", "Lara Croft", new[] { "lara", "lara croft", "لارا كروفت" }, false, new[] { "general", "action" }),
+            ("In Overwatch, which hero says 'Cheers, love! The cavalry's here!'?", "Tracer", new[] { "tracer", "تريسر" }, false, new[] { "esports", "overwatch" }),
+            ("In Valorant, what is the name of the explosive device attackers plant?", "Spike", new[] { "spike", "سبايك" }, false, new[] { "esports", "fps", "valorant" }),
+            ("In Counter-Strike, what is the 7-digit bomb plant code?", "7355608", new[] { "7355608" }, false, new[] { "esports", "fps", "cs" }),
+            ("What battle royale game features the Battle Bus and tilted towers?", "Fortnite", new[] { "fortnite", "فورتنايت" }, false, new[] { "esports", "fortnite" }),
+            ("What weapon does Cloud Strife wield in Final Fantasy VII?", "Buster Sword", new[] { "buster sword", "sword", "باستر سورد" }, false, new[] { "rpg", "square" }),
+            ("What is the fire starter Pokémon in Kanto (Gen 1)?", "Charmander", new[] { "charmander", "تشارمندر" }, false, new[] { "nintendo", "pokemon" }),
+            ("In Cyberpunk 2077, what is the main city where the game is set?", "Night City", new[] { "night city", "نايت سيتي" }, false, new[] { "rpg", "cyberpunk" }),
+            ("In Hollow Knight, what currency is used to buy charms and items?", "Geo", new[] { "geo", "جيو" }, false, new[] { "general", "indie" }),
+            ("Who is the silent, crowbar-wielding physicist protagonist of Half-Life?", "Gordon Freeman", new[] { "gordon", "gordon freeman", "غوردون" }, false, new[] { "general", "fps" }),
+            ("What is the speed-boosting mushroom item called in Mario Kart?", "Mushroom", new[] { "mushroom", "super mushroom", "golden mushroom", "مشروم" }, false, new[] { "nintendo", "mario" }),
+            ("What is the name of Sonic the Hedgehog's two-tailed flying fox sidekick?", "Tails", new[] { "tails", "تيلز" }, false, new[] { "general", "sega" }),
+
+            // Arabic questions
+            ("من هو بطل سلسلة ألعاب God of War؟", "كريتوس", new[] { "كريتوس", "كرايتوس", "kratos" }, true, new[] { "general", "action" }),
+            ("من هو بطل سلسلة ألعاب The Legend of Zelda؟", "لينك", new[] { "لينك", "لنك", "link" }, true, new[] { "zelda", "زيلدا", "nintendo" }),
+            ("ما هو اسم بطل سلسلة ألعاب The Witcher؟", "جيرالت", new[] { "جيرالت", "قيرالت", "geralt", "geralt of rivia" }, true, new[] { "rpg", "witcher" }),
+            ("ما هو الاستديو المطور للعبة Elden Ring و Dark Souls؟", "فروم سوفتوير", new[] { "فروم سوفتوير", "فروم سوفت", "fromsoftware", "fromsoft" }, true, new[] { "souls", "fromsoftware", "سولز" }),
+            ("في لعبة Dark Souls، ما هي العبارة الشهيرة التي يرددها سولير لتمجيد الشمس؟", "Praise the Sun", new[] { "praise the sun", "برايز ذا سن", "مجد الشمس" }, true, new[] { "souls", "dark souls", "سولز" }),
+            ("ما هو اسم الزعيم الأخير في إلدن رينغ قبل وحش الإلدن (Elden Beast)؟", "راداغون", new[] { "راداغون", "radagon" }, true, new[] { "souls", "elden ring", "سولز" }),
+            ("في لعبة بلودبورن (Bloodborne)، ما هو اسم العملة ونقاط الخبرة الأساسية؟", "Blood Echoes", new[] { "blood echoes", "بلود ايكوز", "ايكوز" }, true, new[] { "souls", "bloodborne", "سولز" }),
+            ("في سيكيرو (Sekiro)، ما هو اسم سيف البطل الرئيسي الذئب؟", "كوسابيمارو", new[] { "كوسابيمارو", "kusabimaru", "كاتانا" }, true, new[] { "souls", "sekiro", "سولز" }),
+            ("في لعبة مونستر هنتر (Monster Hunter)، ما هو اسم التنين الطائر الأيقوني الملقب بملك السماء؟", "راثالوس", new[] { "راثالوس", "راثالوس", "rathalos" }, true, new[] { "monster hunter", "مونستر هنتر" }),
+            ("في سلسلة Monster Hunter، ما اسم القطط المحاربة المرافقة للصياد؟", "باليكو", new[] { "باليكو", "palico", "فيلاين" }, true, new[] { "monster hunter", "مونستر هنتر" }),
+            ("ما هي الشركة اليابانية المطورة لسلسلة ألعاب Monster Hunter و Resident Evil؟", "كابكوم", new[] { "كابكوم", "capcom" }, true, new[] { "monster hunter", "capcom" }),
+            ("ما هي المملكة الشهيرة التي تدور فيها أحداث ألعاب The Legend of Zelda؟", "هايرول", new[] { "هايرول", "هيرول", "hyrule" }, true, new[] { "zelda", "زيلدا", "nintendo" }),
+            ("ما هو السيف الأسطوري الشهير الخاص بلينك في سلسلة زيلدا؟", "ماستر سورد", new[] { "ماستر سورد", "سيف الماستر", "master sword" }, true, new[] { "zelda", "زيلدا", "nintendo" }),
+            ("في سلسلة زيلدا، ما هو اسم القطعة الذهبية الثلاثية المقدسة التي ترمز للقوة والحكمة والشجاعة؟", "ترايفورس", new[] { "ترايفورس", "الترايفورس", "triforce" }, true, new[] { "zelda", "زيلدا", "nintendo" }),
+            ("في لعبة Breath of the Wild، ما اسم الكائنات النباتية الصغيرة المخفية في أرجاء هايرول؟", "كوروغ", new[] { "كوروغ", "كوروكس", "korok", "koroks" }, true, new[] { "zelda", "زيلدا" }),
+            ("في لعبة فالورانت (Valorant)، ما هو اسم القنبلة أو الجهاز المتفجر الذي يزرعه المهاجمون؟", "سبايك", new[] { "سبايك", "السبايك", "spike" }, true, new[] { "esports", "fps", "valorant" }),
+            ("في لعبة كاونتر سترايك (CS:GO / CS2)، ما هو كود زرع القنبلة الشهير المكون من 7 أرقام؟", "7355608", new[] { "7355608" }, true, new[] { "esports", "fps", "cs" }),
+            ("في لعبة ماينكرافت، ما هي الأداة الضرورية لتكسير حجر الأوبسيديان (Obsidian)؟", "بيكاكس ألماس", new[] { "بيكاكس الماس", "بيكاكس دايموند", "دايموند بيكاكس", "diamond pickaxe" }, true, new[] { "general", "minecraft" }),
+            ("ما هو اسم شقيق ماريو ذو القبعة واللباس الأخضر؟", "لويجي", new[] { "لويجي", "luigi" }, true, new[] { "nintendo", "mario" }),
+            ("ما اسم الشخصية الرئيسية في لعبة Red Dead Redemption 2؟", "آرثر مورغان", new[] { "آرثر", "ارثر", "آرثر مورغان", "arthur", "arthur morgan" }, true, new[] { "rpg", "rockstar" }),
+            ("في سلسلة Halo، ما هو اسم الذكاء الاصطناعي المرافق للماستر تشيف؟", "كورتانا", new[] { "كورتانا", "cortana" }, true, new[] { "fps", "halo" }),
+            ("ما هو اسم المدينة المستقبلية التي تدور فيها أحداث Cyberpunk 2077؟", "نايت سيتي", new[] { "نايت سيتي", "night city" }, true, new[] { "rpg", "cyberpunk" }),
+            ("من هي بطلة سلسلة ألعاب تومب رايدر (Tomb Raider)؟", "لارا كروفت", new[] { "لارا", "لارا كروفت", "lara", "lara croft" }, true, new[] { "general", "action" }),
+            ("ما هي الشركة المطورة لسلسلة ألعاب Assassin's Creed؟", "يوبي سوفت", new[] { "يوبي سوفت", "يوبيسوفت", "ubisoft" }, true, new[] { "general", "action" }),
+            ("ما اسم بطل سلسلة Half-Life الصامت الذي يستخدم العتلة؟", "غوردون فريمان", new[] { "غوردون", "غوردن", "gordon", "gordon freeman" }, true, new[] { "general", "fps" }),
+            ("في ألعاب بوكيمون الجيل الأول، ما هو اسم بوكيمون النار المبدئي؟", "تشارمندر", new[] { "تشارمندر", "شارمندر", "charmander" }, true, new[] { "nintendo", "pokemon" }),
+            ("في لعبة GTA V، ما اسم الشخصية الذي كان سارق بنوك متقاعد ويعيش مع عائلته؟", "مايكل", new[] { "مايكل", "michael" }, true, new[] { "rpg", "gta" }),
+            ("ما اسم الثعلب الطيار ذو الذيلين صديق سونيك القنفذ؟", "تيلز", new[] { "تيلز", "tails" }, true, new[] { "general", "sega" }),
+            ("في لعبة League of Legends، ما هو اسم البطل الملقب بملك القردة؟", "ووكونغ", new[] { "ووكونغ", "وكونغ", "wukong" }, true, new[] { "esports", "lol" }),
+            ("ما هي العملة المستخدمة في لعبة Hollow Knight؟", "جيو", new[] { "جيو", "geo" }, true, new[] { "general", "indie" }),
+            ("ما هو اسم المدينة الغارقة تحت الماء في لعبة BioShock؟", "رابتشر", new[] { "رابتشر", "rapture" }, true, new[] { "general", "fps" }),
+            ("من هو المطور الشهير مبتكر سلسلة Metal Gear Solid و Death Stranding؟", "كوجيما", new[] { "كوجيما", "هيديو كوجيما", "kojima" }, true, new[] { "general", "metal gear" }),
+            ("في لعبة Apex Legends، من هي الشخصية الآلية التي تطلق حبل الانزلاق (Zipline)؟", "باثفايندر", new[] { "باثفايندر", "pathfinder" }, true, new[] { "esports", "fps", "apex" }),
+            ("ما هي اللعبة الشهيرة التي تجمع البناء السريع مع الباتل رويال وباص المعركة؟", "فورتنايت", new[] { "فورتنايت", "fortnite" }, true, new[] { "esports", "fortnite" }),
+        };
+
+        var matching = catalog.Where(item => item.Arabic == isArabic).ToArray();
+        if (matching.Length == 0) matching = catalog;
+
+        var requestedCategory = (request.Category ?? "").Trim().ToLowerInvariant();
+        var customInstructions = (request.CustomInstructions ?? "").Trim().ToLowerInvariant();
+
+        if (!string.IsNullOrWhiteSpace(requestedCategory) || !string.IsNullOrWhiteSpace(customInstructions))
+        {
+            var categoryMatches = matching.Where(item =>
+                item.Tags.Any(tag =>
+                    (!string.IsNullOrEmpty(requestedCategory) && (requestedCategory.Contains(tag) || tag.Contains(requestedCategory))) ||
+                    (!string.IsNullOrEmpty(customInstructions) && customInstructions.Contains(tag))
+                )
+            ).ToArray();
+
+            if (categoryMatches.Length > 0)
+            {
+                matching = categoryMatches;
+            }
+        }
+
+        if (recentList.Count > 0)
+        {
+            var freshMatching = matching.Where(item =>
+                !recentList.Any(rq =>
+                    string.Equals(rq, item.Question, StringComparison.OrdinalIgnoreCase) ||
+                    item.Question.Contains(rq, StringComparison.OrdinalIgnoreCase) ||
+                    rq.Contains(item.Question, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(rq, item.Answer, StringComparison.OrdinalIgnoreCase)
+                )
+            ).ToArray();
+
+            if (freshMatching.Length > 0)
+            {
+                matching = freshMatching;
+            }
+        }
+
+        var selected = matching[Random.Shared.Next(matching.Length)];
+        RecordRecentGamingQuestion(selected.Question);
+        return new GenerateGamingQuestionResponse(true, selected.Question, selected.Answer, selected.Aliases);
+    }
+
     public void Dispose()
     {
         try
         {
             _micController.Dispose();
+            _ttsService.Dispose();
             _soundPlayer.Dispose();
             _eventSub.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _twitch.DisposeAsync().AsTask().GetAwaiter().GetResult();

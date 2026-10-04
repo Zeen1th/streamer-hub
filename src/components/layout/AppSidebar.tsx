@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
+  Film,
   Home,
   Key,
   Menu,
@@ -321,6 +322,23 @@ export function AppSidebar() {
         >
           <BarChart3 size={16} className="shrink-0 text-cyan-400/90" />
           <span className="flex-1 truncate">{t(lang, 'nav.votes')}</span>
+        </button>
+
+        {/* Alert Studio Navigation Item */}
+        <button
+          type="button"
+          onClick={() => setTab('alerts')}
+          data-nav="alerts"
+          data-od-id="nav-alerts"
+          className={cn(
+            'group relative mx-2 flex h-[34px] w-[calc(100%-16px)] items-center gap-[10px] rounded-[6px] px-[10px] text-start text-[12.5px] font-medium transition-colors',
+            activeTab === 'alerts'
+              ? 'bg-[#2A3138] text-white font-bold before:content-[""] before:absolute before:-left-2 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-r-[3px] before:bg-accent'
+              : 'text-[#9aa3af] hover:bg-white/[0.05] hover:text-[#f0f3f7]',
+          )}
+        >
+          <Film size={16} className="shrink-0 text-purple-400" />
+          <span className="flex-1 truncate">{t(lang, 'nav.alerts')}</span>
         </button>
 
         {/* Activity Log Navigation Item */}

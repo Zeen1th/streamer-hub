@@ -159,6 +159,29 @@ public sealed record SequenceStep
     public string? FilePath { get; init; }
     public string? FileContent { get; init; }
 
+    // OBS Image Output
+    public string? ImagePath { get; init; }
+    public string? ImageUrl { get; init; }
+    public double? ImageDurationSeconds { get; init; } = 5.0;
+    public string? ImagePosition { get; init; } = "center";
+    public string? ImageAnimation { get; init; } = "bounce";
+    public double? ImageScale { get; init; } = 1.0;
+    public double? Scale { get; init; }
+    public string? ObsImageDestinationPath { get; init; }
+    public string? DestinationPath { get; init; }
+
+    // Mini-Game: Timeout Duel
+    public string? DuelMode { get; init; } = "random"; // "random" | "ai_trivia"
+    public string? DuelOpponent { get; init; } = "{input}";
+    public int? DuelTimeoutDuration { get; init; } = 60;
+    public int? DuelTimerSeconds { get; init; } = 30;
+    public string? DuelLanguage { get; init; } = "auto"; // "auto" | "en" | "ar"
+    public string? DuelCategory { get; init; }
+    public string? DuelInstructions { get; init; }
+    public string? DuelMessageStart { get; init; }
+    public string? DuelMessageWin { get; init; }
+    public string? DuelMessageTimeout { get; init; }
+
     // Live Poll
     public string? PollAction { get; init; } // "start" | "end" | "reset"
     public string? PollQuestion { get; init; }
@@ -176,6 +199,7 @@ public sealed record ModerationBanPayload(string? Target, string? Reason = null)
 public sealed record ModerationDeleteMessagePayload(string? MessageId);
 public sealed record AudioPlaySoundPayload(string? SoundPath, double? Volume = 1.0);
 public sealed record AudioMuteMicPayload(int DurationSeconds);
+public sealed record AudioSpeakTtsPayload(string? Text, string? VoiceName = null, double? Rate = 1.0, double? Pitch = 1.0, double? Volume = 1.0);
 public sealed record OpenFilePayload(string? Filter = null, string? Title = null);
 
 public sealed record ActionTrigger
@@ -368,5 +392,54 @@ public sealed record GenerateAiPollResponse(
     bool Ok,
     string? Title = null,
     IReadOnlyList<AiPollOptionDto>? Options = null,
+    string? Error = null
+);
+
+public sealed record CompressAlertPayload(
+    string InputPath,
+    string? OutputPath = null,
+    double TargetSizeMb = 28.0,
+    int? CustomCrf = null,
+    int? CustomMaxBitrateK = null
+);
+
+public sealed record InspectAlertPayload(
+    string InputPath
+);
+
+public sealed record OpenFolderPayload(
+    string Path
+);
+
+public sealed record SaveDroppedFilePayload(
+    string? FileName = null,
+    string? FileBase64 = null
+);
+
+public sealed record ShowOverlayImagePayload(
+    string? ImageUrl = null,
+    string? ImagePath = null,
+    double DurationSeconds = 5.0,
+    string? Position = "center",
+    string? Animation = "bounce",
+    double? ImageScale = 1.0,
+    double? Scale = null,
+    string? ObsImageDestinationPath = null,
+    string? DestinationPath = null
+);
+
+public sealed record GenerateGamingQuestionPayload(
+    string? Category = null,
+    string? Language = null,
+    string? Difficulty = null,
+    string? CustomInstructions = null,
+    IReadOnlyList<string>? RecentQuestions = null
+);
+
+public sealed record GenerateGamingQuestionResponse(
+    bool Ok,
+    string Question,
+    string Answer,
+    IReadOnlyList<string> AcceptableAnswers,
     string? Error = null
 );

@@ -212,6 +212,113 @@ public sealed class OpenRouterClient
         }
     }
 
+    public async Task<AiGenerationResult> GenerateRawCompletionAsync(
+        string provider,
+        string apiKey,
+        string model,
+        string systemPrompt,
+        string userPrompt,
+        int maxTokens,
+        double temperature,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey)) return new(false, Error: "API KEY IS NOT CONFIGURED");
+        if (string.IsNullOrWhiteSpace(userPrompt)) return new(false, Error: "USER PROMPT IS EMPTY");
+
+        var safeProvider = provider == "groq" ? "groq" : "openrouter";
+        var safeModel = string.IsNullOrWhiteSpace(model)
+            ? safeProvider == "groq" ? "openai/gpt-oss-20b" : "qwen/qwen3.8-27b:free"
+            : model.Trim()[..Math.Min(model.Trim().Length, 120)];
+        if (safeProvider == "groq" && (safeModel == "llama-3.1-8b-instant" || safeModel == "groq/compound-mini")) safeModel = "openai/gpt-oss-20b";
+        if (safeProvider == "openrouter" && safeModel == "openrouter/free") safeModel = "qwen/qwen3.8-27b:free";
+
+        var isGptOss = safeProvider == "groq" && safeModel.StartsWith("openai/gpt-oss", StringComparison.OrdinalIgnoreCase);
+
+        var messages = new List<object>();
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            messages.Add(new { role = "system", content = systemPrompt.Trim() });
+        }
+        messages.Add(new { role = "user", content = userPrompt.Trim() });
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"] = safeModel,
+            ["temperature"] = Math.Clamp(temperature, 0.0, 1.0),
+            ["messages"] = messages,
+        };
+
+        if (isGptOss)
+        {
+            payload["max_completion_tokens"] = Math.Clamp(maxTokens, 40, 600);
+            payload["include_reasoning"] = false;
+            payload["reasoning_effort"] = "low";
+        }
+        else
+        {
+            payload["max_tokens"] = Math.Clamp(maxTokens, 40, 600);
+        }
+
+        if (safeProvider == "openrouter" && safeModel.EndsWith(":free", StringComparison.OrdinalIgnoreCase))
+        {
+            payload["models"] = new[] { safeModel, "nex-agi/nex-n2.5-pro:free" };
+        }
+
+        var endpoint = safeProvider == "groq"
+            ? new Uri("https://api.groq.com/openai/v1/chat/completions")
+            : Endpoint;
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+        if (safeProvider == "openrouter")
+        {
+            request.Headers.Add("HTTP-Referer", "https://streamerhub.app");
+            request.Headers.Add("X-Title", "Streamer Hub");
+        }
+        request.Content = new StringContent(JsonSerializer.Serialize(payload, Json.Options), Encoding.UTF8, "application/json");
+
+        try
+        {
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var providerError = ExtractProviderError(body);
+                var label = safeProvider.ToUpperInvariant();
+                return new(false, Error: $"{label} ERROR {(int)response.StatusCode}" +
+                    (string.IsNullOrWhiteSpace(providerError) ? string.Empty : $": {providerError}"));
+            }
+            using var doc = JsonDocument.Parse(body);
+            var messageElement = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
+            var content = ReadMessageContent(messageElement);
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                var finishReason = doc.RootElement.GetProperty("choices")[0].TryGetProperty("finish_reason", out var finish)
+                    ? finish.GetString()
+                    : null;
+                return new(false, Error: string.IsNullOrWhiteSpace(finishReason)
+                    ? "AI RETURNED AN EMPTY RESPONSE"
+                    : $"AI RETURNED AN EMPTY RESPONSE ({finishReason})");
+            }
+
+            var trimmedContent = content.Trim();
+            trimmedContent = System.Text.RegularExpressions.Regex.Replace(trimmedContent, @"(?s)<think>.*?</think>", string.Empty).Trim();
+            trimmedContent = System.Text.RegularExpressions.Regex.Replace(trimmedContent, @"(?s)<thought>.*?</thought>", string.Empty).Trim();
+            return new(true, trimmedContent);
+        }
+        catch (OperationCanceledException)
+        {
+            return new(false, Error: $"{safeProvider.ToUpperInvariant()} REQUEST TIMED OUT (model took too long to respond)");
+        }
+        catch (JsonException)
+        {
+            return new(false, Error: $"{safeProvider.ToUpperInvariant()} RETURNED AN INVALID RESPONSE");
+        }
+        catch (Exception ex)
+        {
+            return new(false, Error: $"{safeProvider.ToUpperInvariant()} REQUEST FAILED: {ex.Message}");
+        }
+    }
+
     private static string Limit(string value, int max) => value.Length <= max ? value : value[..max];
 
     private static string? ReadMessageContent(JsonElement message)

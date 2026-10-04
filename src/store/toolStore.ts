@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import type { LogKind } from '../rpc/contracts';
 import { clampInspectorWidth, DEFAULT_INSPECTOR_WIDTH, type CommandGroup } from '../lib/commandProjection';
 
-export type ToolId = 'home' | 'counter' | 'autoReplies' | 'chat' | 'feed' | 'settings' | 'votes';
-export type AppTab = 'home' | 'commands' | 'overlay' | 'obs-chat' | 'votes' | 'activity' | 'settings';
+export type ToolId = 'home' | 'counter' | 'autoReplies' | 'chat' | 'feed' | 'settings' | 'votes' | 'alerts';
+export type AppTab = 'home' | 'commands' | 'overlay' | 'obs-chat' | 'votes' | 'alerts' | 'activity' | 'settings';
 export type SettingsSection = 'general' | 'system' | 'keybinds' | 'twitch' | 'ai' | 'guide';
 
 interface ToolState {
@@ -38,9 +38,11 @@ const toolToTab = (tool: ToolId): AppTab =>
         ? 'activity'
         : tool === 'votes'
           ? 'votes'
-          : tool === 'settings'
-            ? 'settings'
-            : 'commands';
+          : tool === 'alerts'
+            ? 'alerts'
+            : tool === 'settings'
+              ? 'settings'
+              : 'commands';
 
 export const useToolStore = create<ToolState>((set) => ({
   activeTool: 'home',
@@ -67,11 +69,13 @@ export const useToolStore = create<ToolState>((set) => ({
           ? 'chat'
           : activeTab === 'votes'
             ? 'votes'
-            : activeTab === 'activity'
-              ? 'feed'
-              : activeTab === 'settings'
-                ? 'settings'
-                : 'counter',
+            : activeTab === 'alerts'
+              ? 'alerts'
+              : activeTab === 'activity'
+                ? 'feed'
+                : activeTab === 'settings'
+                  ? 'settings'
+                  : 'counter',
     menu: null,
   }),
   setGroup: (group) => set({ group, selected: [], menu: null }),

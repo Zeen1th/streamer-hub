@@ -552,3 +552,17 @@ test('handles AutoRepliesGenerate senderRole switching between broadcaster and b
   assert.equal(resBot.senderLogin, 'ExampleBot');
 });
 
+test('handles AlertsSaveDroppedFile in mock host', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const res = await invoke(host, PROTOCOL_VERSION, Channels.AlertsSaveDroppedFile, {
+    fileName: 'my_alert.webm',
+    fileBase64: 'ZHVtbXlfdmlkZW9fZGF0YQ==',
+  });
+
+  assert.equal(res.ok, true);
+  assert.equal(res.filePath, 'mock_uploads/my_alert.webm');
+});
+
+

@@ -30,6 +30,8 @@ import { useChatterStore } from './store/chatterStore';
 import { useVoteStore } from './store/voteStore';
 import { ObsChatView } from './components/tools/chat/ObsChatView';
 import { VotesView } from './components/tools/votes/VotesView';
+import { AlertCompressorView } from './components/tools/alerts/AlertCompressorView';
+import { useAlertCompressorStore } from './store/alertCompressorStore';
 import { ReauthPromptModal } from './components/modals/ReauthPromptModal';
 
 export default function App() {
@@ -139,6 +141,15 @@ export default function App() {
     const offVotes = rpc.on(Events.VotesChanged, (poll) => {
       useVoteStore.getState().applyRemotePoll(poll);
     });
+    const offAlertsProgress = rpc.on(Events.AlertsProgress, (p) => {
+      useAlertCompressorStore.getState().handleProgress(p);
+    });
+    const offAlertsCompleted = rpc.on(Events.AlertsCompleted, (res) => {
+      useAlertCompressorStore.getState().handleCompleted(res);
+    });
+    const offAlertsDownload = rpc.on(Events.AlertsDownloadProgress, (p) => {
+      useAlertCompressorStore.getState().handleDownloadProgress(p.percent);
+    });
 
     const boot = async () => {
       try {
@@ -200,6 +211,7 @@ export default function App() {
     return () => {
       disposed = true;
       offStatus(); offMaximized(); offChat(); offRedemption(); offRaid(); offFollow(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offTitle(); offVotes();
+      offAlertsProgress(); offAlertsCompleted(); offAlertsDownload();
       window.clearInterval(poll);
     };
   }, []);
@@ -243,6 +255,7 @@ export default function App() {
             {tab === 'overlay' && <ChatView target="overlay" />}
             {tab === 'obs-chat' && <ObsChatView />}
             {tab === 'votes' && <VotesView />}
+            {tab === 'alerts' && <AlertCompressorView />}
             {tab === 'activity' && <ActivityLog className="min-h-0 flex-1" />}
             {tab === 'settings' && <SettingsView />}
           </main>

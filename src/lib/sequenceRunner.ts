@@ -29,6 +29,8 @@ export interface SequenceExecutionSinks {
     volume?: number,
   ) => Promise<boolean>;
   writeObsText?: (filePath: string, content: string) => Promise<boolean>;
+  showObsImage?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<boolean>;
+  executeDuel?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<boolean>;
   executePollAction?: (
     action: 'start' | 'end' | 'reset',
     question?: string,
@@ -329,6 +331,54 @@ export async function executeSequence(
             if (sinks.writeObsText) {
               await sinks.writeObsText(step.filePath.trim(), resolvedContent);
             }
+          }
+          break;
+        }
+
+        case 'obs_image': {
+          if (step.imagePath?.trim() || step.obsImageDestinationPath?.trim()) {
+            const rawPath = step.imagePath || '';
+            const resolvedPath = replaceSequenceTokens(rawPath, ctx);
+            const duration = step.imageDurationSeconds ?? 5;
+            const pos = step.imagePosition || 'center';
+            log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Show OBS Image "${resolvedPath}" (${duration}s, ${pos})`);
+            if (sinks.showObsImage) {
+              const dest = step.obsImageDestinationPath
+                ? replaceSequenceTokens(step.obsImageDestinationPath, ctx)
+                : undefined;
+              await sinks.showObsImage(
+                {
+                  ...step,
+                  imagePath: resolvedPath,
+                  imageUrl: resolvedPath,
+                  durationSeconds: duration,
+                  position: pos,
+                  animation: step.imageAnimation || 'bounce',
+                  scale: step.imageScale,
+                  destinationPath: dest,
+                  obsImageDestinationPath: dest,
+                },
+                ctx,
+              );
+            }
+          }
+          break;
+        }
+
+        case 'duel': {
+          const mode = step.duelMode || 'random';
+          const rawOpponent = step.duelOpponent !== undefined ? step.duelOpponent : '{input}';
+          const resolvedOpponent = replaceSequenceTokens(rawOpponent, ctx).trim();
+          const cleanOpponent = extractTargetUsername(resolvedOpponent) || resolvedOpponent.replace(/^@+/, '');
+          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Timeout Duel (${mode}) against "${cleanOpponent}"`);
+          if (sinks.executeDuel) {
+            await sinks.executeDuel(
+              {
+                ...step,
+                duelOpponent: cleanOpponent,
+              },
+              ctx,
+            );
           }
           break;
         }

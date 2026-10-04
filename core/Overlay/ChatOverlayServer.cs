@@ -100,6 +100,8 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
 
     public Uri VoteOverlayUrl { get; private set; } = null!;
 
+    public Uri ImageOverlayUrl { get; private set; } = null!;
+
     public Uri WebSocketUrl { get; private set; } = null!;
 
     public event Func<string, Task>? ChatSendRequested;
@@ -133,6 +135,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                     OverlayUrl = new Uri($"http://127.0.0.1:{port}/chat-overlay.html");
                     DockUrl = new Uri($"http://127.0.0.1:{port}/obs-chat.html");
                     VoteOverlayUrl = new Uri($"http://127.0.0.1:{port}/vote-overlay.html");
+                    ImageOverlayUrl = new Uri($"http://127.0.0.1:{port}/image-overlay.html");
                     WebSocketUrl = new Uri($"ws://127.0.0.1:{port}/ws");
                     _listener = listener;
                     _serverCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -208,6 +211,17 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(state);
         lock (_stateLock) _activePoll = state;
         await BroadcastAsync(ChatOverlayProtocol.VoteState(state), "vote-overlay", cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PublishShowImageAsync(object payload, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        await BroadcastAsync(ChatOverlayProtocol.ShowImage(payload), cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PublishHideImageAsync(CancellationToken cancellationToken = default)
+    {
+        await BroadcastAsync(ChatOverlayProtocol.HideImage(), cancellationToken).ConfigureAwait(false);
     }
 
     public void RegisterOverlays(IEnumerable<ChatOverlayInstance> overlays)
@@ -427,15 +441,32 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                 return;
             }
 
-            if (!string.Equals(context.Request.HttpMethod, "GET", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(context.Request.HttpMethod, "OPTIONS", StringComparison.OrdinalIgnoreCase))
             {
-                context.Response.Headers[HttpResponseHeader.Allow] = "GET";
-                await CloseResponseAsync(context.Response, HttpStatusCode.MethodNotAllowed, "GET required.")
-                    .ConfigureAwait(false);
+                context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+                context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+                context.Response.Headers["Access-Control-Allow-Headers"] = "*";
+                context.Response.StatusCode = (int)HttpStatusCode.OK;
+                context.Response.Close();
                 return;
             }
 
             var path = context.Request.Url?.AbsolutePath ?? "/";
+
+            if (string.Equals(context.Request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(path, "/upload-alert-file", StringComparison.OrdinalIgnoreCase))
+            {
+                await HandleUploadAlertFileAsync(context, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (!string.Equals(context.Request.HttpMethod, "GET", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Response.Headers[HttpResponseHeader.Allow] = "GET, POST, OPTIONS";
+                await CloseResponseAsync(context.Response, HttpStatusCode.MethodNotAllowed, "Method not allowed.")
+                    .ConfigureAwait(false);
+                return;
+            }
             if (string.Equals(path, "/chat-overlay-health", StringComparison.Ordinal))
             {
                 context.Response.StatusCode = (int)HttpStatusCode.NoContent;
@@ -457,6 +488,13 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                     return;
                 }
                 await HandleWebSocketAsync(context, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (string.Equals(path, "/media", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(path, "/local-image", StringComparison.OrdinalIgnoreCase))
+            {
+                await ServeLocalMediaAsync(context, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -510,6 +548,8 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                         target = "obs-chat";
                     else if (string.Equals(val, "vote-overlay", StringComparison.OrdinalIgnoreCase) || string.Equals(val, "votes", StringComparison.OrdinalIgnoreCase))
                         target = "vote-overlay";
+                    else if (string.Equals(val, "image-overlay", StringComparison.OrdinalIgnoreCase) || string.Equals(val, "images", StringComparison.OrdinalIgnoreCase))
+                        target = "image-overlay";
                 }
                 else if ((string.Equals(key, "id", StringComparison.OrdinalIgnoreCase) ||
                           string.Equals(key, "overlayId", StringComparison.OrdinalIgnoreCase)) &&
@@ -526,6 +566,10 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         else if (context.Request.Url?.AbsolutePath.Contains("vote-overlay", StringComparison.OrdinalIgnoreCase) == true)
         {
             target = "vote-overlay";
+        }
+        else if (context.Request.Url?.AbsolutePath.Contains("image-overlay", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            target = "image-overlay";
         }
 
         var id = Guid.NewGuid();
@@ -656,14 +700,17 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         var isOverlayEntry = requestPath is "/" or "/chat-overlay.html";
         var isDockEntry = requestPath is "/obs-chat" or "/obs-chat.html" or "/streamer-chat" or "/streamer-chat.html";
         var isVoteOverlayEntry = requestPath is "/vote-overlay" or "/vote-overlay.html";
+        var isImageOverlayEntry = requestPath is "/image-overlay" or "/image-overlay.html";
         var relativePath = isOverlayEntry
             ? OverlayEntryPath()
             : isDockEntry
                 ? DockEntryPath()
                 : isVoteOverlayEntry
                     ? VoteOverlayEntryPath()
-                    : Uri.UnescapeDataString(requestPath.TrimStart('/')).Replace('\\', '/');
-        if (!isOverlayEntry && !isDockEntry && !isVoteOverlayEntry && !_allowedAssetPaths.Contains(relativePath))
+                    : isImageOverlayEntry
+                        ? ImageOverlayEntryPath()
+                        : Uri.UnescapeDataString(requestPath.TrimStart('/')).Replace('\\', '/');
+        if (!isOverlayEntry && !isDockEntry && !isVoteOverlayEntry && !isImageOverlayEntry && !_allowedAssetPaths.Contains(relativePath))
         {
             _allowedAssetPaths = LoadOverlayAssetAllowlist();
             if (!_allowedAssetPaths.Contains(relativePath))
@@ -686,7 +733,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         response.ContentType = ContentTypeFor(fullPath);
         response.Headers[HttpResponseHeader.CacheControl] = "no-store";
         response.Headers["X-Content-Type-Options"] = "nosniff";
-        var bytes = (isOverlayEntry || isDockEntry || isVoteOverlayEntry)
+        var bytes = (isOverlayEntry || isDockEntry || isVoteOverlayEntry || isImageOverlayEntry)
             ? Encoding.UTF8.GetBytes(InjectRecoveryRegistration(await File.ReadAllTextAsync(fullPath, cancellationToken).ConfigureAwait(false)))
             : await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
         response.ContentLength64 = bytes.Length;
@@ -761,6 +808,111 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             ? "vote-overlay.html"
             : Path.Combine("src", "vote-overlay.html");
 
+    private string ImageOverlayEntryPath() =>
+        File.Exists(Path.Combine(_assetRoot, "image-overlay.html"))
+            ? "image-overlay.html"
+            : Path.Combine("src", "image-overlay.html");
+
+    private async Task ServeLocalMediaAsync(HttpListenerContext context, CancellationToken cancellationToken)
+    {
+        var response = context.Response;
+        response.Headers["Access-Control-Allow-Origin"] = "*";
+        response.Headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
+        response.Headers["Access-Control-Allow-Headers"] = "*";
+
+        if (string.Equals(context.Request.HttpMethod, "OPTIONS", StringComparison.OrdinalIgnoreCase))
+        {
+            response.StatusCode = (int)HttpStatusCode.OK;
+            response.Close();
+            return;
+        }
+
+        var query = context.Request.Url?.Query;
+        string? filePath = null;
+        if (!string.IsNullOrEmpty(query))
+        {
+            var pairs = query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var pair in pairs)
+            {
+                var parts = pair.Split('=', 2);
+                var key = Uri.UnescapeDataString(parts[0]);
+                var val = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : "";
+                if (string.Equals(key, "path", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(key, "file", StringComparison.OrdinalIgnoreCase))
+                {
+                    filePath = val;
+                    break;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            await CloseResponseAsync(response, HttpStatusCode.NotFound, "Media file not found.").ConfigureAwait(false);
+            return;
+        }
+
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        var allowedExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".webm", ".mp4"
+        };
+
+        if (!allowedExts.Contains(ext))
+        {
+            await CloseResponseAsync(response, HttpStatusCode.Forbidden, "Unsupported media type.").ConfigureAwait(false);
+            return;
+        }
+
+        response.StatusCode = (int)HttpStatusCode.OK;
+        response.ContentType = ContentTypeFor(filePath);
+        response.Headers[HttpResponseHeader.CacheControl] = "no-cache";
+        response.Headers["X-Content-Type-Options"] = "nosniff";
+
+        var bytes = await File.ReadAllBytesAsync(filePath, cancellationToken).ConfigureAwait(false);
+        response.ContentLength64 = bytes.Length;
+        await response.OutputStream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+        response.Close();
+    }
+
+    private async Task HandleUploadAlertFileAsync(HttpListenerContext context, CancellationToken cancellationToken)
+    {
+        try
+        {
+            context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+            context.Response.Headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+            context.Response.Headers["Access-Control-Allow-Headers"] = "*";
+
+            var fileName = context.Request.QueryString["filename"];
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                fileName = "dropped_alert.webm";
+            }
+            fileName = Path.GetFileName(fileName);
+
+            var tempDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StreamerHub", "TempAlerts");
+            Directory.CreateDirectory(tempDir);
+            var targetPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}_{fileName}");
+
+            using (var fileStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+            {
+                await context.Request.InputStream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
+            }
+
+            var responseJson = JsonSerializer.Serialize(new { ok = true, filePath = targetPath });
+            var responseBytes = Encoding.UTF8.GetBytes(responseJson);
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            context.Response.ContentLength64 = responseBytes.Length;
+            await context.Response.OutputStream.WriteAsync(responseBytes, 0, responseBytes.Length, cancellationToken).ConfigureAwait(false);
+            context.Response.Close();
+        }
+        catch (Exception ex)
+        {
+            await CloseResponseAsync(context.Response, HttpStatusCode.InternalServerError, ex.Message).ConfigureAwait(false);
+        }
+    }
+
     private HashSet<string> LoadOverlayAssetAllowlist()
     {
         var allowed = new HashSet<string>(StringComparer.Ordinal);
@@ -772,7 +924,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             using var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath));
             var root = manifest.RootElement;
             var entryKeys = new List<string>();
-            foreach (var target in new[] { "src/chat-overlay.html", "src/obs-chat.html", "src/vote-overlay.html" })
+            foreach (var target in new[] { "src/chat-overlay.html", "src/obs-chat.html", "src/vote-overlay.html", "src/image-overlay.html" })
             {
                 if (root.TryGetProperty(target, out _))
                 {
