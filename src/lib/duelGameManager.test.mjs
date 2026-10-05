@@ -432,3 +432,42 @@ test('duelGameManager tracks recent questions and passes them to generateTrivia 
   duelGameManager.clearRecentQuestions();
 });
 
+test('duelGameManager blocks concurrent 1v1 duel start calls (no 3x repeat)', async () => {
+  duelGameManager.reset();
+  duelGameManager.clearRecentQuestions();
+
+  let generateCallCount = 0;
+  const mockSinks = {
+    sendChatMessage: async () => true,
+    smartModTimeout: async () => ({ ok: true }),
+    generateTrivia: async () => {
+      generateCallCount++;
+      // Simulate network latency of 30ms
+      await new Promise((r) => setTimeout(r, 30));
+      return {
+        ok: true,
+        question: 'Who is Link?',
+        answer: 'Hero of Time',
+        acceptableAnswers: ['Hero of Time'],
+      };
+    },
+    delay: async () => {},
+  };
+
+  // Trigger 3 concurrent duel starts simultaneously (e.g. rapid triple command or redemption duplicate)
+  const results = await Promise.all([
+    duelGameManager.startDuel({ challenger: 'Alice', opponentRaw: '@Bob', mode: 'ai_trivia', sinks: mockSinks }),
+    duelGameManager.startDuel({ challenger: 'Alice', opponentRaw: '@Bob', mode: 'ai_trivia', sinks: mockSinks }),
+    duelGameManager.startDuel({ challenger: 'Alice', opponentRaw: '@Bob', mode: 'ai_trivia', sinks: mockSinks }),
+  ]);
+
+  const successfulStarts = results.filter((r) => r.ok);
+  const duplicateRejections = results.filter((r) => !r.ok && r.error === 'DUEL_ALREADY_IN_PROGRESS');
+
+  assert.equal(successfulStarts.length, 1, 'Only exactly 1 duel start should succeed');
+  assert.equal(duplicateRejections.length, 2, 'The other 2 duplicate duel attempts must be blocked');
+  assert.equal(generateCallCount, 1, 'generateTrivia should only be called once');
+
+  duelGameManager.reset();
+});
+

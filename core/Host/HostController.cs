@@ -174,7 +174,7 @@ public sealed class HostController : IDisposable
     private readonly WindowsMicController _micController = new();
     private readonly SoundEffectPlayer _soundPlayer = new();
     private readonly WindowsTtsService _ttsService;
-    private readonly HashSet<string> _seenRedemptionIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTime> _seenRedemptions = new(StringComparer.Ordinal);
     private readonly object _seenRedemptionsLock = new();
     private readonly Dictionary<string, DateTime> _seenRaids = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _seenRaidsLock = new();
@@ -182,18 +182,83 @@ public sealed class HostController : IDisposable
     private readonly List<string> _recentGamingQuestions = new();
     private readonly object _recentGamingQuestionsLock = new();
 
-    private void RecordRecentGamingQuestion(string question)
+    private bool TryRecordRedemption(string id, string? rewardId, string? userId, string? userInput)
+    {
+        lock (_seenRedemptionsLock)
+        {
+            var now = DateTime.UtcNow;
+            var staleKeys = _seenRedemptions.Where(kv => (now - kv.Value).TotalSeconds > 30).Select(kv => kv.Key).ToList();
+            foreach (var k in staleKeys) _seenRedemptions.Remove(k);
+
+            if (_seenRedemptions.ContainsKey(id)) return false;
+
+            if (!string.IsNullOrWhiteSpace(rewardId) && !string.IsNullOrWhiteSpace(userId))
+            {
+                var semanticKey = $"sem:{rewardId}:{userId}:{userInput?.Trim()}";
+                if (_seenRedemptions.ContainsKey(semanticKey)) return false;
+                _seenRedemptions[semanticKey] = now;
+            }
+
+            _seenRedemptions[id] = now;
+            return true;
+        }
+    }
+
+    private void LoadRecentGamingQuestions()
+    {
+        try
+        {
+            var path = Path.Combine(_appData, "recent_trivia.json");
+            if (File.Exists(path))
+            {
+                var json = File.ReadAllText(path);
+                var items = JsonSerializer.Deserialize<List<string>>(json);
+                if (items != null)
+                {
+                    lock (_recentGamingQuestionsLock)
+                    {
+                        _recentGamingQuestions.Clear();
+                        _recentGamingQuestions.AddRange(items);
+                    }
+                }
+            }
+        }
+        catch { }
+    }
+
+    private void SaveRecentGamingQuestions()
+    {
+        try
+        {
+            var path = Path.Combine(_appData, "recent_trivia.json");
+            List<string> snapshot;
+            lock (_recentGamingQuestionsLock)
+            {
+                snapshot = new List<string>(_recentGamingQuestions);
+            }
+            File.WriteAllText(path, JsonSerializer.Serialize(snapshot));
+        }
+        catch { }
+    }
+
+    private void RecordRecentGamingQuestion(string question, string? answer = null)
     {
         if (string.IsNullOrWhiteSpace(question)) return;
         lock (_recentGamingQuestionsLock)
         {
             _recentGamingQuestions.RemoveAll(q => string.Equals(q, question, StringComparison.OrdinalIgnoreCase));
             _recentGamingQuestions.Add(question.Trim());
-            while (_recentGamingQuestions.Count > 30)
+            if (!string.IsNullOrWhiteSpace(answer))
+            {
+                _recentGamingQuestions.RemoveAll(q => string.Equals(q, answer, StringComparison.OrdinalIgnoreCase));
+                _recentGamingQuestions.Add(answer.Trim());
+            }
+            while (_recentGamingQuestions.Count > 50)
             {
                 _recentGamingQuestions.RemoveAt(0);
             }
         }
+        SaveRecentGamingQuestions();
     }
 
     private List<string> GetRecentGamingQuestions()
@@ -256,6 +321,7 @@ public sealed class HostController : IDisposable
         WireTwitch();
         WireBotState();
         RefreshKeybinds();
+        LoadRecentGamingQuestions();
         chatOverlayServer.ChatSendRequested += async msg => await SendChatMessageCoreAsync(msg).ConfigureAwait(false);
         chatOverlayServer.ChatTimeoutRequested += async (u, d) => await _twitch.TimeoutUserAsync(u, d).ConfigureAwait(false);
         chatOverlayServer.ChatBanRequested += async u => await _twitch.BanUserAsync(u).ConfigureAwait(false);
@@ -1494,12 +1560,8 @@ public sealed class HostController : IDisposable
             if (!string.IsNullOrWhiteSpace(publishedMessage.CustomRewardId))
             {
                 var redemptionId = $"irc-{publishedMessage.Id}";
-                bool isNew;
-                lock (_seenRedemptionsLock)
-                {
-                    isNew = _seenRedemptionIds.Add(redemptionId);
-                }
-                if (isNew)
+                // Skip IRC redemption if EventSub is actively connected or if already recorded
+                if (!_eventSub.IsConnected && TryRecordRedemption(redemptionId, publishedMessage.CustomRewardId, publishedMessage.UserId, publishedMessage.Message))
                 {
                     var redemption = new ChannelPointsRedemption
                     {
@@ -1526,12 +1588,7 @@ public sealed class HostController : IDisposable
         _eventSub.RaidReceived += HandleRaid;
         _eventSub.ChannelPointsRedeemed += redemption =>
         {
-            bool isNew;
-            lock (_seenRedemptionsLock)
-            {
-                isNew = _seenRedemptionIds.Add(redemption.Id);
-            }
-            if (isNew)
+            if (TryRecordRedemption(redemption.Id, redemption.RewardId, redemption.UserId, redemption.UserInput))
             {
                 PostEvent(Events.TwitchChannelPointsRedeemed, redemption);
                 var title = !string.IsNullOrWhiteSpace(redemption.RewardTitle) ? redemption.RewardTitle : (!string.IsNullOrWhiteSpace(redemption.RewardId) ? $"Reward {redemption.RewardId}" : "Custom Reward");
@@ -2347,106 +2404,113 @@ public sealed class HostController : IDisposable
 
         if (hasKey)
         {
-            try
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                var provider = !string.IsNullOrWhiteSpace(groqKey) ? "groq" : "openrouter";
-                var key = provider == "groq" ? groqKey : openRouterKey;
-                var model = provider == "groq" ? "openai/gpt-oss-20b" : "qwen/qwen3.8-27b:free";
-
-                var sysPrompt = isArabic
-                    ? "أنت محرك أسئلة مسابقات ألعاب فيديو لبث مباشر على تويتش.\n" +
-                      "القواعد الصارمة والواجب اتباعها:\n" +
-                      "1. أنشئ سؤالاً عاماً واحداً وممتعاً وموجزاً عن ألعاب الفيديو الشهيرة.\n" +
-                      "2. يجب أن تكون الإجابة حقيقية ومؤكدة وصحيحة 100% في عالم ألعاب الفيديو من كلمة إلى 3 كلمات فقط. لا تخترع أو تخمّن إجابة خاطئة إطلاقاً.\n" +
-                      "3. حقل acceptableAnswers يجب أن يشمل الإجابة باللغتين العربية والإنجليزية (مثال: إذا كان السؤال عن بطل زيلدا، تكون الإجابة 'لينك' ومصفوفة acceptableAnswers تحتوي على [\"لينك\", \"Link\"]).\n" +
-                      "4. التنوع والتجديد إجباري: يُمنع تكرار نفس السؤال أو نفس اللعبة المطروحة مؤخراً. نوّع بين مختلف الألعاب والاستوديوهات والشخصيات والأدوات والعوالم.\n" +
-                      "5. أرجع النتيجة بتنسيق JSON حصراً بدون أي كتل كود أو نصوص إضافية:\n" +
-                      "{\n  \"question\": \"السؤال هنا؟\",\n  \"answer\": \"الإجابة\",\n  \"acceptableAnswers\": [\"الإجابة بالعربي\", \"EnglishAnswer\"]\n}"
-                    : "You are a gaming trivia engine for a live Twitch stream showdown.\n" +
-                      "Strict factual rules:\n" +
-                      "1. Generate exactly 1 concise, fun trivia question about famous video games.\n" +
-                      "2. The answer MUST be 100% factually correct, real, and well-known (1 to 3 words max). Never hallucinate or guess.\n" +
-                      "3. The acceptableAnswers array MUST include both English and Arabic transliterations (e.g. for Link: [\"Link\", \"لينك\"]).\n" +
-                      "4. Variety is mandatory: NEVER repeat recent questions or the same game/character. Vary across different franchises, worlds, items, and protagonists.\n" +
-                      "5. Return ONLY a valid JSON object with NO markdown fences and no extra text:\n" +
-                      "{\n  \"question\": \"Question here?\",\n  \"answer\": \"Primary Answer\",\n  \"acceptableAnswers\": [\"Primary Answer\", \"alias1\", \"ArabicOrEnglishVariant\"]\n}";
-
-                var category = string.IsNullOrWhiteSpace(request.Category) ? (isArabic ? "ألعاب فيديو عامة" : "general gaming") : request.Category.Trim();
-                var userPrompt = isArabic
-                    ? $"أنشئ سؤال مسابقة ألعاب فيديو واحد بصيغة JSON الآن. التصنيف أو اللعبة: {category}."
-                    : $"Generate 1 video game trivia question now in JSON. Category or game: {category}.";
-
-                if (!string.IsNullOrWhiteSpace(request.CustomInstructions))
+                try
                 {
-                    userPrompt += isArabic
-                        ? $"\nتعليمات وقواعد مخصصة:\n{request.CustomInstructions.Trim()}"
-                        : $"\nCustom rules and instructions:\n{request.CustomInstructions.Trim()}";
-                }
+                    var provider = !string.IsNullOrWhiteSpace(groqKey) ? "groq" : "openrouter";
+                    var key = provider == "groq" ? groqKey : openRouterKey;
+                    var model = provider == "groq" ? "openai/gpt-oss-20b" : "qwen/qwen3.8-27b:free";
 
-                if (recentList.Count > 0)
-                {
-                    var recentItems = recentList.TakeLast(10).Select(q => $"- {q}");
-                    userPrompt += isArabic
-                        ? $"\n\nملاحظة هامة جداً لمنع التكرار - هذه الأسئلة طُرحت مؤخراً في الجولات السابقة (يُمنع تكرار أي منها أو طرح سؤال عن نفس اللعبة أو البطل، اختر لعبة وموضوعاً مختلفاً تماماً):\n{string.Join("\n", recentItems)}"
-                        : $"\n\nCRITICAL - Prevent repetition - These questions were recently asked (do NOT repeat them or ask about the same franchise/hero, pick a completely different game):\n{string.Join("\n", recentItems)}";
-                }
+                    var sysPrompt = isArabic
+                        ? "أنت محرك أسئلة مسابقات ألعاب فيديو لبث مباشر على تويتش.\n" +
+                          "القواعد الصارمة والواجب اتباعها:\n" +
+                          "1. أنشئ سؤالاً عاماً واحداً وممتعاً وموجزاً عن ألعاب الفيديو الشهيرة.\n" +
+                          "2. يجب أن تكون الإجابة حقيقية ومؤكدة وصحيحة 100% في عالم ألعاب الفيديو من كلمة إلى 3 كلمات فقط. لا تخترع أو تخمّن إجابة خاطئة إطلاقاً.\n" +
+                          "3. حقل acceptableAnswers يجب أن يشمل الإجابة باللغتين العربية والإنجليزية (مثال: إذا كان السؤال عن بطل زيلدا، تكون الإجابة 'لينك' ومصفوفة acceptableAnswers تحتوي على [\"لينك\", \"Link\"]).\n" +
+                          "4. التنوع والتجديد إجباري: يُمنع تكرار نفس السؤال أو نفس اللعبة المطروحة مؤخراً. نوّع بين مختلف الألعاب والاستوديوهات والشخصيات والأدوات والعوالم.\n" +
+                          "5. أرجع النتيجة بتنسيق JSON حصراً بدون أي كتل كود أو نصوص إضافية:\n" +
+                          "{\n  \"question\": \"السؤال هنا؟\",\n  \"answer\": \"الإجابة\",\n  \"acceptableAnswers\": [\"الإجابة بالعربي\", \"EnglishAnswer\"]\n}"
+                        : "You are a gaming trivia engine for a live Twitch stream showdown.\n" +
+                          "Strict factual rules:\n" +
+                          "1. Generate exactly 1 concise, fun trivia question about famous video games.\n" +
+                          "2. The answer MUST be 100% factually correct, real, and well-known (1 to 3 words max). Never hallucinate or guess.\n" +
+                          "3. The acceptableAnswers array MUST include both English and Arabic transliterations (e.g. for Link: [\"Link\", \"لينك\"]).\n" +
+                          "4. Variety is mandatory: NEVER repeat recent questions or the same game/character. Vary across different franchises, worlds, items, and protagonists.\n" +
+                          "5. Return ONLY a valid JSON object with NO markdown fences and no extra text:\n" +
+                          "{\n  \"question\": \"Question here?\",\n  \"answer\": \"Primary Answer\",\n  \"acceptableAnswers\": [\"Primary Answer\", \"alias1\", \"ArabicOrEnglishVariant\"]\n}";
 
-                var genResult = await _openRouter.GenerateRawCompletionAsync(
-                    provider,
-                    key!,
-                    model,
-                    sysPrompt,
-                    userPrompt,
-                    300,
-                    0.3,
-                    ct
-                ).ConfigureAwait(false);
+                    var category = string.IsNullOrWhiteSpace(request.Category) ? (isArabic ? "ألعاب فيديو عامة" : "general gaming") : request.Category.Trim();
+                    var userPrompt = isArabic
+                        ? $"أنشئ سؤال مسابقة ألعاب فيديو واحد بصيغة JSON الآن. التصنيف أو اللعبة: {category}."
+                        : $"Generate 1 video game trivia question now in JSON. Category or game: {category}.";
 
-                if (genResult.Ok && !string.IsNullOrWhiteSpace(genResult.Message))
-                {
-                    var raw = genResult.Message.Trim();
-                    var startIdx = raw.IndexOf('{');
-                    var endIdx = raw.LastIndexOf('}');
-                    if (startIdx >= 0 && endIdx > startIdx)
+                    if (!string.IsNullOrWhiteSpace(request.CustomInstructions))
                     {
-                        raw = raw.Substring(startIdx, endIdx - startIdx + 1);
+                        userPrompt += isArabic
+                            ? $"\nتعليمات وقواعد مخصصة:\n{request.CustomInstructions.Trim()}"
+                            : $"\nCustom rules and instructions:\n{request.CustomInstructions.Trim()}";
                     }
 
-                    using var doc = JsonDocument.Parse(raw);
-                    var q = doc.RootElement.TryGetProperty("question", out var qElem) ? qElem.GetString()?.Trim() : null;
-                    var a = doc.RootElement.TryGetProperty("answer", out var aElem) ? aElem.GetString()?.Trim() : null;
-                    var aliases = new List<string>();
-                    if (doc.RootElement.TryGetProperty("acceptableAnswers", out var acc) && acc.ValueKind == JsonValueKind.Array)
+                    if (recentList.Count > 0)
                     {
-                        foreach (var item in acc.EnumerateArray())
-                        {
-                            var s = item.GetString()?.Trim();
-                            if (!string.IsNullOrWhiteSpace(s)) aliases.Add(s);
-                        }
+                        var recentItems = recentList.TakeLast(15).Select(q => $"- {q}");
+                        userPrompt += isArabic
+                            ? $"\n\nملاحظة هامة جداً لمنع التكرار - هذه الأسئلة والألعاب والإجابات طُرحت مؤخراً في الجولات السابقة (يُمنع منعاً باتاً تكرار أي منها أو طرح سؤال عن نفس اللعبة أو البطل، اختر لعبة وموضوعاً مختلفاً تماماً):\n{string.Join("\n", recentItems)}"
+                            : $"\n\nCRITICAL - Prevent repetition - These questions/games/answers were recently asked (do NOT repeat them or ask about the same franchise/hero, pick a completely different game):\n{string.Join("\n", recentItems)}";
                     }
 
-                    if (!string.IsNullOrWhiteSpace(q) && !string.IsNullOrWhiteSpace(a))
+                    if (attempt > 0)
                     {
-                        var isDuplicate = recentList.Any(rq =>
-                            string.Equals(rq, q, StringComparison.OrdinalIgnoreCase) ||
-                            (q.Length > 10 && rq.Length > 10 && (q.Contains(rq, StringComparison.OrdinalIgnoreCase) || rq.Contains(q, StringComparison.OrdinalIgnoreCase))) ||
-                            string.Equals(rq, a, StringComparison.OrdinalIgnoreCase)
-                        );
+                        userPrompt += isArabic
+                            ? "\n\nتنبيه إضافي: المحاولة السابقة أنتجت موضوعاً مكرراً. اختر فوراً لعبة مختلفة كلياً لم تُذكر سابقاً."
+                            : "\n\nNOTE: The previous attempt generated a duplicate. Choose a completely different game franchise not mentioned above.";
+                    }
 
-                        if (!isDuplicate)
+                    var temp = attempt == 0 ? 0.75 : 0.9;
+                    var genResult = await _openRouter.GenerateRawCompletionAsync(
+                        provider,
+                        key!,
+                        model,
+                        sysPrompt,
+                        userPrompt,
+                        300,
+                        temp,
+                        ct
+                    ).ConfigureAwait(false);
+
+                    if (genResult.Ok && !string.IsNullOrWhiteSpace(genResult.Message))
+                    {
+                        var raw = genResult.Message.Trim();
+                        var startIdx = raw.IndexOf('{');
+                        var endIdx = raw.LastIndexOf('}');
+                        if (startIdx >= 0 && endIdx > startIdx)
                         {
-                            if (!aliases.Contains(a, StringComparer.OrdinalIgnoreCase)) aliases.Insert(0, a);
-                            RecordRecentGamingQuestion(q);
-                            return new GenerateGamingQuestionResponse(true, q, a, aliases);
+                            raw = raw.Substring(startIdx, endIdx - startIdx + 1);
                         }
 
-                        Log("system", $"AI generated a duplicate/recent trivia question ('{q}'), falling back to fresh catalog question.");
+                        using var doc = JsonDocument.Parse(raw);
+                        var q = doc.RootElement.TryGetProperty("question", out var qElem) ? qElem.GetString()?.Trim() : null;
+                        var a = doc.RootElement.TryGetProperty("answer", out var aElem) ? aElem.GetString()?.Trim() : null;
+                        var aliases = new List<string>();
+                        if (doc.RootElement.TryGetProperty("acceptableAnswers", out var acc) && acc.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var item in acc.EnumerateArray())
+                            {
+                                var s = item.GetString()?.Trim();
+                                if (!string.IsNullOrWhiteSpace(s)) aliases.Add(s);
+                            }
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(q) && !string.IsNullOrWhiteSpace(a))
+                        {
+                            var isDuplicate = IsGamingQuestionDuplicate(q, a, recentList);
+
+                            if (!isDuplicate)
+                            {
+                                if (!aliases.Contains(a, StringComparer.OrdinalIgnoreCase)) aliases.Insert(0, a);
+                                RecordRecentGamingQuestion(q, a);
+                                return new GenerateGamingQuestionResponse(true, q, a, aliases);
+                            }
+
+                            Log("system", $"AI generated a duplicate/recent trivia question ('{q}' / '{a}'), retrying or falling back to diverse catalog.");
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                Log("system", $"AI Gaming trivia generation fallback triggered: {ex.Message}");
+                catch (Exception ex)
+                {
+                    Log("system", $"AI Gaming trivia generation attempt {attempt + 1} fallback triggered: {ex.Message}");
+                }
             }
         }
 
@@ -2552,23 +2616,61 @@ public sealed class HostController : IDisposable
         if (recentList.Count > 0)
         {
             var freshMatching = matching.Where(item =>
-                !recentList.Any(rq =>
-                    string.Equals(rq, item.Question, StringComparison.OrdinalIgnoreCase) ||
-                    item.Question.Contains(rq, StringComparison.OrdinalIgnoreCase) ||
-                    rq.Contains(item.Question, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(rq, item.Answer, StringComparison.OrdinalIgnoreCase)
-                )
+                !IsGamingQuestionDuplicate(item.Question, item.Answer, recentList)
             ).ToArray();
 
             if (freshMatching.Length > 0)
             {
                 matching = freshMatching;
             }
+            else
+            {
+                // If all category questions were recently asked, pick from any unasked question across the broader catalog
+                var allFresh = catalog.Where(item => item.Arabic == isArabic && !IsGamingQuestionDuplicate(item.Question, item.Answer, recentList)).ToArray();
+                if (allFresh.Length > 0)
+                {
+                    matching = allFresh;
+                }
+            }
         }
 
         var selected = matching[Random.Shared.Next(matching.Length)];
-        RecordRecentGamingQuestion(selected.Question);
+        RecordRecentGamingQuestion(selected.Question, selected.Answer);
         return new GenerateGamingQuestionResponse(true, selected.Question, selected.Answer, selected.Aliases);
+    }
+
+    private static bool IsGamingQuestionDuplicate(string candidateQ, string candidateA, IEnumerable<string> recentItems)
+    {
+        if (string.IsNullOrWhiteSpace(candidateQ) || string.IsNullOrWhiteSpace(candidateA)) return true;
+        var normQ = candidateQ.Trim().ToLowerInvariant();
+        var normA = candidateA.Trim().ToLowerInvariant();
+
+        foreach (var rq in recentItems)
+        {
+            if (string.IsNullOrWhiteSpace(rq)) continue;
+            var normRq = rq.Trim().ToLowerInvariant();
+
+            // Direct equality with question or answer
+            if (normQ == normRq || normA == normRq) return true;
+
+            // Answer is contained in recent or vice versa
+            if (normA.Length >= 3 && (normRq.Contains(normA) || (normRq.Length <= 12 && normA.Contains(normRq)))) return true;
+
+            // Substantial question substring / overlap
+            if (normQ.Length >= 8 && normRq.Length >= 8)
+            {
+                if (normQ.Contains(normRq) || normRq.Contains(normQ)) return true;
+
+                // Check common gaming keywords to prevent asking about the same game franchise consecutively
+                var keyWords = new[] { "zelda", "زيلدا", "link", "لينك", "kratos", "كريتوس", "كرايتوس", "mario", "ماريو", "elden ring", "إلدن رينغ", "الدن رينغ", "bloodborne", "بلودبورن", "sekiro", "سيكيرو", "monster hunter", "مونستر هنتر", "rathalos", "راثالوس", "geralt", "جيرالت", "minecraft", "ماينكرافت", "halo", "master chief", "ماستر تشيف", "gta", "rockstar", "arthur morgan", "آرثر", "witcher" };
+                foreach (var kw in keyWords)
+                {
+                    if (normQ.Contains(kw) && normRq.Contains(kw)) return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public void Dispose()

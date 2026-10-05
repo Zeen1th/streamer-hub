@@ -238,7 +238,40 @@ export function isAnswerMatch(guess: string, primaryAnswer: string, acceptable: 
 
 class DuelGameManager {
   private activeDuel: ActiveTriviaDuel | null = null;
+  private isStarting: boolean = false;
+  private lastDuelFinishedAt: number = 0;
   private recentQuestions: string[] = [];
+  private recentAnswers: string[] = [];
+
+  constructor() {
+    this.loadPersistedRecent();
+  }
+
+  private loadPersistedRecent(): void {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const rawQ = window.localStorage.getItem('streamerhub_recent_duel_questions');
+        if (rawQ) {
+          const parsed = JSON.parse(rawQ);
+          if (Array.isArray(parsed)) this.recentQuestions = parsed.map(String);
+        }
+        const rawA = window.localStorage.getItem('streamerhub_recent_duel_answers');
+        if (rawA) {
+          const parsed = JSON.parse(rawA);
+          if (Array.isArray(parsed)) this.recentAnswers = parsed.map(String);
+        }
+      } catch {}
+    }
+  }
+
+  private savePersistedRecent(): void {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem('streamerhub_recent_duel_questions', JSON.stringify(this.recentQuestions.slice(-50)));
+        window.localStorage.setItem('streamerhub_recent_duel_answers', JSON.stringify(this.recentAnswers.slice(-50)));
+      } catch {}
+    }
+  }
 
   public getActiveDuel(): ActiveTriviaDuel | null {
     return this.activeDuel;
@@ -248,20 +281,43 @@ class DuelGameManager {
     return [...this.recentQuestions];
   }
 
-  public recordRecentQuestion(question: string): void {
+  public getRecentAnswers(): string[] {
+    return [...this.recentAnswers];
+  }
+
+  public getLastDuelFinishedAt(): number {
+    return this.lastDuelFinishedAt;
+  }
+
+  public recordRecentQuestion(question: string, answer?: string): void {
     if (!question) return;
-    const clean = question.trim();
+    const cleanQ = question.trim();
     this.recentQuestions = this.recentQuestions.filter(
-      (q) => q.toLowerCase() !== clean.toLowerCase(),
+      (q) => q.toLowerCase() !== cleanQ.toLowerCase(),
     );
-    this.recentQuestions.push(clean);
-    while (this.recentQuestions.length > 30) {
+    this.recentQuestions.push(cleanQ);
+    while (this.recentQuestions.length > 50) {
       this.recentQuestions.shift();
     }
+
+    if (answer) {
+      const cleanA = answer.trim();
+      this.recentAnswers = this.recentAnswers.filter(
+        (a) => a.toLowerCase() !== cleanA.toLowerCase(),
+      );
+      this.recentAnswers.push(cleanA);
+      while (this.recentAnswers.length > 50) {
+        this.recentAnswers.shift();
+      }
+    }
+
+    this.savePersistedRecent();
   }
 
   public clearRecentQuestions(): void {
     this.recentQuestions = [];
+    this.recentAnswers = [];
+    this.savePersistedRecent();
   }
 
   public reset(): void {
@@ -269,6 +325,8 @@ class DuelGameManager {
       clearTimeout(this.activeDuel.timerHandle);
     }
     this.activeDuel = null;
+    this.isStarting = false;
+    this.lastDuelFinishedAt = 0;
   }
 
   public async startDuel(options: StartDuelOptions): Promise<{ ok: boolean; error?: string }> {
@@ -296,14 +354,19 @@ class DuelGameManager {
       return { ok: false, error: 'CANNOT_CHALLENGE_BROADCASTER' };
     }
 
-    if (this.activeDuel) {
-      await sinks.sendChatMessage(
-        `⚠️ [Duel] A duel is already in progress between @${this.activeDuel.challenger} and @${this.activeDuel.opponent}! Please wait until it completes.`,
-      );
+    if (this.isStarting || this.activeDuel) {
+      log('trigger', `[Duel] Blocked duplicate duel start (already active or starting)`);
+      if (this.activeDuel) {
+        await sinks.sendChatMessage(
+          `⚠️ [Duel] A duel is already in progress between @${this.activeDuel.challenger} and @${this.activeDuel.opponent}! Please wait until it completes.`,
+        );
+      }
       return { ok: false, error: 'DUEL_ALREADY_IN_PROGRESS' };
     }
 
-    log('trigger', `[Duel] Starting ${mode} duel: @${cleanChallenger} vs @${cleanOpponent} (Timeout: ${timeoutDuration}s)`);
+    this.isStarting = true;
+    try {
+      log('trigger', `[Duel] Starting ${mode} duel: @${cleanChallenger} vs @${cleanOpponent} (Timeout: ${timeoutDuration}s)`);
 
     // --- Choice 1: Random (50/50 Coin Flip) ---
     if (mode === 'random') {
@@ -342,6 +405,7 @@ class DuelGameManager {
         log('obs-error', `[Duel] Failed to timeout @${loser}: ${timeoutResult.error}`);
       }
 
+      this.lastDuelFinishedAt = Date.now();
       return { ok: true };
     }
 
@@ -362,7 +426,7 @@ class DuelGameManager {
           question = res.question;
           answer = res.answer;
           acceptableAnswers = res.acceptableAnswers || [res.answer];
-          this.recordRecentQuestion(question);
+          this.recordRecentQuestion(question, answer);
         }
       } catch (err) {
         log('system', `[Duel] Trivia question generation fallback: ${err}`);
@@ -404,6 +468,9 @@ class DuelGameManager {
     );
 
     return { ok: true };
+    } finally {
+      this.isStarting = false;
+    }
   }
 
   public async handleChatMessage(message: DuelChatMessageInput): Promise<boolean> {
@@ -437,6 +504,7 @@ class DuelGameManager {
       clearTimeout(duel.timerHandle);
     }
     this.activeDuel = null;
+    this.lastDuelFinishedAt = Date.now();
 
     const winner = isChallenger ? duel.challenger : duel.opponent;
     const loser = isChallenger ? duel.opponent : duel.challenger;
@@ -470,6 +538,7 @@ class DuelGameManager {
 
     const duel = this.activeDuel;
     this.activeDuel = null;
+    this.lastDuelFinishedAt = Date.now();
 
     const timeoutTpl = duel.messageTimeout?.trim() || DEFAULT_DUEL_MESSAGES.triviaTimeout;
     await duel.sinks.sendChatMessage(

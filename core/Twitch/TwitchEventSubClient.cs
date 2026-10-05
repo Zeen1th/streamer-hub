@@ -23,6 +23,8 @@ public sealed class TwitchEventSubClient : IAsyncDisposable
     private bool _disposed;
     private readonly object _lock = new();
 
+    public bool IsConnected => _ws?.State == WebSocketState.Open;
+
     public event Action<ChannelPointsRedemption>? ChannelPointsRedeemed;
     public event Action<string>? ChannelTitleUpdated;
     public event Action<TwitchRaidEvent>? RaidReceived;
