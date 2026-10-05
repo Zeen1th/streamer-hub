@@ -65,6 +65,21 @@ import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
 import { DurationPicker } from '../ui/DurationPicker';
 
+export const EDGE_NEURAL_VOICES = [
+  { id: 'en-AU-WilliamMultilingualNeural', name: 'Microsoft William (Multilingual - Arabic & English Neural)', nameAr: 'صوت ويليام (طبيعي - يدعم العربية والإنجليزية)' },
+  { id: 'ar-SA-HamedNeural', name: 'Microsoft Hamed (Arabic - Saudi Arabia Neural)', nameAr: 'حامد (طبيعي - السعودية)' },
+  { id: 'ar-SA-ZariyahNeural', name: 'Microsoft Zariyah (Arabic - Saudi Arabia Neural)', nameAr: 'زارية (طبيعي - السعودية)' },
+  { id: 'ar-EG-SalmaNeural', name: 'Microsoft Salma (Arabic - Egypt Neural)', nameAr: 'سلمى (طبيعي - مصر)' },
+  { id: 'ar-EG-ShakirNeural', name: 'Microsoft Shakir (Arabic - Egypt Neural)', nameAr: 'شاكر (طبيعي - مصر)' },
+  { id: 'en-US-AndrewMultilingualNeural', name: 'Microsoft Andrew (Multilingual Neural)', nameAr: 'أندرو (طبيعي - متعدد اللغات)' },
+  { id: 'en-US-EmmaMultilingualNeural', name: 'Microsoft Emma (Multilingual Neural)', nameAr: 'إيما (طبيعي - متعدد اللغات)' },
+  { id: 'en-US-AvaMultilingualNeural', name: 'Microsoft Ava (Multilingual Expressive)', nameAr: 'آفا (طبيعي - متعدد اللغات)' },
+  { id: 'en-US-JennyNeural', name: 'Microsoft Jenny (English US)', nameAr: 'جيني (طبيعي - إنجليزي أمريكي)' },
+  { id: 'en-US-GuyNeural', name: 'Microsoft Guy (English US)', nameAr: 'جاي (طبيعي - إنجليزي أمريكي)' },
+  { id: 'en-GB-SoniaNeural', name: 'Microsoft Sonia (English UK)', nameAr: 'سونيا (طبيعي - إنجليزي بريطاني)' },
+  { id: 'en-GB-RyanNeural', name: 'Microsoft Ryan (English UK)', nameAr: 'رايان (طبيعي - بريطاني)' },
+];
+
 interface SequenceStudioViewProps {
   sequence: CommandSequence;
   onBack: () => void;
@@ -372,7 +387,6 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   const [ttsRate, setTtsRate] = useState(step.ttsRate ?? 1.0);
   const [ttsPitch, setTtsPitch] = useState(step.ttsPitch ?? 1.0);
   const [ttsVolume, setTtsVolume] = useState(step.ttsVolume ?? 1.0);
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [isSpeakingTts, setIsSpeakingTts] = useState(false);
 
   // OBS Text state
@@ -420,17 +434,6 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
     Boolean(step.duelMessageStart || step.duelMessageWin || step.duelMessageTimeout)
   );
 
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const loadVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
-        setAvailableVoices(voices);
-      };
-      loadVoices();
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
-  }, []);
-
   const handleBrowseSound = async () => {
     try {
       const res = await rpc.invoke(Channels.DialogOpenFile, {
@@ -461,72 +464,31 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
 
     setIsSpeakingTts(true);
 
-    const isArabic = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(raw);
-    const isArVoice = (v: SpeechSynthesisVoice) =>
-      v.lang.toLowerCase().startsWith('ar') ||
-      /arabic|naayf|hoda|tarik|zeina|salma|shakir|maged|leila/i.test(v.name);
+    try {
+      const res = await rpc.invoke(Channels.AudioSpeakTts, {
+        text: raw,
+        voiceName: ttsVoice || undefined,
+        rate: ttsRate,
+        pitch: ttsPitch,
+        volume: ttsVolume,
+      });
 
-    let handledByBrowser = false;
-
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(raw);
-        if (ttsRate != null) utterance.rate = Math.max(0.1, Math.min(ttsRate, 2.0));
-        if (ttsPitch != null) utterance.pitch = Math.max(0.1, Math.min(ttsPitch, 2.0));
-        if (ttsVolume != null) utterance.volume = Math.max(0.0, Math.min(ttsVolume, 1.0));
-
-        utterance.lang = isArabic ? 'ar-SA' : 'en-US';
-
-        let matched = ttsVoice
-          ? availableVoices.find((v) => v.name === ttsVoice || v.voiceURI === ttsVoice)
-          : undefined;
-
-        if (isArabic) {
-          if (!matched || !isArVoice(matched)) {
-            const fallbackAr = availableVoices.find(isArVoice);
-            if (fallbackAr) matched = fallbackAr;
-          }
-        }
-
-        if (matched) {
-          utterance.voice = matched;
-          if (matched.lang) utterance.lang = matched.lang;
-        }
-
-        const canBrowserSpeak = !isArabic || (matched && isArVoice(matched));
-
-        if (canBrowserSpeak) {
-          await new Promise<boolean>((resolve) => {
-            utterance.onend = () => {
-              setIsSpeakingTts(false);
-              resolve(true);
-            };
-            utterance.onerror = () => {
-              setIsSpeakingTts(false);
-              resolve(false);
-            };
-            window.speechSynthesis.speak(utterance);
+      if (res && res.ok) {
+        // If not played directly by host desktop audio player, play via WebView2 HTML5 Audio
+        if (!res.playedOnHost && res.audioBase64) {
+          const audio = new Audio(`data:audio/mp3;base64,${res.audioBase64}`);
+          audio.volume = Math.max(0, Math.min(ttsVolume ?? 1.0, 1.0));
+          await new Promise<void>((resolve) => {
+            audio.onended = () => resolve();
+            audio.onerror = () => resolve();
+            audio.play().catch(() => resolve());
           });
-          handledByBrowser = true;
         }
-      } catch {
-        handledByBrowser = false;
       }
-    }
-
-    if (!handledByBrowser) {
-      try {
-        await rpc.invoke(Channels.AudioSpeakTts, {
-          text: raw,
-          voiceName: ttsVoice || undefined,
-          rate: ttsRate,
-          pitch: ttsPitch,
-          volume: ttsVolume,
-        });
-      } finally {
-        setIsSpeakingTts(false);
-      }
+    } catch (err) {
+      console.error('[TTS] Test speech error:', err);
+    } finally {
+      setIsSpeakingTts(false);
     }
   };
 
@@ -1054,43 +1016,13 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                   className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
                 >
                   <option value="">{t(lang, 'sequence.autoVoice')}</option>
-                  {availableVoices.length > 0 ? (
-                    (() => {
-                      const isArVoice = (v: SpeechSynthesisVoice) =>
-                        v.lang.toLowerCase().startsWith('ar') ||
-                        /arabic|naayf|hoda|tarik|zeina|salma|shakir|maged|leila/i.test(v.name);
-                      const arVoices = availableVoices.filter(isArVoice);
-                      const otherVoices = availableVoices.filter((v) => !isArVoice(v));
-                      return (
-                        <>
-                          {arVoices.length > 0 && (
-                            <optgroup label={lang === 'ar' ? 'الأصوات العربية (Arabic)' : 'Arabic Voices'}>
-                              {arVoices.map((v) => (
-                                <option key={v.name} value={v.name}>
-                                  {v.name} ({v.lang})
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {otherVoices.length > 0 && (
-                            <optgroup label={lang === 'ar' ? 'أصوات أخرى (Other Voices)' : 'Other Voices'}>
-                              {otherVoices.map((v) => (
-                                <option key={v.name} value={v.name}>
-                                  {v.name} ({v.lang})
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                        </>
-                      );
-                    })()
-                  ) : (
-                    <>
-                      <option value="Microsoft Naayf">Microsoft Naayf (ar-SA - Arabic)</option>
-                      <option value="Microsoft David">Microsoft David (en-US)</option>
-                      <option value="Microsoft Zira">Microsoft Zira (en-US)</option>
-                    </>
-                  )}
+                  <optgroup label={lang === 'ar' ? 'أصوات مايكروسوفت الطبيعية (Microsoft Online Voices)' : 'Microsoft Online Voices (Neural)'}>
+                    {EDGE_NEURAL_VOICES.map((ev) => (
+                      <option key={ev.id} value={ev.id}>
+                        {lang === 'ar' ? `${ev.nameAr} (${ev.id.split('-')[0]})` : ev.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
 

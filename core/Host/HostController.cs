@@ -438,8 +438,8 @@ public sealed class HostController : IDisposable
         {
             var request = Json.Deserialize<AudioSpeakTtsPayload>(payload ?? default);
             if (string.IsNullOrWhiteSpace(request?.Text)) return new { ok = false, error = "MISSING_TEXT" };
-            var success = await _ttsService.SpeakAsync(request.Text, request.VoiceName, request.Rate, request.Pitch, request.Volume, ct).ConfigureAwait(false);
-            return new { ok = success };
+            var result = await _ttsService.SpeakAsync(request.Text, request.VoiceName, request.Rate, request.Pitch, request.Volume, ct).ConfigureAwait(false);
+            return new { ok = result.Ok, playedOnHost = result.PlayedOnHost, audioBase64 = result.AudioBase64 };
         });
         _dispatcher.Register(Channels.LogAppend, (payload, _) =>
         {

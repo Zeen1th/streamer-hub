@@ -1,9 +1,9 @@
-using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace StreamerHub.Core.Audio;
+
+public readonly record struct TtsSpeakResult(bool Ok, bool PlayedOnHost, string? AudioBase64);
 
 public sealed class WindowsTtsService : IDisposable
 {
@@ -28,28 +28,37 @@ public sealed class WindowsTtsService : IDisposable
         }
     }
 
-    public async Task<bool> SpeakAsync(string text, string? voiceName = null, double? rate = 1.0, double? pitch = 1.0, double? volume = 1.0, CancellationToken ct = default)
+    public async Task<TtsSpeakResult> SpeakAsync(string text, string? voiceName = null, double? rate = 1.0, double? pitch = 1.0, double? volume = 1.0, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(text)) return false;
+        if (string.IsNullOrWhiteSpace(text)) return new TtsSpeakResult(false, false, null);
 
         await _lock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_disposed) return false;
+            if (_disposed) return new TtsSpeakResult(false, false, null);
 
-            string wavPath = await SynthesizeToWavAsync(text.Trim(), voiceName, ct).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(wavPath) || !File.Exists(wavPath))
+            string trimmedText = text.Trim();
+
+            // ONLY synthesize using Microsoft Online Neural Voices (Edge TTS) - NO offline/robotic fallback
+            string mp3Path = await SynthesizeWithEdgeTtsAsync(trimmedText, voiceName, rate, pitch, volume, ct).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(mp3Path) || !File.Exists(mp3Path))
             {
-                LogMessage?.Invoke("Failed to generate TTS audio file.");
-                return false;
+                LogMessage?.Invoke("Edge TTS online synthesis failed to produce audio.");
+                return new TtsSpeakResult(false, false, null);
             }
 
-            return await _soundPlayer.PlayAsync(wavPath, volume, ct).ConfigureAwait(false);
+            // Read audio bytes to base64 for WebView2 HTML5 playback fallback
+            byte[] fileBytes = await File.ReadAllBytesAsync(mp3Path, ct).ConfigureAwait(false);
+            string base64Audio = Convert.ToBase64String(fileBytes);
+
+            // Attempt host desktop playback (mciSendStringW with WMP COM backup)
+            bool playedOnHost = await _soundPlayer.PlayAsync(mp3Path, volume, ct).ConfigureAwait(false);
+            return new TtsSpeakResult(true, playedOnHost, base64Audio);
         }
         catch (Exception ex)
         {
             LogMessage?.Invoke($"Error in TTS SpeakAsync: {ex.Message}");
-            return false;
+            return new TtsSpeakResult(false, false, null);
         }
         finally
         {
@@ -57,74 +66,23 @@ public sealed class WindowsTtsService : IDisposable
         }
     }
 
-    private async Task<string> SynthesizeToWavAsync(string text, string? requestedVoice, CancellationToken ct)
+    private async Task<string> SynthesizeWithEdgeTtsAsync(string text, string? requestedVoice, double? rate, double? pitch, double? volume, CancellationToken ct)
     {
-        bool isArabic = Regex.IsMatch(text, @"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]");
         string safeVoice = requestedVoice?.Trim() ?? "";
-
-        // Compute cache key
-        string rawKey = $"{text}::{safeVoice}::{isArabic}";
+        string rawKey = $"edge::{text}::{safeVoice}::{(rate ?? 1.0):F2}::{(pitch ?? 1.0):F2}";
         using var md5 = MD5.Create();
         string hash = Convert.ToHexString(md5.ComputeHash(Encoding.UTF8.GetBytes(rawKey)));
-        string cachedFile = Path.Combine(_cacheDir, $"tts_{hash}.wav");
+        string cachedFile = Path.Combine(_cacheDir, $"edge_tts_{hash}.mp3");
 
         if (File.Exists(cachedFile) && new FileInfo(cachedFile).Length > 100)
         {
             return cachedFile;
         }
 
-        string base64Text = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
-        string escapedCachedPath = cachedFile.Replace("'", "''");
-        string escapedVoice = safeVoice.Replace("'", "''");
-
-        string psScript = $$"""
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-[Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media, ContentType = WindowsRuntime] | Out-Null
-$synth = New-Object Windows.Media.SpeechSynthesis.SpeechSynthesizer
-$isArabic = {{(isArabic ? "$true" : "$false")}}
-$voiceName = '{{escapedVoice}}'
-
-if ($voiceName -ne '') {
-    $matched = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | Where-Object { $_.DisplayName -eq $voiceName -or $_.Id -like "*$voiceName*" } | Select-Object -First 1
-    if ($matched) { $synth.Voice = $matched }
-} elseif ($isArabic) {
-    $arVoice = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | Where-Object { $_.Language -like 'ar*' } | Select-Object -First 1
-    if ($arVoice) { $synth.Voice = $arVoice }
-}
-
-$rawText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{{base64Text}}'))
-$asyncOp = $synth.SynthesizeTextToStreamAsync($rawText)
-$asTaskGeneric = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' }
-$asTask = $asTaskGeneric[0].MakeGenericMethod([Windows.Media.SpeechSynthesis.SpeechSynthesisStream])
-$stream = $asTask.Invoke($null, @($asyncOp)).Result
-$bytes = New-Object byte[] $stream.Size
-$reader = New-Object Windows.Storage.Streams.DataReader $stream
-[System.WindowsRuntimeSystemExtensions]::AsTask($reader.LoadAsync($stream.Size)).Wait()
-$reader.ReadBytes($bytes)
-[System.IO.File]::WriteAllBytes('{{escapedCachedPath}}', $bytes)
-""";
-
-        var psi = new ProcessStartInfo
+        byte[]? audioBytes = await EdgeTtsClient.SynthesizeAsync(text, safeVoice, rate, pitch, volume, ct).ConfigureAwait(false);
+        if (audioBytes != null && audioBytes.Length > 0)
         {
-            FileName = "powershell.exe",
-            Arguments = "-NoProfile -ExecutionPolicy Bypass -Command -",
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = new Process { StartInfo = psi };
-        process.Start();
-
-        await process.StandardInput.WriteAsync(psScript).ConfigureAwait(false);
-        process.StandardInput.Close();
-
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
-
-        if (File.Exists(cachedFile) && new FileInfo(cachedFile).Length > 100)
-        {
+            await File.WriteAllBytesAsync(cachedFile, audioBytes, ct).ConfigureAwait(false);
             return cachedFile;
         }
 

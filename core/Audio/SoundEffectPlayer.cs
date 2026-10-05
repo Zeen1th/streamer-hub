@@ -5,7 +5,7 @@ namespace StreamerHub.Core.Audio;
 
 public sealed class SoundEffectPlayer : IDisposable
 {
-    [DllImport("winmm.dll", EntryPoint = "mciSendStringA", CharSet = CharSet.Ansi)]
+    [DllImport("winmm.dll", EntryPoint = "mciSendStringW", CharSet = CharSet.Unicode)]
     private static extern int mciSendString(string lpstrCommand, StringBuilder? lpstrReturnString, int uReturnLength, IntPtr hwndCallback);
 
     public event Action<string>? LogMessage;
@@ -32,6 +32,24 @@ public sealed class SoundEffectPlayer : IDisposable
 
             if (hr != 0)
             {
+                // Fallback to Windows Media Player OCX if MCI is unavailable
+                try
+                {
+                    var wmpType = Type.GetTypeFromProgID("WMPlayer.OCX");
+                    if (wmpType != null)
+                    {
+                        dynamic? wmp = Activator.CreateInstance(wmpType);
+                        if (wmp != null)
+                        {
+                            wmp.settings.volume = (int)Math.Round(Math.Clamp(volume ?? 1.0, 0.0, 1.0) * 100.0);
+                            wmp.URL = filePath;
+                            wmp.controls.play();
+                            return Task.FromResult(true);
+                        }
+                    }
+                }
+                catch { }
+
                 LogMessage?.Invoke($"Failed to open sound effect: {filePath} (MCI error {hr})");
                 return Task.FromResult(false);
             }

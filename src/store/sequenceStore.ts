@@ -669,60 +669,6 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
           return Boolean(res?.ok);
         },
         speakTts: async (text, voiceName, rate, pitch, volume) => {
-          const isArabic = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
-          let browserSpoke = false;
-
-          if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-            browserSpoke = await new Promise<boolean>((resolve) => {
-              try {
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(text);
-                if (rate != null) utterance.rate = Math.max(0.1, Math.min(rate, 2.0));
-                if (pitch != null) utterance.pitch = Math.max(0.1, Math.min(pitch, 2.0));
-                if (volume != null) utterance.volume = Math.max(0.0, Math.min(volume, 1.0));
-
-                utterance.lang = isArabic ? 'ar-SA' : 'en-US';
-
-                const voices = window.speechSynthesis.getVoices();
-                const isArVoice = (v: SpeechSynthesisVoice) =>
-                  v.lang.toLowerCase().startsWith('ar') ||
-                  /arabic|naayf|hoda|tarik|zeina|salma|shakir|maged|leila/i.test(v.name);
-
-                let matched: SpeechSynthesisVoice | undefined;
-                if (voiceName) {
-                  matched = voices.find((v) => v.name === voiceName || v.voiceURI === voiceName);
-                }
-
-                if (isArabic) {
-                  if (!matched || !isArVoice(matched)) {
-                    const fallbackAr = voices.find(isArVoice);
-                    if (fallbackAr) matched = fallbackAr;
-                  }
-                }
-
-                if (matched) {
-                  utterance.voice = matched;
-                  if (matched.lang) utterance.lang = matched.lang;
-                }
-
-                // If text is Arabic but browser does not have any Arabic voice installed, fallback to backend
-                if (isArabic && (!utterance.voice || !isArVoice(utterance.voice))) {
-                  resolve(false);
-                  return;
-                }
-
-                utterance.onend = () => resolve(true);
-                utterance.onerror = () => resolve(false);
-                window.speechSynthesis.speak(utterance);
-              } catch {
-                resolve(false);
-              }
-            });
-
-            if (browserSpoke) return true;
-          }
-
-          // Fallback to backend Windows WinRT SpeechSynthesis
           try {
             const res = await rpc.invoke(Channels.AudioSpeakTts, {
               text,
@@ -731,10 +677,22 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
               pitch,
               volume,
             });
-            return Boolean(res?.ok);
-          } catch {
-            return false;
-          }
+            if (res?.ok) {
+              // If not played directly by host desktop player, play via WebView2 HTML5 Audio
+              if (!res.playedOnHost && res.audioBase64) {
+                const audio = new Audio(`data:audio/mp3;base64,${res.audioBase64}`);
+                audio.volume = Math.max(0, Math.min(volume ?? 1.0, 1.0));
+                await new Promise<void>((resolve) => {
+                  audio.onended = () => resolve();
+                  audio.onerror = () => resolve();
+                  audio.play().catch(() => resolve());
+                });
+              }
+              return true;
+            }
+          } catch { }
+
+          return false;
         },
         writeObsText: async (filePath, content) => {
           const res = await rpc.invoke(Channels.ObsWrite, { filePath, content });

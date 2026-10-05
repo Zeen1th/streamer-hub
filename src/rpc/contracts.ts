@@ -839,7 +839,7 @@ export interface HostApi {
   [Channels.VotesGenerateAi]: { request: GenerateAiPollPayload; response: GenerateAiPollResponse };
   [Channels.AudioPlaySound]: { request: { soundPath: string; volume?: number }; response: { ok: boolean; error?: string } };
   [Channels.AudioMuteMic]: { request: { durationSeconds: number }; response: { ok: boolean; error?: string } };
-  [Channels.AudioSpeakTts]: { request: { text: string; voiceName?: string; rate?: number; pitch?: number; volume?: number }; response: { ok: boolean; error?: string } };
+  [Channels.AudioSpeakTts]: { request: { text: string; voiceName?: string; rate?: number; pitch?: number; volume?: number }; response: { ok: boolean; audioBase64?: string; playedOnHost?: boolean; error?: string } };
   [Channels.DialogOpenFile]: { request: { filter?: string; title?: string }; response: { path: string | null } };
   [Channels.AlertsGetFfmpegStatus]: { request: undefined; response: FfmpegStatus };
   [Channels.AlertsDownloadFfmpeg]: { request: undefined; response: { ok: boolean; status: FfmpegStatus } };

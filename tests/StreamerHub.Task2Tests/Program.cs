@@ -22,12 +22,25 @@ await RunAsync("pending_remod_manager_calculates_backoff_and_records_retries", P
 await RunAsync("parse_privmsg_extracts_lead_moderator_badge", ParsePrivmsgExtractsLeadModeratorBadgeAsync);
 await RunAsync("parse_privmsg_with_emotes_and_replies_extracts_correct_login", ParsePrivmsgWithEmotesAndRepliesExtractsCorrectLoginAsync);
 await RunAsync("test_windows_mic", TestWindowsMicAsync);
+await RunAsync("test_edge_tts_william", TestEdgeTtsWilliamAsync);
 
 Task TestWindowsMicAsync()
 {
     using var mic = new StreamerHub.Core.Audio.WindowsMicController();
     mic.SetMicrophoneMute(false);
     return Task.CompletedTask;
+}
+
+async Task TestEdgeTtsWilliamAsync()
+{
+    using var soundPlayer = new StreamerHub.Core.Audio.SoundEffectPlayer();
+    soundPlayer.LogMessage += msg => Console.WriteLine($"[SOUND PLAYER] {msg}");
+    using var tts = new StreamerHub.Core.Audio.WindowsTtsService(soundPlayer);
+    tts.LogMessage += msg => Console.WriteLine($"[TTS SERVICE] {msg}");
+
+    var result = await tts.SpeakAsync("مرحبا بك يا بطل! Hello friend!", "en-AU-WilliamMultilingualNeural");
+    Console.WriteLine($"[TTS SPEAK RESULT] Ok={result.Ok}, PlayedOnHost={result.PlayedOnHost}, AudioBytes={result.AudioBase64?.Length ?? 0}");
+    if (!result.Ok) throw new InvalidOperationException("TTS SpeakAsync failed.");
 }
 
 if (failures.Count > 0)
