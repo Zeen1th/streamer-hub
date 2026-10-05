@@ -56,6 +56,7 @@ import { normalizeTriggers, useSequenceStore } from '../../store/sequenceStore';
 import { useCounterStore } from '../../store/counterStore';
 import { useConnectionStore } from '../../store/connectionStore';
 import { useSettingsStore } from '../../store/settingsStore';
+import { useToolStore } from '../../store/toolStore';
 import { DEFAULT_DUEL_MESSAGES } from '../../lib/duelGameManager';
 import { t } from '../../i18n/translations';
 import { Button } from '../ui/Button';
@@ -472,6 +473,9 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   const obsConnected = useSequenceStore((s) => s.obsConnected);
   const fetchObsAudioSources = useSequenceStore((s) => s.fetchObsAudioSources);
   const isLoadingObsSources = useSequenceStore((s) => s.isLoadingObsSources);
+  const connectObs = useSequenceStore((s) => s.connectObs);
+  const autoDetectObs = useSequenceStore((s) => s.autoDetectObs);
+  const [isConnectingObs, setIsConnectingObs] = useState(false);
 
   // OBS Image state
   const [imagePath, setImagePath] = useState(step.imagePath ?? '');
@@ -621,6 +625,29 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
     } finally {
       setTimeout(() => setIsTestMuting(false), 3000);
     }
+  };
+
+  const handleQuickConnectObs = async () => {
+    setIsConnectingObs(true);
+    try {
+      const detected = await autoDetectObs();
+      const res = await connectObs({
+        host: detected.host || '127.0.0.1',
+        port: detected.port || 4455,
+        password: detected.password || '',
+      });
+      if (res.ok) {
+        await fetchObsAudioSources();
+      }
+    } finally {
+      setIsConnectingObs(false);
+    }
+  };
+
+  const handleOpenObsSettings = () => {
+    useToolStore.getState().setActiveTool('settings');
+    useToolStore.getState().setSection('obs');
+    onClose();
   };
 
   const handleApply = () => {
@@ -1336,10 +1363,52 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                 </p>
               </div>
 
-              {!obsConnected && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
-                  <Info size={14} className="mt-0.5 shrink-0 text-amber-400" />
-                  <span>{t(lang, 'sequence.obsDisconnectedNotice')}</span>
+              {!obsConnected ? (
+                <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-[11.5px] text-amber-200">
+                  <div className="flex items-start gap-2">
+                    <Info size={14} className="mt-0.5 shrink-0 text-amber-400" />
+                    <span>{t(lang, 'sequence.obsDisconnectedNotice')}</span>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 border-t border-amber-500/20">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void handleQuickConnectObs()}
+                      disabled={isConnectingObs}
+                      className="h-6.5 gap-1.5 px-2.5 text-[11px] font-medium bg-amber-500 hover:bg-amber-400 text-black border-none"
+                    >
+                      {isConnectingObs ? (
+                        <RefreshCw size={11} className="animate-spin" />
+                      ) : (
+                        <Zap size={11} />
+                      )}
+                      <span>{t(lang, 'sequence.autoDetectAndConnect')}</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleOpenObsSettings}
+                      className="h-6.5 gap-1 px-2 text-[11px] text-amber-300 hover:text-white hover:bg-amber-500/20"
+                    >
+                      <Sliders size={11} />
+                      <span>{t(lang, 'sequence.openObsSettings')}</span>
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] text-emerald-300">
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>{t(lang, 'sequence.obsConnectedStatus', { n: availableObsAudioSources.length })}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleOpenObsSettings}
+                    className="text-[10.5px] text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    {t(lang, 'sequence.openObsSettings')}
+                  </button>
                 </div>
               )}
 
@@ -1662,7 +1731,56 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                 </div>
 
                 {duelAllowBroadcaster && (
-                  <div className="mt-2 flex flex-col gap-1.5 border-t border-white/[0.06] pt-2.5">
+                  <div className="mt-2 flex flex-col gap-2.5 border-t border-white/[0.06] pt-2.5">
+                    {!obsConnected ? (
+                      <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
+                        <div className="flex items-start gap-2">
+                          <Info size={13} className="mt-0.5 shrink-0 text-amber-400" />
+                          <span>{t(lang, 'sequence.obsDisconnectedNotice')}</span>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1 border-t border-amber-500/20">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => void handleQuickConnectObs()}
+                            disabled={isConnectingObs}
+                            className="h-6 gap-1.5 px-2 text-[10.5px] font-medium bg-amber-500 hover:bg-amber-400 text-black border-none"
+                          >
+                            {isConnectingObs ? (
+                              <RefreshCw size={10} className="animate-spin" />
+                            ) : (
+                              <Zap size={10} />
+                            )}
+                            <span>{t(lang, 'sequence.autoDetectAndConnect')}</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={handleOpenObsSettings}
+                            className="h-6 gap-1 px-1.5 text-[10.5px] text-amber-300 hover:text-white hover:bg-amber-500/20"
+                          >
+                            <Sliders size={10} />
+                            <span>{t(lang, 'sequence.openObsSettings')}</span>
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10.5px] text-emerald-300">
+                        <div className="flex items-center gap-1.5">
+                          <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span>{t(lang, 'sequence.obsConnectedStatus', { n: availableObsAudioSources.length })}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleOpenObsSettings}
+                          className="text-[10px] text-emerald-400 hover:underline cursor-pointer"
+                        >
+                          {t(lang, 'sequence.openObsSettings')}
+                        </button>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between">
                       <label className="font-sans text-[11.5px] font-medium text-zinc-300">
                         {t(lang, 'sequence.duelBroadcasterMuteSource')}

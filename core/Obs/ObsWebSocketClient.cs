@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 namespace StreamerHub.Core.Obs;
 
 public sealed record ObsAudioSourceInfo(string Name, string Kind, bool Muted);
+public sealed record ObsAutoDetectResult(bool Found, string Host, int Port, string Password, bool AuthRequired, string? ConfigPath);
 
 public sealed class ObsWebSocketClient : IAsyncDisposable
 {
@@ -25,8 +26,32 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
     public bool IsConnected => _ws?.State == WebSocketState.Open && _isIdentified;
     public string Host => _host;
     public int Port => _port;
+    public string Password => _password;
     public bool HasPassword => !string.IsNullOrEmpty(_password);
     public string? LastError { get; private set; }
+
+    public static ObsAutoDetectResult TryAutoDetectLocalConfig()
+    {
+        try
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var configPath = Path.Combine(appData, "obs-studio", "plugin_config", "obs-websocket", "config.json");
+            if (File.Exists(configPath))
+            {
+                var text = File.ReadAllText(configPath);
+                using var doc = JsonDocument.Parse(text);
+                var root = doc.RootElement;
+                var port = root.TryGetProperty("server_port", out var p) ? p.GetInt32() : 4455;
+                var password = root.TryGetProperty("server_password", out var pw) ? pw.GetString() ?? string.Empty : string.Empty;
+                var authRequired = root.TryGetProperty("auth_required", out var ar) && ar.GetBoolean();
+                return new ObsAutoDetectResult(true, "127.0.0.1", port, password, authRequired, configPath);
+            }
+        }
+        catch
+        {
+        }
+        return new ObsAutoDetectResult(false, "127.0.0.1", 4455, string.Empty, false, null);
+    }
 
     public event Action<bool>? ConnectionChanged;
     public event Action<string>? LogMessage;
@@ -319,12 +344,30 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         var result = new List<ObsAudioSourceInfo>();
         if (!IsConnected) return result;
 
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         try
         {
-            var res = await SendRequestAsync("GetInputList", null, ct).ConfigureAwait(false);
-            if (res == null) return result;
+            // 1. Query special/global audio inputs (Mic/Aux, Desktop Audio, etc.)
+            var specialRes = await SendRequestAsync("GetSpecialInputs", null, ct).ConfigureAwait(false);
+            if (specialRes != null && specialRes.Value.TryGetProperty("responseData", out var specData))
+            {
+                foreach (var prop in specData.EnumerateObject())
+                {
+                    var sourceName = prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(sourceName) && seenNames.Add(sourceName))
+                    {
+                        var isMuted = await GetInputMuteSafeAsync(sourceName, ct).ConfigureAwait(false);
+                        var kind = prop.Name.StartsWith("mic", StringComparison.OrdinalIgnoreCase) ? "wasapi_input_capture" : "wasapi_output_capture";
+                        result.Add(new ObsAudioSourceInfo(sourceName, kind, isMuted));
+                    }
+                }
+            }
 
-            if (res.Value.TryGetProperty("responseData", out var respData) &&
+            // 2. Query all scene inputs from GetInputList
+            var res = await SendRequestAsync("GetInputList", null, ct).ConfigureAwait(false);
+            if (res != null &&
+                res.Value.TryGetProperty("responseData", out var respData) &&
                 respData.TryGetProperty("inputs", out var inputsElem) &&
                 inputsElem.ValueKind == JsonValueKind.Array)
             {
@@ -332,20 +375,28 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
                 {
                     var name = input.TryGetProperty("inputName", out var n) ? n.GetString() : null;
                     var kind = input.TryGetProperty("inputKind", out var k) ? k.GetString() : null;
+                    var caps = input.TryGetProperty("inputKindCaps", out var c) ? c.GetInt64() : 0;
                     if (string.IsNullOrWhiteSpace(name)) continue;
 
-                    // Query mute state for this input
-                    var muteData = new JsonObject { ["inputName"] = name };
-                    var muteRes = await SendRequestAsync("GetInputMute", muteData, ct).ConfigureAwait(false);
-                    var isMuted = false;
-                    if (muteRes != null &&
-                        muteRes.Value.TryGetProperty("responseData", out var md) &&
-                        md.TryGetProperty("inputMuted", out var im))
-                    {
-                        isMuted = im.GetBoolean();
-                    }
+                    if (seenNames.Contains(name)) continue;
 
-                    result.Add(new ObsAudioSourceInfo(name, kind ?? "unknown", isMuted));
+                    // Filter to audio sources:
+                    // In OBS libobs: OBS_SOURCE_AUDIO = (1 << 1) = 2
+                    var hasAudioCap = (caps & 2) != 0;
+                    var isAudioKind = kind != null && (
+                        kind.Contains("audio", StringComparison.OrdinalIgnoreCase) ||
+                        kind.Contains("wasapi", StringComparison.OrdinalIgnoreCase) ||
+                        kind.Contains("capture", StringComparison.OrdinalIgnoreCase) ||
+                        kind.Contains("input", StringComparison.OrdinalIgnoreCase) ||
+                        kind.Contains("output", StringComparison.OrdinalIgnoreCase) ||
+                        kind.Contains("mic", StringComparison.OrdinalIgnoreCase)
+                    );
+
+                    if (!hasAudioCap && !isAudioKind) continue;
+
+                    var isMuted = await GetInputMuteSafeAsync(name, ct).ConfigureAwait(false);
+                    seenNames.Add(name);
+                    result.Add(new ObsAudioSourceInfo(name, kind ?? "wasapi_input_capture", isMuted));
                 }
             }
         }
@@ -355,6 +406,23 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         }
 
         return result;
+    }
+
+    private async Task<bool> GetInputMuteSafeAsync(string inputName, CancellationToken ct)
+    {
+        try
+        {
+            var muteData = new JsonObject { ["inputName"] = inputName };
+            var muteRes = await SendRequestAsync("GetInputMute", muteData, ct).ConfigureAwait(false);
+            if (muteRes != null &&
+                muteRes.Value.TryGetProperty("responseData", out var md) &&
+                md.TryGetProperty("inputMuted", out var im))
+            {
+                return im.GetBoolean();
+            }
+        }
+        catch { }
+        return false;
     }
 
     public async Task<bool> SetInputMuteAsync(string inputName, bool mute, CancellationToken ct = default)

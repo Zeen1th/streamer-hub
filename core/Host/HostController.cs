@@ -503,24 +503,57 @@ public sealed class HostController : IDisposable
         });
         _dispatcher.Register(Channels.ObsWebsocketGetStatus, (_, _) =>
         {
+            var obsSettings = _settings.GetObsSettings();
             return Task.FromResult<object?>(new
             {
                 connected = _obsWs.IsConnected,
                 host = _obsWs.Host,
                 port = _obsWs.Port,
                 hasPassword = _obsWs.HasPassword,
+                password = _obsWs.Password,
+                autoConnect = obsSettings.AutoConnect,
                 error = _obsWs.LastError
             });
         });
         _dispatcher.Register(Channels.ObsWebsocketConnect, async (payload, ct) =>
         {
             var req = Json.Deserialize<ObsConnectPayload>(payload ?? default);
-            if (req is not null)
+            var host = !string.IsNullOrWhiteSpace(req?.Host) ? req.Host.Trim() : _obsWs.Host;
+            var port = req?.Port is > 0 ? req.Port.Value : _obsWs.Port;
+            var password = req?.Password ?? _obsWs.Password;
+            var autoConnect = req?.AutoConnect ?? true;
+
+            _obsWs.Configure(host, port, password);
+            _settings.SaveObsSettings(new ObsSettings
             {
-                _obsWs.Configure(req.Host ?? _obsWs.Host, req.Port ?? _obsWs.Port, req.Password ?? string.Empty);
-            }
+                Host = host,
+                Port = port,
+                Password = password,
+                AutoConnect = autoConnect
+            });
+
             var connected = await _obsWs.ConnectAsync(ct).ConfigureAwait(false);
             return new { ok = connected, error = _obsWs.LastError };
+        });
+        _dispatcher.Register(Channels.ObsWebsocketDisconnect, (_, _) =>
+        {
+            _obsWs.Disconnect();
+            var obsSettings = _settings.GetObsSettings();
+            _settings.SaveObsSettings(obsSettings with { AutoConnect = false });
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.ObsWebsocketAutoDetect, (_, _) =>
+        {
+            var auto = ObsWebSocketClient.TryAutoDetectLocalConfig();
+            return Task.FromResult<object?>(new
+            {
+                found = auto.Found,
+                host = auto.Host,
+                port = auto.Port,
+                password = auto.Password,
+                authRequired = auto.AuthRequired,
+                configPath = auto.ConfigPath
+            });
         });
         _dispatcher.Register(Channels.ObsGetAudioSources, async (_, ct) =>
         {
@@ -1663,15 +1696,37 @@ public sealed class HostController : IDisposable
             PostEvent(Events.TwitchWatchStreak, streak);
             Log("trigger", $"WATCH STREAK · {streak.UserName} shared a {streak.Streak}-stream watch streak!");
         };
+        var obsInit = _settings.GetObsSettings();
+        if (string.IsNullOrWhiteSpace(obsInit.Password))
+        {
+            var detected = ObsWebSocketClient.TryAutoDetectLocalConfig();
+            if (detected.Found)
+            {
+                obsInit = obsInit with
+                {
+                    Host = detected.Host,
+                    Port = detected.Port,
+                    Password = detected.Password,
+                    AutoConnect = true
+                };
+                _settings.SaveObsSettings(obsInit);
+                Log("system", $"[OBS] Auto-detected local OBS Studio WebSocket settings on port {detected.Port}");
+            }
+        }
+
+        _obsWs.Configure(obsInit.Host, obsInit.Port, obsInit.Password);
         _obsWs.ConnectionChanged += connected =>
         {
             PostEvent(Events.ObsWebsocketStatusChanged, new { connected });
         };
         _obsWs.LogMessage += msg => Log("system", msg);
-        _ = Task.Run(async () =>
+        if (obsInit.AutoConnect)
         {
-            try { await _obsWs.ConnectAsync().ConfigureAwait(false); } catch { }
-        });
+            _ = Task.Run(async () =>
+            {
+                try { await _obsWs.ConnectAsync().ConfigureAwait(false); } catch { }
+            });
+        }
         _eventSub.ChannelTitleUpdated += updatedTitle =>
         {
             if (string.IsNullOrWhiteSpace(updatedTitle)) return;

@@ -124,8 +124,9 @@ export default function App() {
     });
     const offObsStatus = rpc.on(Events.ObsWebsocketStatusChanged, (status) => {
       useSequenceStore.getState().setObsConnected(status.connected);
+      useSequenceStore.getState().fetchObsStatus().catch(() => undefined);
       if (status.connected) {
-        useSequenceStore.getState().fetchObsAudioSources();
+        useSequenceStore.getState().fetchObsAudioSources().catch(() => undefined);
       }
     });
     const offProfile = rpc.on(Events.TwitchUserProfile, (payload) => {
@@ -204,6 +205,7 @@ export default function App() {
       try { const keys = await rpc.invoke(Channels.OpenRouterGetState); if (!disposed) useSettingsStore.getState().hydrateOpenRouter(keys.configured, keys.groqConfigured); } catch { void 0; }
       try {
         if (!disposed) {
+          useSequenceStore.getState().fetchObsStatus().catch(() => undefined);
           useSequenceStore.getState().fetchObsAudioSources().catch(() => undefined);
         }
       } catch { void 0; }

@@ -4,7 +4,7 @@ import { clampInspectorWidth, DEFAULT_INSPECTOR_WIDTH, type CommandGroup } from 
 
 export type ToolId = 'home' | 'counter' | 'autoReplies' | 'chat' | 'feed' | 'settings' | 'votes' | 'alerts';
 export type AppTab = 'home' | 'commands' | 'overlay' | 'obs-chat' | 'votes' | 'alerts' | 'activity' | 'settings';
-export type SettingsSection = 'general' | 'system' | 'keybinds' | 'twitch' | 'ai' | 'guide';
+export type SettingsSection = 'general' | 'system' | 'keybinds' | 'twitch' | 'obs' | 'ai' | 'guide';
 
 interface ToolState {
   activeTool: ToolId;

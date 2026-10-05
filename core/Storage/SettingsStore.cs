@@ -12,6 +12,14 @@ public sealed record WindowSettings
     public bool Maximized { get; init; }
 }
 
+public sealed record ObsSettings
+{
+    public string Host { get; init; } = "127.0.0.1";
+    public int Port { get; init; } = 4455;
+    public string Password { get; init; } = string.Empty;
+    public bool AutoConnect { get; init; } = true;
+}
+
 public sealed class SettingsStore : IDisposable
 {
     private sealed record SettingsDocument
@@ -26,6 +34,7 @@ public sealed class SettingsStore : IDisposable
         public List<ChatOverlayInstance> ChatOverlays { get; init; } = new();
         public ChatOverlaySettings ObsChat { get; init; } = new();
         public WindowSettings Window { get; init; } = new();
+        public ObsSettings Obs { get; init; } = new();
         public string Language { get; init; } = string.Empty;
         public bool BotAccountEnabled { get; init; }
         public string PreferredChatSender { get; init; } = "bot";
@@ -352,6 +361,20 @@ public sealed class SettingsStore : IDisposable
         lock (_lock)
         {
             _document = _document with { Window = window };
+        }
+        ScheduleSave();
+    }
+
+    public ObsSettings GetObsSettings()
+    {
+        lock (_lock) return _document.Obs;
+    }
+
+    public void SaveObsSettings(ObsSettings obs)
+    {
+        lock (_lock)
+        {
+            _document = _document with { Obs = obs };
         }
         ScheduleSave();
     }

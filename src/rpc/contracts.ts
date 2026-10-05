@@ -224,7 +224,18 @@ export interface ObsWebsocketStatus {
   host: string;
   port: number;
   hasPassword: boolean;
+  password?: string;
+  autoConnect?: boolean;
   error?: string;
+}
+
+export interface ObsAutoDetectResult {
+  found: boolean;
+  host: string;
+  port: number;
+  password?: string;
+  authRequired: boolean;
+  configPath?: string;
 }
 
 export interface SequenceStep {
@@ -709,6 +720,8 @@ export const Channels = {
   AiGenerateTrivia: 'ai/generate-trivia',
   ObsWebsocketGetStatus: 'obs/websocket-get-status',
   ObsWebsocketConnect: 'obs/websocket-connect',
+  ObsWebsocketDisconnect: 'obs/websocket-disconnect',
+  ObsWebsocketAutoDetect: 'obs/websocket-auto-detect',
   ObsGetAudioSources: 'obs/get-audio-sources',
   ObsMuteSource: 'obs/mute-source',
 } as const;
@@ -891,7 +904,9 @@ export interface HostApi {
   [Channels.ChatOverlayGetImageUrl]: { request: undefined; response: { url: string } };
   [Channels.AiGenerateTrivia]: { request: GenerateGamingQuestionPayload | undefined; response: GenerateGamingQuestionResponse };
   [Channels.ObsWebsocketGetStatus]: { request: undefined; response: ObsWebsocketStatus };
-  [Channels.ObsWebsocketConnect]: { request: { host?: string; port?: number; password?: string }; response: { ok: boolean; error?: string } };
+  [Channels.ObsWebsocketConnect]: { request: { host?: string; port?: number; password?: string; autoConnect?: boolean }; response: { ok: boolean; error?: string } };
+  [Channels.ObsWebsocketDisconnect]: { request: undefined; response: { ok: boolean } };
+  [Channels.ObsWebsocketAutoDetect]: { request: undefined; response: ObsAutoDetectResult };
   [Channels.ObsGetAudioSources]: { request: undefined; response: { ok: boolean; sources: ObsAudioSourceInfo[]; connected?: boolean; error?: string } };
   [Channels.ObsMuteSource]: { request: { sourceName?: string; durationSeconds: number }; response: { ok: boolean; error?: string; fallback?: boolean } };
 }

@@ -205,7 +205,7 @@ public sealed record AudioPlaySoundPayload(string? SoundPath, double? Volume = 1
 public sealed record AudioMuteMicPayload(int DurationSeconds);
 public sealed record AudioSpeakTtsPayload(string? Text, string? VoiceName = null, double? Rate = 1.0, double? Pitch = 1.0, double? Volume = 1.0);
 public sealed record OpenFilePayload(string? Filter = null, string? Title = null);
-public sealed record ObsConnectPayload(string? Host = null, int? Port = null, string? Password = null);
+public sealed record ObsConnectPayload(string? Host = null, int? Port = null, string? Password = null, bool? AutoConnect = null);
 public sealed record ObsMuteSourcePayload(string SourceName, int DurationSeconds);
 
 public sealed record ActionTrigger

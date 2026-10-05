@@ -24,6 +24,14 @@ await RunAsync("parse_privmsg_extracts_lead_moderator_badge", ParsePrivmsgExtrac
 await RunAsync("parse_privmsg_with_emotes_and_replies_extracts_correct_login", ParsePrivmsgWithEmotesAndRepliesExtractsCorrectLoginAsync);
 await RunAsync("test_windows_mic", TestWindowsMicAsync);
 await RunAsync("test_edge_tts_william", TestEdgeTtsWilliamAsync);
+await RunAsync("test_obs_autodetect_local_config", TestObsAutoDetectLocalConfigAsync);
+
+Task TestObsAutoDetectLocalConfigAsync()
+{
+    var res = StreamerHub.Core.Obs.ObsWebSocketClient.TryAutoDetectLocalConfig();
+    Console.WriteLine($"[OBS AUTO-DETECT] Found={res.Found}, Host={res.Host}, Port={res.Port}, Auth={res.AuthRequired}, PasswordLength={res.Password.Length}");
+    return Task.CompletedTask;
+}
 
 Task TestWindowsMicAsync()
 {
@@ -55,7 +63,7 @@ if (failures.Count > 0)
     return;
 }
 
-Console.WriteLine("PASS 17/17");
+Console.WriteLine("PASS 18/18");
 
 async Task RunAsync(string name, Func<Task> test)
 {

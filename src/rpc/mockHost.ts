@@ -354,6 +354,21 @@ export class MockHost {
       case 'obs/websocket-connect':
         this.respond(request, { ok: true });
         break;
+      case Channels.ObsWebsocketDisconnect:
+      case 'obs/websocket-disconnect':
+        this.respond(request, { ok: true });
+        break;
+      case Channels.ObsWebsocketAutoDetect:
+      case 'obs/websocket-auto-detect':
+        this.respond(request, {
+          found: true,
+          host: '127.0.0.1',
+          port: 4455,
+          password: 'mock_password_123',
+          authRequired: true,
+          configPath: 'C:\\Users\\Mock\\AppData\\Roaming\\obs-studio\\plugin_config\\obs-websocket\\config.json',
+        });
+        break;
       case Channels.ObsGetAudioSources:
       case 'obs/get-audio-sources':
         this.respond(request, {

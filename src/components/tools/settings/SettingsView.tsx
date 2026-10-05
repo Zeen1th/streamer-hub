@@ -15,6 +15,7 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Switch } from '../../ui/Switch';
 import { TriggerGlobalSettings } from '../auto-replies/TriggerGlobalSettings';
 import { KeybindSettings } from './KeybindSettings';
+import { ObsSettings } from './ObsSettings';
 
 export function SettingsView() {
   const activeSection = useToolStore((s) => s.section);
@@ -60,6 +61,7 @@ export function SettingsView() {
     { id: 'system', label: t(lang, 'settings.sectionWindow') },
     { id: 'keybinds', label: lang === 'ar' ? 'الاختصارات' : 'Keybinds' },
     { id: 'twitch', label: t(lang, 'settings.sectionTwitch') },
+    { id: 'obs', label: t(lang, 'settings.sectionObs') },
     { id: 'ai', label: t(lang, 'settings.sectionAi') },
     { id: 'guide', label: t(lang, 'settings.sectionGuide') },
   ];
@@ -455,6 +457,13 @@ export function SettingsView() {
               </div>
             </Card>
           </div>
+        </section>
+      )}
+
+      {/* SECTION: OBS Studio Integration */}
+      {activeSection === 'obs' && (
+        <section className="space-y-6">
+          <ObsSettings />
         </section>
       )}
 

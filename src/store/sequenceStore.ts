@@ -7,6 +7,8 @@ import type {
   CommandSequence,
   CounterAction,
   ObsAudioSourceInfo,
+  ObsAutoDetectResult,
+  ObsWebsocketStatus,
   SequenceStep,
   SequenceStepType,
   TwitchFollowEvent,
@@ -39,6 +41,7 @@ interface SequenceState {
   isLoadingRewards: boolean;
   availableObsAudioSources: ObsAudioSourceInfo[];
   obsConnected: boolean;
+  obsStatus: ObsWebsocketStatus | null;
   isLoadingObsSources: boolean;
   activeRunningSequenceId: string | null;
   activeRunningStepIndex: number | null;
@@ -46,6 +49,10 @@ interface SequenceState {
   hydrate(sequences: CommandSequence[]): void;
   fetchAvailableRewards(): Promise<void>;
   fetchObsAudioSources(): Promise<void>;
+  fetchObsStatus(): Promise<void>;
+  connectObs(options?: { host?: string; port?: number; password?: string }): Promise<{ ok: boolean; error?: string }>;
+  disconnectObs(): Promise<void>;
+  autoDetectObs(): Promise<ObsAutoDetectResult>;
   setObsConnected(connected: boolean): void;
   add(name?: string, options?: Partial<CommandSequence>): string;
   addSmartModTimeoutPreset(): string;
@@ -259,6 +266,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
   isLoadingRewards: false,
   availableObsAudioSources: [],
   obsConnected: false,
+  obsStatus: null,
   isLoadingObsSources: false,
   activeRunningSequenceId: null,
   activeRunningStepIndex: null,
@@ -310,6 +318,54 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
       // Ignored if not connected
     } finally {
       set({ isLoadingObsSources: false });
+    }
+  },
+
+  fetchObsStatus: async () => {
+    try {
+      const status = await rpc.invoke(Channels.ObsWebsocketGetStatus);
+      if (status) {
+        set({
+          obsStatus: status,
+          obsConnected: Boolean(status.connected),
+        });
+      }
+    } catch {
+      // Ignored
+    }
+  },
+
+  connectObs: async (options) => {
+    set({ isLoadingObsSources: true });
+    try {
+      const res = await rpc.invoke(Channels.ObsWebsocketConnect, options || {});
+      await get().fetchObsStatus();
+      if (res.ok) {
+        await get().fetchObsAudioSources();
+      }
+      return res;
+    } catch (e: any) {
+      return { ok: false, error: e?.message || 'Connection failed' };
+    } finally {
+      set({ isLoadingObsSources: false });
+    }
+  },
+
+  disconnectObs: async () => {
+    try {
+      await rpc.invoke(Channels.ObsWebsocketDisconnect);
+      set({ obsConnected: false, availableObsAudioSources: [] });
+      await get().fetchObsStatus();
+    } catch {
+      // Ignored
+    }
+  },
+
+  autoDetectObs: async () => {
+    try {
+      return await rpc.invoke(Channels.ObsWebsocketAutoDetect);
+    } catch {
+      return { found: false, host: '127.0.0.1', port: 4455, authRequired: false };
     }
   },
 

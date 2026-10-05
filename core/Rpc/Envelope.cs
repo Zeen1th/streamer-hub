@@ -119,6 +119,8 @@ public static class Channels
     public const string AiGenerateTrivia = "ai/generate-trivia";
     public const string ObsWebsocketGetStatus = "obs/websocket-get-status";
     public const string ObsWebsocketConnect = "obs/websocket-connect";
+    public const string ObsWebsocketDisconnect = "obs/websocket-disconnect";
+    public const string ObsWebsocketAutoDetect = "obs/websocket-auto-detect";
     public const string ObsGetAudioSources = "obs/get-audio-sources";
     public const string ObsMuteSource = "obs/mute-source";
 }
