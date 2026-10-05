@@ -1,20 +1,19 @@
 import { useEffect, useState } from 'react';
 import {
-  AlertCircle,
+  BarChart3,
   Check,
+  Copy,
+  ExternalLink,
   Eye,
   EyeOff,
-  Mic,
-  MicOff,
+  Image as ImageIcon,
+  Layers,
+  MessageSquare,
   Radio,
   RefreshCw,
   Sparkles,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
 import { t } from '../../../i18n/translations';
-import { rpc } from '../../../rpc';
-import { Channels } from '../../../rpc/contracts';
 import { useSequenceStore } from '../../../store/sequenceStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { Button } from '../../ui/Button';
@@ -28,10 +27,7 @@ export function ObsSettings() {
 
   const obsConnected = useSequenceStore((s) => s.obsConnected);
   const obsStatus = useSequenceStore((s) => s.obsStatus);
-  const availableObsAudioSources = useSequenceStore((s) => s.availableObsAudioSources);
-  const isLoadingObsSources = useSequenceStore((s) => s.isLoadingObsSources);
   const fetchObsStatus = useSequenceStore((s) => s.fetchObsStatus);
-  const fetchObsAudioSources = useSequenceStore((s) => s.fetchObsAudioSources);
   const connectObs = useSequenceStore((s) => s.connectObs);
   const disconnectObs = useSequenceStore((s) => s.disconnectObs);
   const autoDetectObs = useSequenceStore((s) => s.autoDetectObs);
@@ -45,12 +41,11 @@ export function ObsSettings() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [testingSource, setTestingSource] = useState<string | null>(null);
+  const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
 
   useEffect(() => {
     void fetchObsStatus();
-    void fetchObsAudioSources();
-  }, [fetchObsStatus, fetchObsAudioSources]);
+  }, [fetchObsStatus]);
 
   useEffect(() => {
     if (obsStatus) {
@@ -98,24 +93,22 @@ export function ObsSettings() {
     try {
       const detected = await autoDetectObs();
       if (detected.found) {
-        setHost(detected.host || '127.0.0.1');
-        setPort(String(detected.port || 4455));
-        if (detected.password) {
-          setPassword(detected.password);
-        }
+        setHost(detected.host);
+        setPort(String(detected.port));
+        setPassword(detected.password || '');
         setFeedback({
           type: 'success',
           message: t(lang, 'settings.obsAutoDetectSuccess'),
         });
 
-        // Automatically connect with the detected settings
-        setIsConnecting(true);
-        const res = await connectObs({
-          host: detected.host || '127.0.0.1',
-          port: detected.port || 4455,
-          password: detected.password || '',
-        });
-        if (res.ok) {
+        // Automatically trigger connect if not already connected
+        if (!obsConnected) {
+          setIsConnecting(true);
+          await connectObs({
+            host: detected.host,
+            port: detected.port,
+            password: detected.password || '',
+          });
           setFeedback({
             type: 'success',
             message: lang === 'ar' ? 'تم اكتشاف الإعدادات والاتصال بـ OBS بنجاح!' : 'Auto-detected settings and connected to OBS successfully!',
@@ -133,21 +126,12 @@ export function ObsSettings() {
     }
   };
 
-  const handleTestMute = async (sourceName: string) => {
-    setTestingSource(sourceName);
+  const handleCopyUrl = async (key: string, url: string) => {
     try {
-      await rpc.invoke(Channels.ObsMuteSource, {
-        sourceName,
-        durationSeconds: 3,
-      });
-      // Refresh mute state after unmute
-      setTimeout(() => {
-        void fetchObsAudioSources();
-        setTestingSource(null);
-      }, 3100);
-    } catch {
-      setTestingSource(null);
-    }
+      await navigator.clipboard.writeText(url);
+      setCopiedEndpoint(key);
+      setTimeout(() => setCopiedEndpoint(null), 2000);
+    } catch {}
   };
 
   return (
@@ -163,59 +147,52 @@ export function ObsSettings() {
         action={
           <div className="flex items-center gap-2">
             <span
-              className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[11px] font-semibold ${
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[11px] font-medium ${
                 obsConnected
-                  ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                  : 'border border-zinc-700 bg-zinc-800 text-zinc-400'
+                  ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                  : 'border border-zinc-700 bg-zinc-800/80 text-zinc-400'
               }`}
             >
               <span className={`size-1.5 rounded-full ${obsConnected ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
-              <span>{obsConnected ? t(lang, 'settings.obsConnected') : t(lang, 'settings.obsDisconnected')}</span>
+              {obsConnected ? t(lang, 'settings.obsConnected') : t(lang, 'settings.obsDisconnected')}
             </span>
           </div>
         }
       >
         <div className="flex flex-col gap-4">
-          <p className="font-sans text-[12.5px] leading-relaxed text-[#c0c7d4]">
+          <p className="font-sans text-[12px] leading-relaxed text-zinc-400">
             {t(lang, 'settings.obsDesc')}
           </p>
 
           {feedback && (
             <div
-              className={`flex items-start gap-2.5 rounded-md p-3 text-[12px] font-medium ${
+              className={`flex items-start gap-2 rounded-md border p-3 text-[12px] font-sans ${
                 feedback.type === 'success'
-                  ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                  : 'border border-red-500/30 bg-red-500/10 text-red-300'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                  : 'border-red-500/30 bg-red-500/10 text-red-200'
               }`}
             >
-              {feedback.type === 'success' ? <Check size={15} className="mt-0.5 shrink-0" /> : <AlertCircle size={15} className="mt-0.5 shrink-0" />}
-              <span className="flex-1">{feedback.message}</span>
+              <Check size={14} className={`mt-0.5 shrink-0 ${feedback.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`} />
+              <span>{feedback.message}</span>
             </div>
           )}
 
-          {!obsConnected && obsStatus?.error && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 font-mono text-[11px] text-amber-300">
-              <AlertCircle size={14} className="mt-0.5 shrink-0" />
-              <span>{obsStatus.error}</span>
-            </div>
-          )}
-
-          {/* Connection Parameters */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block font-sans text-[11.5px] font-semibold text-zinc-300">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+            <div className="flex flex-col gap-1.5">
+              <label className="font-sans text-[12px] font-medium text-zinc-300">
                 {t(lang, 'settings.obsHost')}
               </label>
               <Input
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
                 placeholder="127.0.0.1"
-                disabled={obsConnected || isConnecting}
-                className="font-mono text-[12px]"
+                disabled={obsConnected}
+                className="h-9 font-mono text-[12px]"
               />
             </div>
-            <div>
-              <label className="mb-1 block font-sans text-[11.5px] font-semibold text-zinc-300">
+
+            <div className="flex flex-col gap-1.5">
+              <label className="font-sans text-[12px] font-medium text-zinc-300">
                 {t(lang, 'settings.obsPort')}
               </label>
               <Input
@@ -223,39 +200,34 @@ export function ObsSettings() {
                 value={port}
                 onChange={(e) => setPort(e.target.value)}
                 placeholder="4455"
-                disabled={obsConnected || isConnecting}
-                className="font-mono text-[12px]"
+                disabled={obsConnected}
+                className="h-9 font-mono text-[12px]"
               />
             </div>
           </div>
 
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <label className="font-sans text-[11.5px] font-semibold text-zinc-300">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="font-sans text-[12px] font-medium text-zinc-300">
                 {t(lang, 'settings.obsPassword')}
               </label>
-              <span className="font-mono text-[10.5px] text-zinc-500">
-                {lang === 'ar' ? 'اتركه فارغاً إذا لم تفعّل كلمة المرور' : 'Leave empty if authentication is disabled'}
-              </span>
-            </div>
-            <div className="relative">
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t(lang, 'settings.obsPasswordPlaceholder')}
-                disabled={obsConnected || isConnecting}
-                className="pe-9 font-mono text-[12px]"
-              />
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute end-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white transition-colors"
-                title={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="flex items-center gap-1 font-sans text-[11px] text-zinc-400 hover:text-white transition-colors cursor-pointer"
               >
-                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                {showPassword ? <EyeOff size={12} /> : <Eye size={12} />}
+                <span>{showPassword ? (lang === 'ar' ? 'إخفاء' : 'Hide') : (lang === 'ar' ? 'إظهار' : 'Show')}</span>
               </button>
             </div>
+            <Input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={t(lang, 'settings.obsPasswordPlaceholder')}
+              disabled={obsConnected}
+              className="h-9 font-mono text-[12px]"
+            />
           </div>
 
           <div className="flex items-center justify-between border-t border-[#384048] pt-3">
@@ -313,97 +285,114 @@ export function ObsSettings() {
         </div>
       </Card>
 
-      {/* 2. Detected Audio Sources Card */}
+      {/* 2. OBS Overlays & Browser Sources Card */}
       <Card
         title={
           <div className="flex items-center gap-2">
-            <Volume2 size={16} className="text-sky-400" />
-            <span>{t(lang, 'settings.obsSourcesTitle')}</span>
+            <Layers size={16} className="text-purple-400" />
+            <span>{t(lang, 'settings.obsEndpointsTitle')}</span>
           </div>
-        }
-        action={
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => void fetchObsAudioSources()}
-            disabled={isLoadingObsSources || !obsConnected}
-            className="h-6 gap-1 px-2 text-[11px] text-zinc-300 hover:text-white"
-          >
-            <RefreshCw size={11} className={isLoadingObsSources ? 'animate-spin' : ''} />
-            <span>{t(lang, 'sequence.refreshSources')}</span>
-          </Button>
         }
       >
         <div className="flex flex-col gap-3">
           <p className="font-sans text-[12px] text-zinc-400">
-            {t(lang, 'settings.obsSourcesDesc')}
+            {t(lang, 'settings.obsEndpointsDesc')}
           </p>
 
-          {!obsConnected ? (
-            <div className="rounded-md border border-white/[0.08] bg-[#1a2228] p-4 text-center font-sans text-[12px] text-zinc-400">
-              <MicOff size={20} className="mx-auto mb-1.5 text-zinc-500" />
-              <p>{t(lang, 'sequence.obsDisconnectedNotice')}</p>
-            </div>
-          ) : availableObsAudioSources.length === 0 ? (
-            <div className="rounded-md border border-white/[0.08] bg-[#1a2228] p-4 text-center font-sans text-[12px] text-zinc-400">
-              <p>{t(lang, 'settings.obsNoSources')}</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-[#384048] rounded-md border border-[#384048] bg-[#1a2228] overflow-hidden">
-              {availableObsAudioSources.map((src) => {
-                const isMic =
-                  src.name.toLowerCase().includes('mic') ||
-                  src.kind.toLowerCase().includes('input') ||
-                  src.kind === 'wasapi_input_capture';
-                const isTesting = testingSource === src.name;
+          <div className="flex flex-col gap-2.5">
+            {[
+              {
+                id: 'images',
+                name: t(lang, 'settings.obsImageOverlay'),
+                url: 'http://127.0.0.1:49178/image-overlay.html',
+                hint: t(lang, 'settings.obsImageOverlayHint'),
+                dim: '1920 × 1080 px',
+                icon: ImageIcon,
+                color: 'text-pink-400',
+              },
+              {
+                id: 'chat',
+                name: t(lang, 'settings.obsChatOverlay'),
+                url: 'http://127.0.0.1:49178/chat-overlay',
+                hint: t(lang, 'settings.obsChatOverlayHint'),
+                dim: '450 × 650 px',
+                icon: MessageSquare,
+                color: 'text-indigo-400',
+              },
+              {
+                id: 'votes',
+                name: t(lang, 'settings.obsVotesOverlay'),
+                url: 'http://127.0.0.1:49178/vote-overlay.html',
+                hint: t(lang, 'settings.obsVotesOverlayHint'),
+                dim: '1920 × 1080 px',
+                icon: BarChart3,
+                color: 'text-cyan-400',
+              },
+              {
+                id: 'dock',
+                name: t(lang, 'settings.obsDockUrl'),
+                url: 'http://127.0.0.1:49178/obs-chat.html',
+                hint: t(lang, 'settings.obsDockUrlHint'),
+                dim: 'Custom Browser Dock',
+                icon: Radio,
+                color: 'text-amber-400',
+              },
+            ].map((endpoint) => {
+              const Icon = endpoint.icon;
+              const isCopied = copiedEndpoint === endpoint.id;
 
-                return (
-                  <div key={src.name} className="flex items-center justify-between px-3.5 py-2.5 text-[12px]">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      {isMic ? (
-                        <Mic size={15} className="text-emerald-400 shrink-0" />
-                      ) : (
-                        <Volume2 size={15} className="text-sky-400 shrink-0" />
-                      )}
-                      <div className="truncate">
-                        <div className="font-medium text-white truncate">{src.name}</div>
-                        <div className="font-mono text-[10px] text-zinc-500">{src.kind}</div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span
-                        className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${
-                          src.muted
-                            ? 'bg-red-500/15 text-red-400 border border-red-500/30'
-                            : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                        }`}
-                      >
-                        {src.muted ? t(lang, 'settings.obsMuted') : t(lang, 'settings.obsActive')}
+              return (
+                <div
+                  key={endpoint.id}
+                  className="flex flex-col gap-2 rounded-lg border border-[#384048] bg-[#1a2228] p-3 transition-colors hover:border-white/20"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon size={15} className={endpoint.color} />
+                      <span className="font-sans text-[12.5px] font-semibold text-white">
+                        {endpoint.name}
                       </span>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleTestMute(src.name)}
-                        disabled={isTesting}
-                        className="h-6 px-2 text-[11px] border-amber-500/30 text-amber-300 hover:bg-amber-500/10"
-                      >
-                        {isTesting ? (
-                          <RefreshCw size={10} className="animate-spin me-1" />
-                        ) : (
-                          <VolumeX size={10} className="me-1" />
-                        )}
-                        <span>{isTesting ? (lang === 'ar' ? 'مكتوم (3 ثوانٍ)...' : 'Muted (3s)...') : t(lang, 'settings.obsTestMute')}</span>
-                      </Button>
                     </div>
+                    <span className="font-mono text-[10.5px] text-zinc-400 bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                      {endpoint.dim}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-          )}
+
+                  <p className="font-sans text-[11px] text-zinc-400">
+                    {endpoint.hint}
+                  </p>
+
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <input
+                      type="text"
+                      readOnly
+                      value={endpoint.url}
+                      className="h-8 flex-1 rounded border border-[#384048] bg-black/40 px-2.5 font-mono text-[11.5px] text-zinc-200 select-all focus:border-purple-500 focus:outline-none"
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void handleCopyUrl(endpoint.id, endpoint.url)}
+                      className="h-8 gap-1.5 px-3 bg-purple-600 hover:bg-purple-500 text-white font-medium text-[11.5px] shrink-0 border-none"
+                    >
+                      {isCopied ? <Check size={12} className="text-emerald-300" /> : <Copy size={12} />}
+                      <span>{isCopied ? t(lang, 'votes.copied') : t(lang, 'chat.copyUrl')}</span>
+                    </Button>
+                    <a
+                      href={endpoint.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="grid size-8 place-items-center rounded border border-[#384048] bg-white/5 text-zinc-300 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+                      title={t(lang, 'chat.openBrowser')}
+                    >
+                      <ExternalLink size={13} />
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </Card>
 

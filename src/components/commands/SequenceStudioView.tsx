@@ -8,7 +8,9 @@ import {
   ChevronUp,
   Clock,
   Coins,
+  Copy,
   Edit3,
+  ExternalLink,
   FileText,
   Flame,
   FolderOpen,
@@ -487,8 +489,8 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
     'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none'
   >(step.imageAnimation ?? 'bounce');
   const [imageScale, setImageScale] = useState(step.imageScale ?? 1.0);
-  const [obsImageDestinationPath, setObsImageDestinationPath] = useState(step.obsImageDestinationPath ?? '');
   const [isPreviewingImage, setIsPreviewingImage] = useState(false);
+  const [copiedImageUrl, setCopiedImageUrl] = useState(false);
 
   // Mini-Game Duel state
   const [duelMode, setDuelMode] = useState<'random' | 'ai_trivia'>(step.duelMode ?? 'ai_trivia');
@@ -586,12 +588,11 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
     } catch { }
   };
 
-  const handleBrowseObsDestination = async () => {
+  const handleCopyImageOverlayUrl = async () => {
     try {
-      const res = await rpc.invoke(Channels.DialogSaveFile, {
-        defaultName: 'obs-overlay-image.png',
-      });
-      if (res?.path) setObsImageDestinationPath(res.path);
+      await navigator.clipboard.writeText('http://127.0.0.1:49178/image-overlay.html');
+      setCopiedImageUrl(true);
+      setTimeout(() => setCopiedImageUrl(false), 2000);
     } catch { }
   };
 
@@ -607,8 +608,6 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
         animation: imageAnimation,
         scale: imageScale,
         imageScale,
-        destinationPath: obsImageDestinationPath.trim() || undefined,
-        obsImageDestinationPath: obsImageDestinationPath.trim() || undefined,
       });
     } finally {
       setTimeout(() => setIsPreviewingImage(false), 2000);
@@ -697,7 +696,6 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
           imagePosition,
           imageAnimation,
           imageScale,
-          obsImageDestinationPath: obsImageDestinationPath.trim() || undefined,
         });
         break;
       case 'duel':
@@ -1569,41 +1567,51 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                 </div>
               </div>
 
-              {/* Optional OBS Destination Path */}
-              <div className="flex flex-col gap-1.5">
-                <label className="font-sans text-[12px] font-medium text-zinc-300">
-                  {t(lang, 'sequence.obsDestinationPath')}
-                </label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={obsImageDestinationPath}
-                    onChange={(e) => setObsImageDestinationPath(e.target.value)}
-                    placeholder="Optional: C:\stream\current_image.png"
-                    className="h-8 font-mono text-[11.5px] flex-1"
+              {/* OBS Image Browser Source URL Banner */}
+              <div className="flex flex-col gap-2 rounded-md border border-purple-500/30 bg-purple-500/10 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[12px] font-semibold text-purple-200">
+                    <Radio size={14} className="text-purple-400" />
+                    <span>{t(lang, 'sequence.obsImageBrowserSource')}</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/30">
+                    1920 × 1080 px
+                  </span>
+                </div>
+                <p className="text-[11px] text-purple-200/90 leading-relaxed">
+                  {t(lang, 'sequence.obsImageBrowserSourceHint')}
+                </p>
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="text"
+                    readOnly
+                    value="http://127.0.0.1:49178/image-overlay.html"
+                    className="h-8 flex-1 rounded border border-purple-500/30 bg-black/40 px-2.5 font-mono text-[11.5px] text-purple-100 select-all focus:border-purple-400 focus:outline-none"
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
                   />
                   <Button
                     type="button"
                     size="sm"
-                    variant="outline"
-                    onClick={() => void handleBrowseObsDestination()}
-                    className="h-8 shrink-0 gap-1 text-[11px]"
+                    onClick={() => void handleCopyImageOverlayUrl()}
+                    className="h-8 gap-1.5 px-3 bg-purple-600 hover:bg-purple-500 text-white font-medium text-[11px] shrink-0 border-none cursor-pointer"
                   >
-                    <FolderOpen size={12} />
-                    <span>{t(lang, 'sequence.browse')}</span>
+                    {copiedImageUrl ? <Check size={12} className="text-emerald-300" /> : <Copy size={12} />}
+                    <span>{copiedImageUrl ? t(lang, 'votes.copied') : t(lang, 'chat.copyUrl')}</span>
                   </Button>
+                  <a
+                    href="http://127.0.0.1:49178/image-overlay.html"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="grid size-8 place-items-center rounded border border-purple-500/30 bg-purple-500/15 text-purple-200 hover:bg-purple-500/25 hover:text-white transition-colors shrink-0"
+                    title={t(lang, 'chat.openBrowser')}
+                  >
+                    <ExternalLink size={13} />
+                  </a>
                 </div>
-                <p className="text-[10.5px] text-muted">
-                  {lang === 'ar'
-                    ? 'سيتم نسخ الصورة إلى هذا المسار أيضاً ليقرأها OBS Image Source الثابت إذا رغبت.'
-                    : 'The file will also be copied here so static OBS Image sources can read it if desired.'}
-                </p>
               </div>
 
-              {/* Test Button & Browser Source URL hint */}
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-[11px] text-muted">
-                  Browser Source: <code className="text-zinc-300 bg-white/5 px-1 py-0.5 rounded">/image-overlay.html</code>
-                </span>
+              {/* Test Button */}
+              <div className="flex items-center justify-end pt-1">
                 <Button
                   type="button"
                   size="sm"

@@ -188,19 +188,27 @@ public sealed class HostController : IDisposable
         lock (_seenRedemptionsLock)
         {
             var now = DateTime.UtcNow;
-            var staleKeys = _seenRedemptions.Where(kv => (now - kv.Value).TotalSeconds > 30).Select(kv => kv.Key).ToList();
+            var staleKeys = _seenRedemptions.Where(kv => (now - kv.Value).TotalSeconds > 10).Select(kv => kv.Key).ToList();
             foreach (var k in staleKeys) _seenRedemptions.Remove(k);
 
-            if (_seenRedemptions.ContainsKey(id)) return false;
+            // Deduplicate by exact unique redemption ID (Twitch assigns a unique ID to every redemption)
+            if (!string.IsNullOrWhiteSpace(id) && _seenRedemptions.ContainsKey(id)) return false;
 
+            // Short semantic key window (2.5s) strictly to collapse near-simultaneous EventSub + IRC double-dispatches
             if (!string.IsNullOrWhiteSpace(rewardId) && !string.IsNullOrWhiteSpace(userId))
             {
                 var semanticKey = $"sem:{rewardId}:{userId}:{userInput?.Trim()}";
-                if (_seenRedemptions.ContainsKey(semanticKey)) return false;
+                if (_seenRedemptions.TryGetValue(semanticKey, out var prevTime) && (now - prevTime).TotalSeconds < 2.5)
+                {
+                    return false;
+                }
                 _seenRedemptions[semanticKey] = now;
             }
 
-            _seenRedemptions[id] = now;
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                _seenRedemptions[id] = now;
+            }
             return true;
         }
     }
