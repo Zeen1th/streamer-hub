@@ -471,3 +471,79 @@ test('duelGameManager blocks concurrent 1v1 duel start calls (no 3x repeat)', as
   duelGameManager.reset();
 });
 
+test('startDuel allows challenging broadcaster when allowBroadcaster is true and mutes OBS source on loss', async () => {
+  duelGameManager.reset();
+  const sentMessages = [];
+  const timeouts = [];
+  const mutedSources = [];
+
+  const mockSinks = {
+    sendChatMessage: async (msg) => { sentMessages.push(msg); return true; },
+    smartModTimeout: async (target, duration, reason) => { timeouts.push({ target, duration, reason }); return { ok: true }; },
+    muteStreamerSource: async (sourceName, duration) => { mutedSources.push({ sourceName, duration }); return true; },
+    delay: async () => {},
+  };
+
+  // Challenger win chance 100% (challengerWinChance: 99), so broadcaster loses
+  const res = await duelGameManager.startDuel({
+    challenger: 'ViewerChad',
+    opponentRaw: '@StreamerBoss',
+    broadcasterName: 'StreamerBoss',
+    allowBroadcaster: true,
+    challengerWinChance: 99,
+    timeoutDuration: 60,
+    muteStreamerSource: 'Mic/Aux',
+    mode: 'random',
+    sinks: mockSinks,
+  });
+
+  assert.equal(res.ok, true);
+  // Broadcaster cannot be timed out on Twitch, so timeouts array should NOT have streamer
+  assert.equal(timeouts.length, 0, 'Broadcaster must not be timed out on Twitch IRC');
+  // Instead, streamer's OBS source must be muted
+  assert.equal(mutedSources.length, 1, 'Broadcaster OBS source should be muted');
+  assert.equal(mutedSources[0].sourceName, 'Mic/Aux');
+  assert.equal(mutedSources[0].duration, 60);
+
+  duelGameManager.reset();
+});
+
+test('startDuel obeys challengerWinChance probabilities', async () => {
+  duelGameManager.reset();
+  const timeouts = [];
+  const mockSinks = {
+    sendChatMessage: async () => true,
+    smartModTimeout: async (target, duration, reason) => { timeouts.push({ target, duration, reason }); return { ok: true }; },
+    delay: async () => {},
+  };
+
+  // When challengerWinChance is 1% (challenger almost always loses, so challenger gets timed out)
+  const resLose = await duelGameManager.startDuel({
+    challenger: 'UnluckyPlayer',
+    opponentRaw: '@Opponent',
+    mode: 'random',
+    challengerWinChance: 1,
+    timeoutDuration: 30,
+    sinks: mockSinks,
+  });
+
+  assert.equal(resLose.ok, true);
+  // Loser is challenger 99% of time
+  assert.equal(timeouts[0].target.toLowerCase(), 'unluckyplayer');
+
+  // When challengerWinChance is 99% (challenger almost always wins, so opponent gets timed out)
+  const resWin = await duelGameManager.startDuel({
+    challenger: 'LuckyPlayer',
+    opponentRaw: '@TargetPlayer',
+    mode: 'random',
+    challengerWinChance: 99,
+    timeoutDuration: 30,
+    sinks: mockSinks,
+  });
+
+  assert.equal(resWin.ok, true);
+  assert.equal(timeouts[1].target.toLowerCase(), 'targetplayer');
+
+  duelGameManager.reset();
+});
+

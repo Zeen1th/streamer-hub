@@ -6,11 +6,13 @@ import type {
   ChatMessage,
   CommandSequence,
   CounterAction,
+  ObsAudioSourceInfo,
   SequenceStep,
   SequenceStepType,
   TwitchFollowEvent,
   TwitchRaidEvent,
   TwitchRewardInfo,
+  TwitchWatchStreakEvent,
 } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
@@ -35,11 +37,16 @@ interface SequenceState {
   lastTriggeredAt: Record<string, number>;
   availableRewards: TwitchRewardInfo[];
   isLoadingRewards: boolean;
+  availableObsAudioSources: ObsAudioSourceInfo[];
+  obsConnected: boolean;
+  isLoadingObsSources: boolean;
   activeRunningSequenceId: string | null;
   activeRunningStepIndex: number | null;
 
   hydrate(sequences: CommandSequence[]): void;
   fetchAvailableRewards(): Promise<void>;
+  fetchObsAudioSources(): Promise<void>;
+  setObsConnected(connected: boolean): void;
   add(name?: string, options?: Partial<CommandSequence>): string;
   addSmartModTimeoutPreset(): string;
   addRaidShoutoutPreset(): string;
@@ -59,6 +66,7 @@ interface SequenceState {
   handleChatMessage(message: ChatMessage): Promise<boolean>;
   handleRaid(raid: TwitchRaidEvent): Promise<boolean>;
   handleFollow(follow: TwitchFollowEvent): Promise<boolean>;
+  handleWatchStreak(streak: TwitchWatchStreakEvent): Promise<boolean>;
 }
 
 const persist = (sequence: CommandSequence) => {
@@ -99,6 +107,14 @@ export const defaultTriggerForType = (type: ActionTriggerType, options?: Partial
         enabled: true,
         rewardId: options?.rewardId ?? '',
         rewardTitle: options?.rewardTitle ?? 'Custom Reward',
+        ...options,
+      };
+    case 'twitch_watch_streak':
+      return {
+        id,
+        type: 'twitch_watch_streak',
+        enabled: true,
+        minStreak: options?.minStreak ?? 1,
         ...options,
       };
   }
@@ -207,6 +223,9 @@ const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceSt
         duelOpponent: options?.duelOpponent ?? '{input}',
         duelTimeoutDuration: options?.duelTimeoutDuration ?? 60,
         duelTimerSeconds: options?.duelTimerSeconds ?? 30,
+        duelChallengerWinChance: options?.duelChallengerWinChance ?? 50,
+        duelAllowBroadcaster: options?.duelAllowBroadcaster ?? true,
+        duelBroadcasterMuteSource: options?.duelBroadcasterMuteSource ?? '',
         ...options,
       };
     case 'poll':
@@ -224,6 +243,7 @@ const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceSt
         id,
         type: 'mic_mute',
         micMuteDurationSeconds: options?.micMuteDurationSeconds ?? 5,
+        micMuteSourceName: options?.micMuteSourceName ?? '',
         ...options,
       };
   }
@@ -237,6 +257,9 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
   lastTriggeredAt: {},
   availableRewards: [],
   isLoadingRewards: false,
+  availableObsAudioSources: [],
+  obsConnected: false,
+  isLoadingObsSources: false,
   activeRunningSequenceId: null,
   activeRunningStepIndex: null,
 
@@ -269,6 +292,29 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     } finally {
       set({ isLoadingRewards: false });
     }
+  },
+
+  fetchObsAudioSources: async () => {
+    set({ isLoadingObsSources: true });
+    try {
+      const res = await rpc.invoke(Channels.ObsGetAudioSources);
+      if (res && res.ok && Array.isArray(res.sources)) {
+        set({
+          availableObsAudioSources: res.sources,
+          obsConnected: Boolean(res.connected),
+        });
+      } else if (res) {
+        set({ obsConnected: Boolean(res.connected) });
+      }
+    } catch {
+      // Ignored if not connected
+    } finally {
+      set({ isLoadingObsSources: false });
+    }
+  },
+
+  setObsConnected: (connected: boolean) => {
+    set({ obsConnected: connected });
   },
 
   add: (name?: string, options?: Partial<CommandSequence>) => {
@@ -735,6 +781,9 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
             challenger: ctx.username,
             opponentRaw: step.duelOpponent || ctx.userInput || '',
             mode: step.duelMode || 'random',
+            challengerWinChance: step.duelChallengerWinChance ?? 50,
+            allowBroadcaster: step.duelAllowBroadcaster ?? true,
+            broadcasterMuteSource: step.duelBroadcasterMuteSource || '',
             timeoutDuration: step.duelTimeoutDuration ?? 60,
             timerSeconds: step.duelTimerSeconds ?? 30,
             broadcasterName: broadcaster,
@@ -755,6 +804,13 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
                   durationSeconds: duration,
                   reason,
                 });
+              },
+              muteStreamerSource: async (sourceName, duration) => {
+                const res = await rpc.invoke(Channels.ObsMuteSource, {
+                  sourceName: sourceName || step.duelBroadcasterMuteSource || undefined,
+                  durationSeconds: duration,
+                });
+                return Boolean(res?.ok);
               },
               generateTrivia: async (payload) => {
                 return await rpc.invoke(Channels.AiGenerateTrivia, payload);
@@ -792,8 +848,11 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
           }
           return false;
         },
-        muteMic: async (durationSeconds) => {
-          const res = await rpc.invoke(Channels.AudioMuteMic, { durationSeconds });
+        muteMic: async (durationSeconds, sourceName) => {
+          const res = await rpc.invoke(Channels.ObsMuteSource, {
+            sourceName: sourceName || undefined,
+            durationSeconds,
+          });
           return Boolean(res?.ok);
         },
         onStepStart: (index) => {
@@ -939,6 +998,38 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
           userId: follow.userId,
           source: 'follow',
           userInput: `@${follow.userName || follow.userLogin}`,
+        });
+      }
+    }
+
+    return handled;
+  },
+
+  handleWatchStreak: async (event) => {
+    const sequences = get().sequences;
+    let handled = false;
+
+    for (const seq of sequences) {
+      if (!seq.enabled) continue;
+      const matches = matchesSequenceTrigger(seq, {
+        watchStreak: {
+          userId: event.userId,
+          userName: event.userName,
+          userLogin: event.userLogin,
+          streak: event.streak,
+          message: event.message,
+        },
+      });
+
+      if (matches) {
+        handled = true;
+        await get().runSequence(seq.id, {
+          username: event.userName || event.userLogin,
+          userLogin: event.userLogin,
+          userId: event.userId,
+          source: 'watch_streak',
+          streak: event.streak,
+          userInput: event.message || '',
         });
       }
     }

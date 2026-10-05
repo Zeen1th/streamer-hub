@@ -341,6 +341,35 @@ export class MockHost {
       case 'audio/mute-mic':
         this.respond(request, { ok: true });
         break;
+      case Channels.ObsWebsocketGetStatus:
+      case 'obs/websocket-get-status':
+        this.respond(request, {
+          connected: true,
+          host: '127.0.0.1',
+          port: 4455,
+          hasPassword: false,
+        });
+        break;
+      case Channels.ObsWebsocketConnect:
+      case 'obs/websocket-connect':
+        this.respond(request, { ok: true });
+        break;
+      case Channels.ObsGetAudioSources:
+      case 'obs/get-audio-sources':
+        this.respond(request, {
+          ok: true,
+          sources: [
+            { name: 'Mic/Aux', kind: 'wasapi_input_capture', muted: false },
+            { name: 'Desktop Audio', kind: 'wasapi_output_capture', muted: false },
+            { name: 'Spotify Music', kind: 'wasapi_process_output_capture', muted: false },
+            { name: 'Discord', kind: 'wasapi_process_output_capture', muted: false },
+          ],
+        });
+        break;
+      case Channels.ObsMuteSource:
+      case 'obs/mute-source':
+        this.respond(request, { ok: true });
+        break;
       case Channels.AudioSpeakTts:
       case 'audio/speak-tts':
         this.respond(request, { ok: true });

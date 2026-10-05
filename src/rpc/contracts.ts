@@ -172,13 +172,19 @@ export type SequenceStepType =
 export type SequenceWaitUnit = 'seconds' | 'minutes';
 export type SequenceTriggerType = 'channel_points' | 'chat' | 'both';
 
-export type ActionTriggerType = 'twitch_raid' | 'twitch_chat' | 'twitch_channel_points' | 'twitch_follow';
+export type ActionTriggerType =
+  | 'twitch_raid'
+  | 'twitch_chat'
+  | 'twitch_channel_points'
+  | 'twitch_follow'
+  | 'twitch_watch_streak';
 
 export interface ActionTrigger {
   id: string;
   type: ActionTriggerType;
   enabled: boolean;
   minViewers?: number;
+  minStreak?: number;
   chatCommand?: string;
   matchMode?: 'exact' | 'startsWith' | 'contains';
   rewardId?: string;
@@ -197,6 +203,28 @@ export interface TwitchFollowEvent {
   userName: string;
   userLogin: string;
   followedAt: string;
+}
+
+export interface TwitchWatchStreakEvent {
+  userId: string;
+  userName: string;
+  userLogin: string;
+  streak: number;
+  message?: string;
+}
+
+export interface ObsAudioSourceInfo {
+  name: string;
+  kind: string;
+  muted: boolean;
+}
+
+export interface ObsWebsocketStatus {
+  connected: boolean;
+  host: string;
+  port: number;
+  hasPassword: boolean;
+  error?: string;
 }
 
 export interface SequenceStep {
@@ -253,6 +281,9 @@ export interface SequenceStep {
   duelMessageStart?: string;
   duelMessageWin?: string;
   duelMessageTimeout?: string;
+  duelChallengerWinChance?: number;
+  duelAllowBroadcaster?: boolean;
+  duelBroadcasterMuteSource?: string;
 
   // Live Poll
   pollAction?: 'start' | 'end' | 'reset';
@@ -260,8 +291,9 @@ export interface SequenceStep {
   pollOptions?: string[];
   pollDurationSeconds?: number;
 
-  // Mute Mic
+  // Mute Mic / OBS Source Mute
   micMuteDurationSeconds?: number;
+  micMuteSourceName?: string;
 }
 
 export interface CommandSequence {
@@ -675,6 +707,10 @@ export const Channels = {
   ChatOverlayHideImage: 'chat-overlay/hide-image',
   ChatOverlayGetImageUrl: 'chat-overlay/get-image-url',
   AiGenerateTrivia: 'ai/generate-trivia',
+  ObsWebsocketGetStatus: 'obs/websocket-get-status',
+  ObsWebsocketConnect: 'obs/websocket-connect',
+  ObsGetAudioSources: 'obs/get-audio-sources',
+  ObsMuteSource: 'obs/mute-source',
 } as const;
 
 export type ChannelName = (typeof Channels)[keyof typeof Channels];
@@ -693,6 +729,8 @@ export const Events = {
   KeybindTriggered: 'keybind/triggered',
   TwitchRaid: 'twitch/raid',
   TwitchFollow: 'twitch/follow',
+  TwitchWatchStreak: 'twitch/watch-streak',
+  ObsWebsocketStatusChanged: 'obs/websocket-status-changed',
   VotesChanged: 'votes/changed',
   AlertsProgress: 'alerts/progress',
   AlertsCompleted: 'alerts/completed',
@@ -852,6 +890,10 @@ export interface HostApi {
   [Channels.ChatOverlayHideImage]: { request: undefined; response: { ok: boolean } };
   [Channels.ChatOverlayGetImageUrl]: { request: undefined; response: { url: string } };
   [Channels.AiGenerateTrivia]: { request: GenerateGamingQuestionPayload | undefined; response: GenerateGamingQuestionResponse };
+  [Channels.ObsWebsocketGetStatus]: { request: undefined; response: ObsWebsocketStatus };
+  [Channels.ObsWebsocketConnect]: { request: { host?: string; port?: number; password?: string }; response: { ok: boolean; error?: string } };
+  [Channels.ObsGetAudioSources]: { request: undefined; response: { ok: boolean; sources: ObsAudioSourceInfo[]; connected?: boolean; error?: string } };
+  [Channels.ObsMuteSource]: { request: { sourceName?: string; durationSeconds: number }; response: { ok: boolean; error?: string; fallback?: boolean } };
 }
 
 export interface ShowOverlayImagePayload {
@@ -939,6 +981,8 @@ export interface EventMap {
   [Events.KeybindTriggered]: { bindingId: string };
   [Events.TwitchRaid]: TwitchRaidEvent;
   [Events.TwitchFollow]: TwitchFollowEvent;
+  [Events.TwitchWatchStreak]: TwitchWatchStreakEvent;
+  [Events.ObsWebsocketStatusChanged]: { connected: boolean };
   [Events.VotesChanged]: PollState;
   [Events.AlertsProgress]: CompressionProgress;
   [Events.AlertsCompleted]: CompressionResult;

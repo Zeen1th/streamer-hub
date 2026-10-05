@@ -119,6 +119,15 @@ export default function App() {
     const offFollow = rpc.on(Events.TwitchFollow, (follow) => {
       useSequenceStore.getState().handleFollow(follow);
     });
+    const offWatchStreak = rpc.on(Events.TwitchWatchStreak, (event) => {
+      useSequenceStore.getState().handleWatchStreak(event);
+    });
+    const offObsStatus = rpc.on(Events.ObsWebsocketStatusChanged, (status) => {
+      useSequenceStore.getState().setObsConnected(status.connected);
+      if (status.connected) {
+        useSequenceStore.getState().fetchObsAudioSources();
+      }
+    });
     const offProfile = rpc.on(Events.TwitchUserProfile, (payload) => {
       useChatterStore.getState().recordChatter({
         userId: payload.userId,
@@ -193,6 +202,11 @@ export default function App() {
         if (!disposed) useSettingsStore.getState().hydrate(settings.twitch.clientId, settings.twitch.clientSecret, settings.language, settings.botAccountEnabled, settings.preferredChatSender, settings.startupEnabled, settings.closeToTray);
       } catch { void 0; }
       try { const keys = await rpc.invoke(Channels.OpenRouterGetState); if (!disposed) useSettingsStore.getState().hydrateOpenRouter(keys.configured, keys.groqConfigured); } catch { void 0; }
+      try {
+        if (!disposed) {
+          useSequenceStore.getState().fetchObsAudioSources().catch(() => undefined);
+        }
+      } catch { void 0; }
     };
     void boot();
 
@@ -210,7 +224,7 @@ export default function App() {
 
     return () => {
       disposed = true;
-      offStatus(); offMaximized(); offChat(); offRedemption(); offRaid(); offFollow(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offTitle(); offVotes();
+      offStatus(); offMaximized(); offChat(); offRedemption(); offRaid(); offFollow(); offWatchStreak(); offObsStatus(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offTitle(); offVotes();
       offAlertsProgress(); offAlertsCompleted(); offAlertsDownload();
       window.clearInterval(poll);
     };

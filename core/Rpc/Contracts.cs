@@ -181,6 +181,9 @@ public sealed record SequenceStep
     public string? DuelMessageStart { get; init; }
     public string? DuelMessageWin { get; init; }
     public string? DuelMessageTimeout { get; init; }
+    public int? DuelChallengerWinChance { get; init; }
+    public bool? DuelAllowBroadcaster { get; init; }
+    public string? DuelBroadcasterMuteSource { get; init; }
 
     // Live Poll
     public string? PollAction { get; init; } // "start" | "end" | "reset"
@@ -188,8 +191,9 @@ public sealed record SequenceStep
     public List<string>? PollOptions { get; init; }
     public int? PollDurationSeconds { get; init; }
 
-    // Mute Mic
+    // Mute Mic / OBS Source Mute
     public int? MicMuteDurationSeconds { get; init; }
+    public string? MicMuteSourceName { get; init; }
 }
 
 public sealed record ModerationTargetPayload(string? Target);
@@ -201,13 +205,16 @@ public sealed record AudioPlaySoundPayload(string? SoundPath, double? Volume = 1
 public sealed record AudioMuteMicPayload(int DurationSeconds);
 public sealed record AudioSpeakTtsPayload(string? Text, string? VoiceName = null, double? Rate = 1.0, double? Pitch = 1.0, double? Volume = 1.0);
 public sealed record OpenFilePayload(string? Filter = null, string? Title = null);
+public sealed record ObsConnectPayload(string? Host = null, int? Port = null, string? Password = null);
+public sealed record ObsMuteSourcePayload(string SourceName, int DurationSeconds);
 
 public sealed record ActionTrigger
 {
     public string Id { get; init; } = string.Empty;
-    public string Type { get; init; } = "twitch_chat"; // "twitch_raid" | "twitch_chat" | "twitch_channel_points" | "twitch_follow"
+    public string Type { get; init; } = "twitch_chat"; // "twitch_raid" | "twitch_chat" | "twitch_channel_points" | "twitch_follow" | "twitch_watch_streak"
     public bool Enabled { get; init; } = true;
     public int? MinViewers { get; init; }
+    public int? MinStreak { get; init; }
     public string? ChatCommand { get; init; }
     public string? MatchMode { get; init; } // "exact" | "startsWith" | "contains"
     public string? RewardId { get; init; }
@@ -216,6 +223,7 @@ public sealed record ActionTrigger
 
 public sealed record TwitchRaidEvent(string FromUserId, string FromUserName, string FromUserLogin, int Viewers);
 public sealed record TwitchFollowEvent(string UserId, string UserName, string UserLogin, string FollowedAt);
+public sealed record TwitchWatchStreakEvent(string UserId, string UserName, string UserLogin, int Streak, string? Message);
 
 public sealed record CommandSequence
 {

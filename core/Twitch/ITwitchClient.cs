@@ -10,6 +10,7 @@ public interface ITwitchClient : IAsyncDisposable
     /// <summary>Raised for CLEARMSG and CLEARCHAT so moderated messages leave the overlay.</summary>
     event Action<ChatClear>? ChatCleared;
     event Action<TwitchRaidEvent>? RaidReceived;
+    event Action<TwitchWatchStreakEvent>? WatchStreakReceived;
     event Action<TwitchState>? StateChanged;
     event Action<TwitchInfo>? Info;
     TwitchState State { get; }

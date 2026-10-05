@@ -499,3 +499,104 @@ test('reordering steps accurately repositions sequence actions', () => {
   assert.deepEqual(reordered2.map(s => s.id), ['4', '1', '2', '3']);
 });
 
+test('matchesSequenceTrigger evaluates twitch_watch_streak triggers', () => {
+  const seq = {
+    id: 'seq-streak',
+    name: 'Streak Celebration',
+    enabled: true,
+    triggers: [
+      { id: 't1', type: 'twitch_watch_streak', enabled: true, minStreak: 3 },
+    ],
+    steps: [],
+  };
+
+  // Streak under minimum (2 < 3)
+  assert.equal(
+    matchesSequenceTrigger(seq, {
+      watchStreak: {
+        userId: '123',
+        userName: 'LoyalViewer',
+        userLogin: 'loyalviewer',
+        streak: 2,
+      },
+    }),
+    false
+  );
+
+  // Streak meeting minimum (3 >= 3)
+  assert.equal(
+    matchesSequenceTrigger(seq, {
+      watchStreak: {
+        userId: '123',
+        userName: 'LoyalViewer',
+        userLogin: 'loyalviewer',
+        streak: 3,
+      },
+    }),
+    true
+  );
+
+  // Streak exceeding minimum (10 >= 3)
+  assert.equal(
+    matchesSequenceTrigger(seq, {
+      watchStreak: {
+        userId: '123',
+        userName: 'SuperFan',
+        userLogin: 'superfan',
+        streak: 10,
+      },
+    }),
+    true
+  );
+});
+
+test('replaceSequenceTokens replaces {streak} and watch streak tokens', () => {
+  const ctx = {
+    username: 'StreakMaster',
+    source: 'watch_streak',
+    streak: 7,
+    userInput: 'Keep up the great streams!',
+  };
+
+  const text = replaceSequenceTokens(
+    'GG {mention}! That is a {streak} stream watch streak! Message: {input}',
+    ctx
+  );
+
+  assert.equal(text, 'GG @StreakMaster! That is a 7 stream watch streak! Message: Keep up the great streams!');
+});
+
+test('executeSequence passes micMuteSourceName to muteMic sink', async () => {
+  const seq = {
+    id: 'seq-mute',
+    name: 'OBS Source Mute Sequence',
+    enabled: true,
+    triggers: [],
+    steps: [
+      {
+        id: 's1',
+        type: 'mic_mute',
+        micMuteDurationSeconds: 12,
+        micMuteSourceName: 'Elgato Wave 3',
+      },
+    ],
+  };
+
+  const mutedSources = [];
+  const result = await executeSequence(
+    seq,
+    { username: 'Streamer' },
+    {
+      muteMic: async (duration, sourceName) => {
+        mutedSources.push({ duration, sourceName });
+        return true;
+      },
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(mutedSources.length, 1);
+  assert.equal(mutedSources[0].duration, 12);
+  assert.equal(mutedSources[0].sourceName, 'Elgato Wave 3');
+});
+

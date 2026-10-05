@@ -4,10 +4,11 @@ export interface SequenceExecutionContext {
   username: string;
   userLogin?: string;
   userId?: string;
-  source: 'channel_points' | 'chat' | 'raid' | 'follow' | 'test';
+  source: 'channel_points' | 'chat' | 'raid' | 'follow' | 'watch_streak' | 'test';
   userInput?: string;
   raider?: string;
   viewers?: number;
+  streak?: number;
 }
 
 export interface SequenceExecutionSinks {
@@ -37,7 +38,7 @@ export interface SequenceExecutionSinks {
     options?: string[],
     durationSeconds?: number,
   ) => Promise<boolean>;
-  muteMic?: (durationSeconds: number) => Promise<boolean>;
+  muteMic?: (durationSeconds: number, sourceName?: string) => Promise<boolean>;
   delay?: (ms: number) => Promise<void>;
   onStepStart?: (stepIndex: number, step: SequenceStep) => void;
   onStepComplete?: (stepIndex: number, step: SequenceStep) => void;
@@ -72,6 +73,7 @@ export function replaceSequenceTokens(template: string, ctx: SequenceExecutionCo
   const input = ctx.userInput || '';
   const raider = ctx.raider || ctx.username || 'raider';
   const viewers = ctx.viewers != null ? String(ctx.viewers) : '0';
+  const streak = ctx.streak != null ? String(ctx.streak) : '1';
   let target = extractTargetUsername(input);
   if (!target && ctx.source === 'raid') {
     target = extractTargetUsername(raider);
@@ -85,7 +87,8 @@ export function replaceSequenceTokens(template: string, ctx: SequenceExecutionCo
     .replace(/\{target\}/gi, target)
     .replace(/\{target_user\}/gi, target)
     .replace(/\{raider\}/gi, raider)
-    .replace(/\{viewers\}/gi, viewers);
+    .replace(/\{viewers\}/gi, viewers)
+    .replace(/\{streak\}/gi, streak);
 }
 
 export function calculateWaitMs(duration?: number, unit?: 'seconds' | 'minutes'): number {
@@ -117,6 +120,13 @@ export interface SequenceTriggerQuery {
     userName: string;
     userLogin: string;
   };
+  watchStreak?: {
+    userId: string;
+    userName: string;
+    userLogin: string;
+    streak: number;
+    message?: string;
+  };
 }
 
 export function matchesSequenceTrigger(sequence: CommandSequence, query: SequenceTriggerQuery): boolean {
@@ -129,6 +139,13 @@ export function matchesSequenceTrigger(sequence: CommandSequence, query: Sequenc
 
       if (trigger.type === 'twitch_follow' && query.follow) {
         return true;
+      }
+
+      if (trigger.type === 'twitch_watch_streak' && query.watchStreak) {
+        const min = trigger.minStreak ?? 1;
+        if (query.watchStreak.streak >= min) {
+          return true;
+        }
       }
 
       if (trigger.type === 'twitch_raid' && query.raid) {
@@ -399,9 +416,11 @@ export async function executeSequence(
 
         case 'mic_mute': {
           const duration = step.micMuteDurationSeconds && step.micMuteDurationSeconds > 0 ? step.micMuteDurationSeconds : 5;
-          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Mute streamer microphone for ${duration}s`);
+          const sourceName = step.micMuteSourceName?.trim();
+          const targetDesc = sourceName ? `source [${sourceName}]` : 'streamer microphone';
+          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Mute ${targetDesc} for ${duration}s`);
           if (sinks.muteMic) {
-            await sinks.muteMic(duration);
+            await sinks.muteMic(duration, sourceName || undefined);
           }
           break;
         }

@@ -25,6 +25,7 @@ public sealed class TwitchIrcClient : ITwitchClient
     public event Action<ChatMessage>? ChatMessageReceived;
     public event Action<ChatClear>? ChatCleared;
     public event Action<TwitchRaidEvent>? RaidReceived;
+    public event Action<TwitchWatchStreakEvent>? WatchStreakReceived;
     public event Action<TwitchState>? StateChanged;
     public event Action<TwitchInfo>? Info;
 
@@ -1282,6 +1283,12 @@ public sealed class TwitchIrcClient : ITwitchClient
             if (TwitchUsernoticeParser.TryParseRaid(line, out var raid))
             {
                 RaidReceived?.Invoke(raid);
+                return;
+            }
+            if (TwitchUsernoticeParser.TryParseWatchStreak(line, out var watchStreak))
+            {
+                WatchStreakReceived?.Invoke(watchStreak);
+                return;
             }
             return;
         }
@@ -1701,6 +1708,67 @@ public static class TwitchUsernoticeParser
         }
 
         raid = new TwitchRaidEvent(userId ?? string.Empty, displayName, login, viewers);
+        return true;
+    }
+
+    public static bool TryParseWatchStreak(string line, [NotNullWhen(true)] out TwitchWatchStreakEvent? watchStreak)
+    {
+        watchStreak = null;
+        if (string.IsNullOrEmpty(line)) return false;
+        if (!line.Contains(" USERNOTICE ", StringComparison.Ordinal)) return false;
+
+        var tags = ParseTags(line);
+        if (!tags.TryGetValue("msg-id", out var msgId))
+        {
+            return false;
+        }
+
+        var isWatchStreak = string.Equals(msgId, "watch-streak", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(msgId, "streak", StringComparison.OrdinalIgnoreCase);
+
+        if (!isWatchStreak && string.Equals(msgId, "viewermilestone", StringComparison.OrdinalIgnoreCase))
+        {
+            if (tags.TryGetValue("msg-param-category", out var category) &&
+                string.Equals(category, "watch-streak", StringComparison.OrdinalIgnoreCase))
+            {
+                isWatchStreak = true;
+            }
+        }
+
+        if (!isWatchStreak) return false;
+
+        tags.TryGetValue("user-id", out var userId);
+        tags.TryGetValue("msg-param-login", out var login);
+        if (string.IsNullOrWhiteSpace(login)) tags.TryGetValue("login", out login);
+        tags.TryGetValue("msg-param-displayName", out var displayName);
+        if (string.IsNullOrWhiteSpace(displayName)) tags.TryGetValue("display-name", out displayName);
+
+        if (string.IsNullOrWhiteSpace(displayName)) displayName = login ?? "Viewer";
+        if (string.IsNullOrWhiteSpace(login)) login = displayName.ToLowerInvariant();
+
+        var streak = 1;
+        if (tags.TryGetValue("msg-param-value", out var valStr) && int.TryParse(valStr, out var val))
+        {
+            streak = Math.Max(1, val);
+        }
+        else if (tags.TryGetValue("msg-param-streak", out var sStr) && int.TryParse(sStr, out var sVal))
+        {
+            streak = Math.Max(1, sVal);
+        }
+
+        string? message = null;
+        var usernoticeIdx = line.IndexOf(" USERNOTICE ", StringComparison.Ordinal);
+        if (usernoticeIdx >= 0)
+        {
+            var colonAfter = line.IndexOf(':', usernoticeIdx);
+            if (colonAfter >= 0 && colonAfter + 1 < line.Length)
+            {
+                var text = line[(colonAfter + 1)..].Trim();
+                if (!string.IsNullOrEmpty(text)) message = text;
+            }
+        }
+
+        watchStreak = new TwitchWatchStreakEvent(userId ?? string.Empty, displayName, login, streak, message);
         return true;
     }
 

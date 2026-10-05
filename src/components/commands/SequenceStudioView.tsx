@@ -109,16 +109,28 @@ interface EditTriggerModalProps {
 function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, onClose }: EditTriggerModalProps) {
   const [enabled, setEnabled] = useState(trigger.enabled);
   const [minViewers, setMinViewers] = useState(trigger.minViewers ?? 1);
+  const [minStreak, setMinStreak] = useState(trigger.minStreak ?? 1);
   const [chatCommand, setChatCommand] = useState(trigger.chatCommand ?? '!command');
   const [matchMode, setMatchMode] = useState(trigger.matchMode ?? 'startsWith');
   const [rewardTitle, setRewardTitle] = useState(trigger.rewardTitle ?? 'Custom Reward');
   const [rewardId, setRewardId] = useState(trigger.rewardId ?? '');
+
+  const fetchAvailableRewards = useSequenceStore((s) => s.fetchAvailableRewards);
+  const isLoadingRewards = useSequenceStore((s) => s.isLoadingRewards);
+
+  useEffect(() => {
+    if (trigger.type === 'twitch_channel_points') {
+      void fetchAvailableRewards();
+    }
+  }, [trigger.type, fetchAvailableRewards]);
 
   const handleApply = () => {
     if (trigger.type === 'twitch_follow') {
       onSave({ enabled });
     } else if (trigger.type === 'twitch_raid') {
       onSave({ enabled, minViewers: Math.max(1, Number(minViewers) || 1) });
+    } else if (trigger.type === 'twitch_watch_streak') {
+      onSave({ enabled, minStreak: Math.max(1, Number(minStreak) || 1) });
     } else if (trigger.type === 'twitch_chat') {
       onSave({ enabled, chatCommand: chatCommand.trim() || '!command', matchMode });
     } else {
@@ -147,6 +159,8 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                 ? 'bg-pink-500/15 text-pink-400 border-pink-500/30'
                 : trigger.type === 'twitch_raid'
                 ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                : trigger.type === 'twitch_watch_streak'
+                ? 'bg-purple-500/15 text-purple-400 border-purple-500/30'
                 : trigger.type === 'twitch_chat'
                 ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
                 : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
@@ -155,6 +169,8 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                 <Heart size={15} />
               ) : trigger.type === 'twitch_raid' ? (
                 <Flame size={15} />
+              ) : trigger.type === 'twitch_watch_streak' ? (
+                <Zap size={15} />
               ) : trigger.type === 'twitch_chat' ? (
                 <Terminal size={15} />
               ) : (
@@ -170,6 +186,8 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                   ? `${t(lang, 'sequence.sourceTwitchChannel')} > ${t(lang, 'sequence.typeChannelFollow')}`
                   : trigger.type === 'twitch_raid'
                   ? `${t(lang, 'sequence.sourceTwitchChannel')} > ${t(lang, 'sequence.typeChannelRaid')}`
+                  : trigger.type === 'twitch_watch_streak'
+                  ? `${t(lang, 'sequence.sourceTwitchChannel')} > ${t(lang, 'sequence.typeWatchStreak')}`
                   : trigger.type === 'twitch_chat'
                   ? `${t(lang, 'sequence.sourceCoreCommands')} > ${t(lang, 'sequence.typeCommandTriggered')}`
                   : `${t(lang, 'sequence.sourceTwitchPoints')} > ${t(lang, 'sequence.typeRewardRedemption')}`}
@@ -235,6 +253,34 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
             </div>
           )}
 
+          {trigger.type === 'twitch_watch_streak' && (
+            <div className="flex flex-col gap-2">
+              <label className="font-sans text-[12px] font-medium text-zinc-300">
+                {t(lang, 'sequence.minStreak')}
+              </label>
+              <Input
+                type="number"
+                min={1}
+                max={10000}
+                value={minStreak}
+                onChange={(e) => setMinStreak(Math.max(1, Number(e.target.value)))}
+                className="h-9 font-mono text-[13px]"
+              />
+              <p className="text-[11px] text-muted">{t(lang, 'sequence.minStreakHint')}</p>
+              <div className="flex flex-col gap-2 rounded-md border border-purple-500/25 bg-purple-500/10 p-3 text-[11.5px] text-purple-300">
+                <p className="text-zinc-300 leading-relaxed">
+                  {t(lang, 'sequence.triggerWatchStreakDesc')}
+                </p>
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
+                  <span className="rounded bg-white/5 px-1.5 py-0.5 border border-white/10 text-purple-300 font-mono text-[11px]">{'{username}'}</span>
+                  <span className="rounded bg-white/5 px-1.5 py-0.5 border border-white/10 text-purple-300 font-mono text-[11px]">{'{streak}'}</span>
+                  <span className="rounded bg-white/5 px-1.5 py-0.5 border border-white/10 text-purple-300 font-mono text-[11px]">{'{input}'}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {trigger.type === 'twitch_chat' && (
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
@@ -269,9 +315,23 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
           {trigger.type === 'twitch_channel_points' && (
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
-                <label className="font-sans text-[12px] font-medium text-zinc-300">
-                  {t(lang, 'sequence.rewardTitle')}
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="font-sans text-[12px] font-medium text-zinc-300">
+                    {t(lang, 'sequence.rewardTitle')}
+                  </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void fetchAvailableRewards()}
+                    disabled={isLoadingRewards}
+                    className="h-6 gap-1 px-2 text-[11px] text-amber-300 hover:text-amber-200 hover:bg-amber-500/10"
+                    title={t(lang, 'sequence.refreshRewardsHint')}
+                  >
+                    <RefreshCw size={11} className={isLoadingRewards ? 'animate-spin' : ''} />
+                    <span>{t(lang, 'sequence.refreshRewards')}</span>
+                  </Button>
+                </div>
                 {availableRewards.length > 0 ? (
                   <select
                     value={rewardId || rewardTitle}
@@ -301,6 +361,9 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                     className="h-9 text-[13px]"
                   />
                 )}
+                <p className="text-[10.5px] text-muted">
+                  {t(lang, 'sequence.refreshRewardsHint')}
+                </p>
               </div>
             </div>
           )}
@@ -401,7 +464,14 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
 
   // Mic Mute state
   const [micMuteDurationSeconds, setMicMuteDurationSeconds] = useState(step.micMuteDurationSeconds ?? 5);
+  const [micMuteSourceName, setMicMuteSourceName] = useState(step.micMuteSourceName ?? '');
   const [isTestMuting, setIsTestMuting] = useState(false);
+
+  // OBS Audio Sources from Store
+  const availableObsAudioSources = useSequenceStore((s) => s.availableObsAudioSources);
+  const obsConnected = useSequenceStore((s) => s.obsConnected);
+  const fetchObsAudioSources = useSequenceStore((s) => s.fetchObsAudioSources);
+  const isLoadingObsSources = useSequenceStore((s) => s.isLoadingObsSources);
 
   // OBS Image state
   const [imagePath, setImagePath] = useState(step.imagePath ?? '');
@@ -423,6 +493,9 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   const [duelTimerSeconds, setDuelTimerSeconds] = useState(step.duelTimerSeconds ?? 30);
   const [duelLanguage, setDuelLanguage] = useState<'auto' | 'en' | 'ar'>(step.duelLanguage ?? 'auto');
   const [duelCategory, setDuelCategory] = useState<string>(step.duelCategory ?? 'general');
+  const [duelChallengerWinChance, setDuelChallengerWinChance] = useState<number>(step.duelChallengerWinChance ?? 50);
+  const [duelAllowBroadcaster, setDuelAllowBroadcaster] = useState<boolean>(step.duelAllowBroadcaster ?? true);
+  const [duelBroadcasterMuteSource, setDuelBroadcasterMuteSource] = useState<string>(step.duelBroadcasterMuteSource ?? '');
   const defaultDuelInstructions = lang === 'ar'
     ? 'اجعل السؤال بسيطاً ومتنوعاً عن ألعاب مشهورة (مثل ألعاب السولز، زيلدا، مونستر هنتر، ماريو، جود أوف وار، ويتشر، كود، ماينكرافت، إلخ). نوّع الأسئلة ولا تكرر نفس اللعبة في كل مرة. يجب أن تكون الإجابة واضحة ومعروفة ومن كلمة إلى 3 كلمات.'
     : 'Keep questions simple, diverse, and focused on popular games (such as Souls games, Zelda, Monster Hunter, Mario, God of War, Witcher, CoD, Minecraft, etc.). Vary games every round and never repeat the same game consecutively. The answer must be clear, well-known, and 1 to 3 words.';
@@ -541,7 +614,10 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   const handleTestMicMute = async () => {
     setIsTestMuting(true);
     try {
-      await rpc.invoke(Channels.AudioMuteMic, { durationSeconds: 3 });
+      await rpc.invoke(Channels.ObsMuteSource, {
+        sourceName: micMuteSourceName.trim() || undefined,
+        durationSeconds: 3,
+      });
     } finally {
       setTimeout(() => setIsTestMuting(false), 3000);
     }
@@ -609,6 +685,9 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
           duelMessageStart: duelMessageStart.trim() || undefined,
           duelMessageWin: duelMessageWin.trim() || undefined,
           duelMessageTimeout: duelMessageTimeout.trim() || undefined,
+          duelChallengerWinChance: Math.max(1, Math.min(99, Number(duelChallengerWinChance) || 50)),
+          duelAllowBroadcaster,
+          duelBroadcasterMuteSource: duelBroadcasterMuteSource.trim() || undefined,
         });
         break;
       case 'poll':
@@ -620,7 +699,10 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
         });
         break;
       case 'mic_mute':
-        onSave({ micMuteDurationSeconds });
+        onSave({
+          micMuteDurationSeconds: Math.max(1, Number(micMuteDurationSeconds) || 5),
+          micMuteSourceName: micMuteSourceName.trim() || undefined,
+        });
         break;
     }
     onClose();
@@ -1203,7 +1285,7 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
             </div>
           )}
 
-          {/* MIC MUTE */}
+          {/* MIC MUTE / OBS AUDIO SOURCE MUTE */}
           {step.type === 'mic_mute' && (
             <div className="flex flex-col gap-3.5">
               <DurationPicker
@@ -1216,6 +1298,50 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                 label={t(lang, 'sequence.micMuteDuration')}
                 accentColor="rose"
               />
+
+              {/* OBS Audio Source Dropdown & Refresh */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-sans text-[12px] font-medium text-zinc-300">
+                    {t(lang, 'sequence.obsAudioSource')}
+                  </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void fetchObsAudioSources()}
+                    disabled={isLoadingObsSources}
+                    className="h-6 gap-1 px-2 text-[11px] text-zinc-300 hover:text-white hover:bg-white/10"
+                    title={t(lang, 'sequence.refreshSources')}
+                  >
+                    <RefreshCw size={11} className={isLoadingObsSources ? 'animate-spin' : ''} />
+                    <span>{t(lang, 'sequence.refreshSources')}</span>
+                  </Button>
+                </div>
+
+                <select
+                  value={micMuteSourceName}
+                  onChange={(e) => setMicMuteSourceName(e.target.value)}
+                  className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
+                >
+                  <option value="">{t(lang, 'sequence.obsDefaultMic')}</option>
+                  {availableObsAudioSources.map((source) => (
+                    <option key={source.name} value={source.name}>
+                      {source.name} ({source.kind}) {source.muted ? '🔇' : '🔊'}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10.5px] text-muted">
+                  {t(lang, 'sequence.obsAudioSourceHint')}
+                </p>
+              </div>
+
+              {!obsConnected && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
+                  <Info size={14} className="mt-0.5 shrink-0 text-amber-400" />
+                  <span>{t(lang, 'sequence.obsDisconnectedNotice')}</span>
+                </div>
+              )}
 
               <div className="flex items-start gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-[11.5px] text-rose-300">
                 <MicOff size={15} className="mt-0.5 shrink-0 text-rose-400" />
@@ -1442,6 +1568,52 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                 />
               </div>
 
+              {/* Win Probability Slider (Random Mode) */}
+              {duelMode === 'random' && (
+                <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-sans text-[12px] font-medium text-zinc-300">
+                      {t(lang, 'sequence.duelWinChance')}
+                    </span>
+                    <span className="font-mono text-[11px] text-amber-400 font-semibold">
+                      {t(lang, 'sequence.duelChallengerOdds', {
+                        n: duelChallengerWinChance,
+                        opp: 100 - duelChallengerWinChance,
+                      })}
+                    </span>
+                  </div>
+                  <Slider
+                    value={duelChallengerWinChance}
+                    min={1}
+                    max={99}
+                    step={1}
+                    onChange={(v) => setDuelChallengerWinChance(v)}
+                    ariaLabel={t(lang, 'sequence.duelWinChance')}
+                  />
+                  <div className="flex items-center justify-between pt-1">
+                    <p className="text-[10.5px] text-muted">
+                      {t(lang, 'sequence.duelWinChanceHint')}
+                    </p>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {[25, 50, 75].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => setDuelChallengerWinChance(pct)}
+                          className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors cursor-pointer ${
+                            duelChallengerWinChance === pct
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : 'bg-white/5 text-muted hover:text-white border border-white/10'
+                          }`}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Target Opponent */}
               <div className="flex flex-col gap-1.5">
                 <label className="font-sans text-[12px] font-medium text-zinc-300">
@@ -1469,6 +1641,63 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Broadcaster Duel & Streamer Mute Option */}
+              <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                <div className="flex items-center justify-between">
+                  <div className="pe-3">
+                    <span className="font-sans text-[12.5px] font-medium text-zinc-200">
+                      {t(lang, 'sequence.duelAllowBroadcaster')}
+                    </span>
+                    <p className="text-[10.5px] text-muted mt-0.5">
+                      {t(lang, 'sequence.duelAllowBroadcasterHint')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={duelAllowBroadcaster}
+                    onChange={setDuelAllowBroadcaster}
+                    label={t(lang, 'sequence.duelAllowBroadcaster')}
+                  />
+                </div>
+
+                {duelAllowBroadcaster && (
+                  <div className="mt-2 flex flex-col gap-1.5 border-t border-white/[0.06] pt-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="font-sans text-[11.5px] font-medium text-zinc-300">
+                        {t(lang, 'sequence.duelBroadcasterMuteSource')}
+                      </label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void fetchObsAudioSources()}
+                        disabled={isLoadingObsSources}
+                        className="h-5 gap-1 px-1.5 text-[10.5px] text-zinc-300 hover:text-white"
+                        title={t(lang, 'sequence.refreshSources')}
+                      >
+                        <RefreshCw size={10} className={isLoadingObsSources ? 'animate-spin' : ''} />
+                        <span>{t(lang, 'sequence.refreshSources')}</span>
+                      </Button>
+                    </div>
+
+                    <select
+                      value={duelBroadcasterMuteSource}
+                      onChange={(e) => setDuelBroadcasterMuteSource(e.target.value)}
+                      className="h-8.5 rounded-md border border-white/15 bg-[#0e1017] px-2.5 font-sans text-[12px] text-foreground focus:border-accent focus:outline-none"
+                    >
+                      <option value="">{t(lang, 'sequence.obsDefaultMic')}</option>
+                      {availableObsAudioSources.map((source) => (
+                        <option key={source.name} value={source.name}>
+                          {source.name} ({source.kind}) {source.muted ? '🔇' : '🔊'}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-muted">
+                      {t(lang, 'sequence.duelBroadcasterMuteSourceHint')}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Timeout Duration */}
@@ -1758,6 +1987,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
   const runSequence = useSequenceStore((s) => s.runSequence);
   const availableRewards = useSequenceStore((s) => s.availableRewards);
   const fetchAvailableRewards = useSequenceStore((s) => s.fetchAvailableRewards);
+  const isLoadingRewards = useSequenceStore((s) => s.isLoadingRewards);
   const activeRunningSequenceId = useSequenceStore((s) => s.activeRunningSequenceId);
   const activeRunningStepIndex = useSequenceStore((s) => s.activeRunningStepIndex);
 
@@ -1791,9 +2021,11 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
   const [showSimDrawer, setShowSimDrawer] = useState(false);
 
   // Test / Simulation
-  const [simMode, setSimMode] = useState<'raid' | 'follow' | 'chat' | 'points'>('raid');
+  const [simMode, setSimMode] = useState<'raid' | 'follow' | 'watch_streak' | 'chat' | 'points'>('raid');
   const [simRaider, setSimRaider] = useState('EpicRaider');
   const [simFollower, setSimFollower] = useState('NewFollower');
+  const [simStreakUser, setSimStreakUser] = useState('LoyalViewer');
+  const [simStreak, setSimStreak] = useState(3);
   const [simViewers, setSimViewers] = useState(25);
   const [testUser, setTestUser] = useState('StreamViewer');
   const [testTarget, setTestTarget] = useState('');
@@ -1867,12 +2099,19 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     let formattedInput = '';
     let raider = '';
     let viewers = 0;
-    let source: 'raid' | 'follow' | 'chat' | 'channel_points' | 'test' = 'test';
+    let streak = 0;
+    let source: 'raid' | 'follow' | 'watch_streak' | 'chat' | 'channel_points' | 'test' = 'test';
 
     if (simMode === 'follow') {
       const follower = simFollower.trim().replace(/^@+/, '') || 'NewFollower';
       username = follower;
       source = 'follow';
+    } else if (simMode === 'watch_streak') {
+      const streakUser = simStreakUser.trim().replace(/^@+/, '') || 'LoyalViewer';
+      username = streakUser;
+      streak = Math.max(1, Number(simStreak) || 1);
+      formattedInput = `Stream #${streak}!`;
+      source = 'watch_streak';
     } else if (simMode === 'raid') {
       raider = simRaider.trim().replace(/^@+/, '') || 'EpicRaider';
       username = raider;
@@ -1899,6 +2138,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       source,
       raider,
       viewers,
+      streak,
     });
 
     if (res) {
@@ -1909,6 +2149,10 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
             ? lang === 'ar'
               ? `✓ تمت محاكاة متابعة @${simFollower.trim() || 'NewFollower'} بنجاح!`
               : `✓ Simulated follow from @${simFollower.trim() || 'NewFollower'} executed successfully!`
+            : simMode === 'watch_streak'
+            ? lang === 'ar'
+              ? `✓ تمت محاكاة ستريك @${simStreakUser.trim() || 'LoyalViewer'} (${streak} بثوث متتالية) بنجاح!`
+              : `✓ Simulated watch streak from @${simStreakUser.trim() || 'LoyalViewer'} (${streak} streams) executed successfully!`
             : simMode === 'raid'
             ? lang === 'ar'
               ? `✓ تمت محاكاة ريد @${raider} مع ${viewers} مشاهد بنجاح!`
@@ -2108,6 +2352,14 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       desc: lang === 'ar' ? 'يتم التفعيل عند استبدال مكافأة مخصصة بنقاط القناة' : 'Triggers when a channel points custom reward is redeemed',
       icon: Coins,
       color: 'text-amber-400',
+    },
+    {
+      type: 'twitch_watch_streak' as ActionTriggerType,
+      source: lang === 'ar' ? 'تويتش > القناة' : 'Twitch > Channel',
+      title: lang === 'ar' ? 'سلسلة المشاهدة (Watch Streak)' : 'Watch Streak Milestone',
+      desc: lang === 'ar' ? 'يتم التفعيل عندما يشارك المشاهد إنجاز استمرار مشاهدة البث المتتالي' : 'Triggers when a viewer shares their consecutive stream watch streak milestone',
+      icon: Zap,
+      color: 'text-purple-400',
     },
   ];
 
@@ -2441,12 +2693,13 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                 )}
               </div>
 
-              <SegmentedControl<'raid' | 'follow' | 'chat' | 'points'>
+              <SegmentedControl<'raid' | 'follow' | 'watch_streak' | 'chat' | 'points'>
                 value={simMode}
                 onChange={setSimMode}
                 options={[
                   { value: 'raid', label: `🔥 ${t(lang, 'sequence.simRaid')}` },
                   { value: 'follow', label: `💖 ${t(lang, 'sequence.triggerFollow')}` },
+                  { value: 'watch_streak', label: `⚡ ${t(lang, 'sequence.simWatchStreak')}` },
                   { value: 'chat', label: `💬 ${t(lang, 'sequence.simChat')}` },
                   { value: 'points', label: `🪙 ${t(lang, 'sequence.simPoints')}` },
                 ]}
@@ -2467,6 +2720,45 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                         className="h-8 ps-6 font-mono text-[12px]"
                       />
                     </div>
+                  </div>
+
+                  <div className="sm:col-span-3">
+                    <Button
+                      size="sm"
+                      onClick={() => void handleRunTest()}
+                      disabled={isExecuting || !sequence.enabled}
+                      className="w-full h-8 border border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-500 font-semibold"
+                    >
+                      <Play size={12} className="fill-current me-1.5" />
+                      <span>{t(lang, 'sequence.runTest')}</span>
+                    </Button>
+                  </div>
+                </div>
+              ) : simMode === 'watch_streak' ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-12 items-end">
+                  <div className="sm:col-span-6 flex flex-col gap-1">
+                    <label className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.simWatchStreak')}</label>
+                    <div className="relative">
+                      <span className="absolute start-2.5 top-1/2 -translate-y-1/2 font-mono text-[12px] text-muted">@</span>
+                      <Input
+                        value={simStreakUser}
+                        onChange={(e) => setSimStreakUser(e.target.value)}
+                        placeholder="LoyalViewer"
+                        className="h-8 ps-6 font-mono text-[12px]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-3 flex flex-col gap-1">
+                    <label className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.simStreakCount')}</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={1000}
+                      value={simStreak}
+                      onChange={(e) => setSimStreak(Math.max(1, Number(e.target.value)))}
+                      className="h-8 font-mono text-[12px] text-center"
+                    />
                   </div>
 
                   <div className="sm:col-span-3">
@@ -2664,6 +2956,19 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   <Info size={13} />
                 </button>
 
+                {/* Refresh Rewards button */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void fetchAvailableRewards()}
+                  disabled={isLoadingRewards}
+                  className="h-7.5 border border-white/10 bg-[#0e1017] text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 text-[11.5px] font-medium"
+                  title={t(lang, 'sequence.refreshRewardsHint')}
+                >
+                  <RefreshCw size={12} className={`me-1 ${isLoadingRewards ? 'animate-spin' : ''}`} />
+                  <span>{t(lang, 'sequence.refreshRewards')}</span>
+                </Button>
+
                 {/* + Add Trigger button */}
                 <div className="relative">
                   <Button
@@ -2705,6 +3010,21 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                         <Flame size={14} />
                         <div>
                           <div className="font-medium text-white">{t(lang, 'sequence.triggerRaid')}</div>
+                          <div className="font-mono text-[10px] text-muted">{t(lang, 'sequence.sourceTwitchChannel')}</div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[12px] hover:bg-white/[0.08] text-yellow-400 transition-colors"
+                        onClick={() => {
+                          const nt = addTrigger(sequence.id, 'twitch_watch_streak', { minStreak: 2 });
+                          setShowAddTriggerMenu(false);
+                          setEditingTriggerId(nt.id);
+                        }}
+                      >
+                        <Zap size={14} />
+                        <div>
+                          <div className="font-medium text-white">{t(lang, 'sequence.triggerWatchStreak')}</div>
                           <div className="font-mono text-[10px] text-muted">{t(lang, 'sequence.sourceTwitchChannel')}</div>
                         </div>
                       </button>
@@ -2779,6 +3099,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           ? t(lang, 'sequence.sourceTwitchChannel')
                           : trig.type === 'twitch_raid'
                           ? t(lang, 'sequence.sourceTwitchChannel')
+                          : trig.type === 'twitch_watch_streak'
+                          ? t(lang, 'sequence.sourceTwitchChannel')
                           : trig.type === 'twitch_chat'
                           ? t(lang, 'sequence.sourceCoreCommands')
                           : t(lang, 'sequence.sourceTwitchPoints');
@@ -2788,6 +3110,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           ? t(lang, 'sequence.typeChannelFollow')
                           : trig.type === 'twitch_raid'
                           ? t(lang, 'sequence.typeChannelRaid')
+                          : trig.type === 'twitch_watch_streak'
+                          ? t(lang, 'sequence.typeWatchStreak')
                           : trig.type === 'twitch_chat'
                           ? t(lang, 'sequence.typeCommandTriggered')
                           : t(lang, 'sequence.typeRewardRedemption');
@@ -2797,6 +3121,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           ? 'Any new follower'
                           : trig.type === 'twitch_raid'
                           ? `Min: ${trig.minViewers ?? 1} viewers`
+                          : trig.type === 'twitch_watch_streak'
+                          ? `Min: ${trig.minStreak ?? 1} streams`
                           : trig.type === 'twitch_chat'
                           ? `${trig.chatCommand || '!command'} (${trig.matchMode || 'startsWith'})`
                           : trig.rewardTitle || 'Custom Reward';
@@ -2816,6 +3142,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                 <Heart size={13} className="text-pink-400 shrink-0" />
                               ) : trig.type === 'twitch_raid' ? (
                                 <Flame size={13} className="text-orange-400 shrink-0" />
+                              ) : trig.type === 'twitch_watch_streak' ? (
+                                <Zap size={13} className="text-yellow-400 shrink-0" />
                               ) : trig.type === 'twitch_chat' ? (
                                 <Terminal size={13} className="text-sky-400 shrink-0" />
                               ) : (
@@ -3426,6 +3754,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               >
                 <Flame size={14} />
                 <span>{t(lang, 'sequence.triggerRaid')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-yellow-400"
+                onClick={() => {
+                  const nt = addTrigger(sequence.id, 'twitch_watch_streak', { minStreak: 2 });
+                  setContextMenu(null);
+                  setEditingTriggerId(nt.id);
+                }}
+              >
+                <Zap size={14} />
+                <span>{t(lang, 'sequence.triggerWatchStreak')}</span>
               </button>
               <button
                 type="button"

@@ -161,6 +161,7 @@ public sealed class HostController : IDisposable
     private readonly string _appData;
     private readonly ChatOverlayHostBridge _chatOverlay;
     private readonly ObsFileWriter _obs = new();
+    private readonly ObsWebSocketClient _obsWs = new();
     private readonly TokenVault _tokens;
     private readonly TokenVault _botTokens;
     private readonly SecretVault _openRouterKey;
@@ -499,6 +500,63 @@ public sealed class HostController : IDisposable
             var duration = request?.DurationSeconds ?? 5;
             var success = await _micController.MuteForDurationAsync(duration, ct).ConfigureAwait(false);
             return new { ok = success };
+        });
+        _dispatcher.Register(Channels.ObsWebsocketGetStatus, (_, _) =>
+        {
+            return Task.FromResult<object?>(new
+            {
+                connected = _obsWs.IsConnected,
+                host = _obsWs.Host,
+                port = _obsWs.Port,
+                hasPassword = _obsWs.HasPassword,
+                error = _obsWs.LastError
+            });
+        });
+        _dispatcher.Register(Channels.ObsWebsocketConnect, async (payload, ct) =>
+        {
+            var req = Json.Deserialize<ObsConnectPayload>(payload ?? default);
+            if (req is not null)
+            {
+                _obsWs.Configure(req.Host ?? _obsWs.Host, req.Port ?? _obsWs.Port, req.Password ?? string.Empty);
+            }
+            var connected = await _obsWs.ConnectAsync(ct).ConfigureAwait(false);
+            return new { ok = connected, error = _obsWs.LastError };
+        });
+        _dispatcher.Register(Channels.ObsGetAudioSources, async (_, ct) =>
+        {
+            if (!_obsWs.IsConnected)
+            {
+                await _obsWs.ConnectAsync(ct).ConfigureAwait(false);
+            }
+            var sources = await _obsWs.GetAudioSourcesAsync(ct).ConfigureAwait(false);
+            return new { ok = true, sources, connected = _obsWs.IsConnected, error = _obsWs.LastError };
+        });
+        _dispatcher.Register(Channels.ObsMuteSource, async (payload, ct) =>
+        {
+            var req = Json.Deserialize<ObsMuteSourcePayload>(payload ?? default);
+            if (req is null)
+            {
+                return new { ok = false, error = "INVALID_PAYLOAD" };
+            }
+            if (string.IsNullOrWhiteSpace(req.SourceName))
+            {
+                var winSuccess = await _micController.MuteForDurationAsync(req.DurationSeconds, ct).ConfigureAwait(false);
+                return new { ok = winSuccess, fallback = true };
+            }
+            if (!_obsWs.IsConnected)
+            {
+                await _obsWs.ConnectAsync(ct).ConfigureAwait(false);
+            }
+            if (_obsWs.IsConnected)
+            {
+                var success = await _obsWs.MuteInputForDurationAsync(req.SourceName, req.DurationSeconds, ct).ConfigureAwait(false);
+                if (success)
+                {
+                    return new { ok = true };
+                }
+            }
+            var fallbackSuccess = await _micController.MuteForDurationAsync(req.DurationSeconds, ct).ConfigureAwait(false);
+            return new { ok = fallbackSuccess, fallback = true };
         });
         _dispatcher.Register(Channels.AudioSpeakTts, async (payload, ct) =>
         {
@@ -1600,6 +1658,20 @@ public sealed class HostController : IDisposable
             PostEvent(Events.TwitchFollow, follow);
             Log("trigger", $"TWITCH FOLLOW · {follow.UserName} just followed!");
         };
+        _twitch.WatchStreakReceived += streak =>
+        {
+            PostEvent(Events.TwitchWatchStreak, streak);
+            Log("trigger", $"WATCH STREAK · {streak.UserName} shared a {streak.Streak}-stream watch streak!");
+        };
+        _obsWs.ConnectionChanged += connected =>
+        {
+            PostEvent(Events.ObsWebsocketStatusChanged, new { connected });
+        };
+        _obsWs.LogMessage += msg => Log("system", msg);
+        _ = Task.Run(async () =>
+        {
+            try { await _obsWs.ConnectAsync().ConfigureAwait(false); } catch { }
+        });
         _eventSub.ChannelTitleUpdated += updatedTitle =>
         {
             if (string.IsNullOrWhiteSpace(updatedTitle)) return;
@@ -2680,6 +2752,7 @@ public sealed class HostController : IDisposable
             _micController.Dispose();
             _ttsService.Dispose();
             _soundPlayer.Dispose();
+            _obsWs.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _eventSub.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _twitch.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _botTwitch.DisposeAsync().AsTask().GetAwaiter().GetResult();

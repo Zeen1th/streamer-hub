@@ -16,6 +16,7 @@ await RunAsync("echo_tracker_ignores_non_host_or_untracked_messages", EchoTracke
 await RunAsync("echo_tracker_expires_stale_entries", EchoTrackerExpiresStaleEntriesAsync);
 await RunAsync("echo_tracker_handles_multiple_identical_messages", EchoTrackerHandlesMultipleIdenticalMessagesAsync);
 await RunAsync("parse_usernotice_raid_extracts_raider_and_viewers", ParseUsernoticeRaidExtractsRaiderAndViewersAsync);
+await RunAsync("parse_usernotice_watch_streak_extracts_streak_and_message", ParseUsernoticeWatchStreakExtractsStreakAndMessageAsync);
 await RunAsync("single_instance_coordinator_enforces_single_instance_and_notifies_primary", SingleInstanceCoordinatorEnforcesSingleInstanceAndNotifiesPrimaryAsync);
 await RunAsync("pending_remod_manager_persists_and_restores_queue", PendingRemodManagerPersistsAndRestoresQueueAsync);
 await RunAsync("pending_remod_manager_calculates_backoff_and_records_retries", PendingRemodManagerCalculatesBackoffAndRecordsRetriesAsync);
@@ -54,7 +55,7 @@ if (failures.Count > 0)
     return;
 }
 
-Console.WriteLine("PASS 16/16");
+Console.WriteLine("PASS 17/17");
 
 async Task RunAsync(string name, Func<Task> test)
 {
@@ -337,6 +338,34 @@ Task ParseUsernoticeRaidExtractsRaiderAndViewersAsync()
     // Non-raid USERNOTICE should return false
     const string subLine = "@badge-info=;badges=subscriber/1;color=#00FF00;display-name=Viewer;msg-id=sub :tmi.twitch.tv USERNOTICE #room";
     AssertFalse(TwitchUsernoticeParser.TryParseRaid(subLine, out _), "non-raid msg-id should return false");
+
+    return Task.CompletedTask;
+}
+
+Task ParseUsernoticeWatchStreakExtractsStreakAndMessageAsync()
+{
+    const string streakLine = "@badge-info=;badges=viewer/1;color=#00FFAA;display-name=FaithfulViewer;login=faithfulviewer;msg-id=viewermilestone;msg-param-category=watch-streak;msg-param-value=7;room-id=999;user-id=112233 :tmi.twitch.tv USERNOTICE #room :7 streams in a row!";
+
+    if (!TwitchUsernoticeParser.TryParseWatchStreak(streakLine, out var streak))
+    {
+        throw new InvalidOperationException("expected TwitchUsernoticeParser to parse watch streak");
+    }
+
+    AssertEqual("112233", streak.UserId, "UserId");
+    AssertEqual("FaithfulViewer", streak.UserName, "UserName");
+    AssertEqual("faithfulviewer", streak.UserLogin, "UserLogin");
+    AssertEqual(7, streak.Streak, "Streak");
+    AssertEqual("7 streams in a row!", streak.Message, "Message");
+
+    const string directStreakLine = "@color=#00FFAA;display-name=Fan;login=fan;msg-id=watch-streak;msg-param-value=12;user-id=445566 :tmi.twitch.tv USERNOTICE #room";
+    if (!TwitchUsernoticeParser.TryParseWatchStreak(directStreakLine, out var directStreak))
+    {
+        throw new InvalidOperationException("expected TwitchUsernoticeParser to parse direct watch-streak");
+    }
+    AssertEqual(12, directStreak.Streak, "Direct Streak");
+
+    const string subLine = "@display-name=Viewer;msg-id=sub :tmi.twitch.tv USERNOTICE #room";
+    AssertFalse(TwitchUsernoticeParser.TryParseWatchStreak(subLine, out _), "non-streak msg-id should return false");
 
     return Task.CompletedTask;
 }

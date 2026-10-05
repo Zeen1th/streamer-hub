@@ -117,6 +117,10 @@ public static class Channels
     public const string ChatOverlayHideImage = "chat-overlay/hide-image";
     public const string ChatOverlayGetImageUrl = "chat-overlay/get-image-url";
     public const string AiGenerateTrivia = "ai/generate-trivia";
+    public const string ObsWebsocketGetStatus = "obs/websocket-get-status";
+    public const string ObsWebsocketConnect = "obs/websocket-connect";
+    public const string ObsGetAudioSources = "obs/get-audio-sources";
+    public const string ObsMuteSource = "obs/mute-source";
 }
 
 public static class Events
@@ -134,6 +138,8 @@ public static class Events
     public const string KeybindTriggered = "keybind/triggered";
     public const string TwitchRaid = "twitch/raid";
     public const string TwitchFollow = "twitch/follow";
+    public const string TwitchWatchStreak = "twitch/watch-streak";
+    public const string ObsWebsocketStatusChanged = "obs/websocket-status-changed";
     public const string VotesChanged = "votes/changed";
     public const string AlertsProgress = "alerts/progress";
     public const string AlertsCompleted = "alerts/completed";
