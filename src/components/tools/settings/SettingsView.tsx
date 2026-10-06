@@ -39,6 +39,12 @@ export function SettingsView() {
   const saveOpenRouterKey = useSettingsStore((s) => s.saveOpenRouterKey);
   const removeOpenRouterKey = useSettingsStore((s) => s.removeOpenRouterKey);
   const simulateUpdate = useUpdateStore((s) => s.simulateUpdate);
+  const autoUpdate = useUpdateStore((s) => s.autoUpdate);
+  const setAutoUpdate = useUpdateStore((s) => s.setAutoUpdate);
+  const currentVersion = useUpdateStore((s) => s.currentVersion);
+  const checkForUpdate = useUpdateStore((s) => s.check);
+  const openWhatsNew = useUpdateStore((s) => s.openWhatsNew);
+  const [updateCheckStatus, setUpdateCheckStatus] = useState<string | null>(null);
   const uiScaleMode = useSettingsStore((s) => s.uiScaleMode);
   const uiCustomScale = useSettingsStore((s) => s.uiCustomScale);
   const effectiveScale = useSettingsStore((s) => s.effectiveScale);
@@ -327,6 +333,48 @@ export function SettingsView() {
                   onChange={(enabled) => setStartupEnabled(enabled)}
                   label={t(lang, 'settings.startup')}
                 />
+              </div>
+            </div>
+          </Card>
+          <Card title={t(lang, 'updates.settingsTitle')}>
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="font-sans text-xs font-semibold text-ink">{t(lang, 'updates.autoLabel')}</div>
+                  <p className="mt-1 font-sans text-[11px] leading-relaxed text-muted">{t(lang, 'updates.autoHint')}</p>
+                </div>
+                <Switch
+                  size="settings"
+                  checked={autoUpdate}
+                  onChange={setAutoUpdate}
+                  label={t(lang, 'updates.autoLabel')}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-3 border-t border-white/[0.08] pt-3">
+                <span className="font-mono text-xs text-muted">
+                  {t(lang, 'updates.currentVersion')}: v{currentVersion}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    setUpdateCheckStatus(t(lang, 'updates.checking'));
+                    const result = await checkForUpdate();
+                    setUpdateCheckStatus(
+                      result?.updateAvailable
+                        ? `${t(lang, 'updates.available')} · v${result.latestVersion}`
+                        : result
+                          ? t(lang, 'updates.upToDate')
+                          : t(lang, 'updates.checkFailed'),
+                    );
+                  }}
+                >
+                  {t(lang, 'updates.checkNow')}
+                </Button>
+                <Button size="sm" variant="outline" onClick={openWhatsNew}>
+                  {t(lang, 'updates.showWhatsNew')}
+                </Button>
+                {updateCheckStatus && <span role="status" className="font-sans text-xs text-muted">{updateCheckStatus}</span>}
               </div>
             </div>
           </Card>

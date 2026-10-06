@@ -32,6 +32,8 @@ import { ObsChatView } from './components/tools/chat/ObsChatView';
 import { VotesView } from './components/tools/votes/VotesView';
 import { AlertCompressorView } from './components/tools/alerts/AlertCompressorView';
 import { useAlertCompressorStore } from './store/alertCompressorStore';
+import { AutoUpdateToast } from './components/updates/AutoUpdateToast';
+import { WhatsNewDialog } from './components/updates/WhatsNewDialog';
 import { ReauthPromptModal } from './components/modals/ReauthPromptModal';
 
 export default function App() {
@@ -116,6 +118,17 @@ export default function App() {
   }, []);
 
   useEffect(() => { void useUpdateStore.getState().check(); }, []);
+
+  // Automatic updates: look shortly after launch (may install after a cancelable countdown), then every few hours
+  // (an update found mid-session waits for the next launch so a live stream is never restarted).
+  useEffect(() => {
+    const first = window.setTimeout(() => void useUpdateStore.getState().runAutoCheck('startup'), 8_000);
+    const periodic = window.setInterval(() => void useUpdateStore.getState().runAutoCheck('periodic'), 6 * 60 * 60 * 1000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(periodic);
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -315,6 +328,8 @@ export default function App() {
         </div>
       )}
       <ReauthPromptModal />
+      <WhatsNewDialog />
+      <AutoUpdateToast />
       <WindowResizeHandles />
     </div>
   );

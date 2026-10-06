@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
  
-**Version:** `v0.4.8`  
+**Version:** `v0.4.9`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -167,6 +167,12 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 ### 2.6e Commands Table & Inspector
 - Table columns: Command (the item's name; counters add their `!command` underneath; reply rows use their trigger word), Type (badge, count / studio button, and trigger icons for sequences: 🪙 channel points, 💬 chat, 🔥 raid, ❤️ follow, ⚡ watch streak, ⚠ no trigger), Who, CD. Writes/Last columns were removed.
 - Inspectors show only main controls: Reply = enable, studio launcher, triggers, who can use, cooldown (response type, who replies, per-user cooldown, AI limits and chatter overrides live in the studios). Counter = name, live count, actions launcher and the two output switches; file path, title template/apply/detach and keybind sit under a collapsed `MoreSettings`. Sequence = studio launcher + test run, trigger summary, cooldown (legacy trigger fields under `MoreSettings` only for sequences without a trigger list).
+
+### 2.6f Automatic Updates & What's New
+- Settings -> System -> Updates: "Install updates automatically" (default on, `localStorage` `streamer-hub-auto-update`), Check now, and a What's new button. Logic in `updateStore.ts` (`runAutoCheck`) + `src/lib/autoUpdate.ts` (`decideAutoUpdate`).
+- A check runs ~8s after launch and every 6h. An update found right after launch installs after a 15s cancelable countdown (`AutoUpdateToast`); one found mid-session only shows "will install next launch", so a live stream is never restarted. The same version is not auto-retried within 24h (a failed installer relaunches the old app), and Cancel skips it for the session. Disabled in the browser preview.
+- After an update the app shows `WhatsNewDialog` once, in the user's language (RTL for Arabic). Content is bundled in `src/lib/changelog.ts` (works offline); last seen version is stored in `streamer-hub-last-seen-version`, skipped versions are all listed, and a brand-new install shows nothing.
+- **Every release must add a bilingual entry to `CHANGELOG` in `src/lib/changelog.ts`** (step 1 of the release checklist below). `changelog.test.mjs` fails if the `package.json` version has no entry or the English and Arabic bullet counts differ.
 
 ### 2.6b UI Scale & Default Window Size
 - Default UI size is 110% (`DEFAULT_UI_SCALE`, custom mode) for anyone without a stored choice; "Reset" returns to 110%. The titlebar no longer shows the scale %, the theme toggle, and the action bar no longer has the Connected pill (the sidebar shows the account).
@@ -401,6 +407,7 @@ To create a production desktop build locally:
 
 To ship a release to users:
 ```pwsh
+# 0. Add a bilingual entry for the new version to CHANGELOG in src/lib/changelog.ts (the What's New window and a test depend on it)
 # 1. Bump version in package.json, core/StreamerHub.csproj, and Titlebar.tsx
 # 2. Commit and tag:
 git commit -m "feat: release vX.Y.Z"

@@ -25,7 +25,7 @@ export function Titlebar() {
   const [message, setMessage] = useState<string | null>(null);
 
   const parsedNotes = parseReleaseNotes(releaseNotes, lang);
-  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.8';
+  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.9';
 
   useEffect(() => {
     if (!debugPromptRequested) return;
@@ -68,7 +68,7 @@ export function Titlebar() {
           <circle cx="32" cy="32" r="2.8" fill="#FFFFFF" />
         </svg>
         <span className="font-sans text-[12.5px] font-bold tracking-tight text-ink">Streamer Hub</span>
-        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.4.8</span>
+        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.4.9</span>
       </div>
       <div data-drag-exclude className="flex h-full items-center gap-1 pe-1">
         {message && <span role="status" className="px-2 font-mono text-[10px] text-muted">{message}</span>}
