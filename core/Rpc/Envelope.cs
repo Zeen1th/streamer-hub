@@ -112,6 +112,7 @@ public static class Channels
     public const string AlertsCompress = "alerts/compress";
     public const string AlertsCancel = "alerts/cancel";
     public const string AlertsOpenFolder = "alerts/open-folder";
+    public const string AlertsOpenFile = "alerts/open-file";
     public const string AlertsSaveDroppedFile = "alerts/save-dropped-file";
     public const string ChatOverlayShowImage = "chat-overlay/show-image";
     public const string ChatOverlayHideImage = "chat-overlay/hide-image";

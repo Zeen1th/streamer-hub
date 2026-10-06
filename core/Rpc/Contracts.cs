@@ -184,6 +184,8 @@ public sealed record SequenceStep
     public int? DuelChallengerWinChance { get; init; }
     public bool? DuelAllowBroadcaster { get; init; }
     public string? DuelBroadcasterMuteSource { get; init; }
+    public string? DuelStreamerWinMessage { get; init; }
+    public string? DuelStreamerLoseMessage { get; init; }
 
     // Live Poll
     public string? PollAction { get; init; } // "start" | "end" | "reset"
@@ -408,7 +410,20 @@ public sealed record CompressAlertPayload(
     string? OutputPath = null,
     double TargetSizeMb = 28.0,
     int? CustomCrf = null,
-    int? CustomMaxBitrateK = null
+    int? CustomMaxBitrateK = null,
+    bool? LumaKeyEnabled = false,
+    string? LumaKeyMode = "dark",
+    double? LumaThreshold = 0.15,
+    double? LumaTolerance = 0.10,
+    double? LumaSoftness = 0.08,
+    bool? LumaInvert = false,
+    double? LumaChoke = 0.0,
+    double? LumaGamma = 1.0,
+    double? LumaOpacity = 1.0,
+    string? OutputFormat = "webm",
+    string? KeyType = "luma",
+    string? KeyColor = "#00ff00",
+    int? Rotation = 0
 );
 
 public sealed record InspectAlertPayload(

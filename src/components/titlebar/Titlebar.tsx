@@ -15,6 +15,8 @@ export function Titlebar() {
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
   const lastDarkTheme = useSettingsStore((s) => s.lastDarkTheme);
+  const effectiveScale = useSettingsStore((s) => s.effectiveScale);
+  const resetScale = useSettingsStore((s) => s.resetScale);
   const lang = language === 'ar' ? 'ar' : 'en';
   const systemIsDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
   const resolvedTheme = resolveTheme(theme, systemIsDark);
@@ -31,7 +33,7 @@ export function Titlebar() {
   const [message, setMessage] = useState<string | null>(null);
 
   const parsedNotes = parseReleaseNotes(releaseNotes, lang);
-  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.5';
+  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.6';
 
   useEffect(() => {
     if (!debugPromptRequested) return;
@@ -74,13 +76,23 @@ export function Titlebar() {
           <circle cx="32" cy="32" r="2.8" fill="#FFFFFF" />
         </svg>
         <span className="font-sans text-[12.5px] font-bold tracking-tight text-ink">Streamer Hub</span>
-        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.4.5</span>
+        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.4.6</span>
       </div>
       <div data-drag-exclude className="flex h-full items-center gap-1 pe-1">
         {message && <span role="status" className="px-2 font-mono text-[10px] text-muted">{message}</span>}
         {updateAvailable && (
           <button type="button" className="flex h-[24px] items-center gap-1 rounded-[4px] border border-accent/40 bg-accent-soft px-2 font-sans text-[10px] font-semibold text-accent-text hover:bg-accent/20" onClick={() => setShowUpdate((value) => !value)}>
             <Download size={12} aria-hidden /> {t(lang, 'updates.available')} · v{latestVersion}
+          </button>
+        )}
+        {Math.abs(effectiveScale - 1) > 0.02 && (
+          <button
+            type="button"
+            className="flex h-[24px] items-center rounded-[4px] px-1.5 font-mono text-[10.5px] font-semibold text-accent hover:bg-white/[0.08] transition-colors"
+            title={`${t(lang, 'settings.uiScaleActive')}: ${Math.round(effectiveScale * 100)}% (${t(lang, 'settings.uiScaleReset')})`}
+            onClick={() => resetScale()}
+          >
+            <span>{Math.round(effectiveScale * 100)}%</span>
           </button>
         )}
         <button

@@ -26,6 +26,9 @@ export interface StartDuelOptions {
   messageStart?: string;
   messageWin?: string;
   messageTimeout?: string;
+  isStreamerDuel?: boolean;
+  streamerWinMessage?: string;
+  streamerLoseMessage?: string;
   sinks: DuelExecutionSinks;
 }
 
@@ -41,6 +44,9 @@ export interface ActiveTriviaDuel {
   expiresAt: number;
   broadcasterName?: string;
   broadcasterMuteSource?: string;
+  isStreamerDuel?: boolean;
+  streamerWinMessage?: string;
+  streamerLoseMessage?: string;
   messageWin?: string;
   messageTimeout?: string;
   sinks: DuelExecutionSinks;
@@ -53,6 +59,11 @@ export const DEFAULT_DUEL_MESSAGES = {
   triviaStart: '⚔️ [Gaming Trivia Duel] @{challenger} vs @{opponent}! 🎮 Question: {question} | ⏱️ You have {timer}s to answer! First to answer wins. If neither answers, BOTH get timed out!',
   triviaWin: '🎉 Correct! @{winner} answered: "{answer}"! @{loser} lost the duel and gets timed out for {duration}s! 💀',
   triviaTimeout: "⏰ Time's up! Neither @{challenger} nor @{opponent} knew the answer! (Correct answer: {answer}). BOTH get timed out for {duration}s! 💀💀",
+  streamerRandomStart: '👑 [Streamer Challenge] @{challenger} has challenged Streamer @{streamer} to a 1v1 duel!',
+  streamerTriviaStart: '👑 [Streamer Trivia] @{challenger} vs Streamer @{streamer}! 🎮 Question: {question} | ⏱️ You have {timer}s to answer! First to answer wins!',
+  streamerWin: '👑 Streamer @{streamer} won the 1v1 against @{challenger}! @{challenger} gets timed out for {duration}s! 💀',
+  streamerLose: '💀 Streamer @{streamer} lost the 1v1 against @{challenger}! Streamer is muted in OBS [{source}] for {duration}s! 🔇',
+  streamerTriviaTimeout: "⏰ Time's up! Neither answered! (Answer: {answer}). Streamer is muted for {duration}s and @{challenger} is timed out for {duration}s! 💀",
 };
 
 export function renderDuelMessage(template: string, tokens: Record<string, string | number | undefined>): string {
@@ -343,25 +354,29 @@ class DuelGameManager {
     const delay = sinks.delay ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
 
     const cleanChallenger = (challenger || '').trim().replace(/^@+/, '');
-    const cleanOpponent = extractTargetUsername(opponentRaw || '');
+    const cleanOpponent = options.isStreamerDuel
+      ? (extractTargetUsername(opponentRaw || '') || options.broadcasterName?.trim() || 'Streamer').replace(/^@+/, '')
+      : extractTargetUsername(opponentRaw || '');
 
     if (!cleanOpponent) {
       await sinks.sendChatMessage(`⚠️ [Duel] You must mention a viewer to challenge! (Usage: !duel @username)`);
       return { ok: false, error: 'EMPTY_OPPONENT' };
     }
 
-    if (normalizeUsername(cleanChallenger) === normalizeUsername(cleanOpponent)) {
+    if (!options.isStreamerDuel && normalizeUsername(cleanChallenger) === normalizeUsername(cleanOpponent)) {
       await sinks.sendChatMessage(`⚠️ [Duel] @${cleanChallenger}, you cannot challenge yourself!`);
       return { ok: false, error: 'CANNOT_CHALLENGE_SELF' };
     }
+
+    const streamerName = options.broadcasterName?.trim() || (options.isStreamerDuel ? cleanOpponent : 'Streamer');
 
     const isOpponentBroadcaster = Boolean(
       options.broadcasterName &&
       normalizeUsername(cleanOpponent) === normalizeUsername(options.broadcasterName),
     );
 
-    const allowBroadcaster = options.allowBroadcaster ?? false;
-    if (isOpponentBroadcaster && !allowBroadcaster) {
+    const allowBroadcaster = options.isStreamerDuel || (options.allowBroadcaster ?? false);
+    if (!options.isStreamerDuel && isOpponentBroadcaster && !allowBroadcaster) {
       await sinks.sendChatMessage(`⚠️ [Duel] Cannot challenge the channel broadcaster!`);
       return { ok: false, error: 'CANNOT_CHALLENGE_BROADCASTER' };
     }
@@ -378,125 +393,149 @@ class DuelGameManager {
 
     this.isStarting = true;
     try {
-      log('trigger', `[Duel] Starting ${mode} duel: @${cleanChallenger} vs @${cleanOpponent} (Timeout: ${timeoutDuration}s)`);
+      const modeLabel = options.isStreamerDuel ? `Streamer Challenge (${mode})` : `${mode} duel`;
+      log('trigger', `[Duel] Starting ${modeLabel}: @${cleanChallenger} vs @${cleanOpponent} (Timeout: ${timeoutDuration}s)`);
 
-    // --- Choice 1: Random (Coin Flip with custom win odds) ---
-    if (mode === 'random') {
-      const startTpl = options.messageStart?.trim() || DEFAULT_DUEL_MESSAGES.randomStart;
-      await sinks.sendChatMessage(
-        renderDuelMessage(startTpl, {
-          challenger: cleanChallenger,
-          opponent: cleanOpponent,
-          duration: timeoutDuration,
-        }),
-      );
-      await delay(1800);
+      const makeTokens = (winner?: string, loser?: string, extra?: Record<string, string | number | undefined>) => ({
+        challenger: cleanChallenger,
+        user: cleanChallenger,
+        opponent: cleanOpponent,
+        target: cleanOpponent,
+        streamer: streamerName,
+        broadcaster: streamerName,
+        winner: winner || '',
+        loser: loser || '',
+        duration: timeoutDuration,
+        timer: timerSeconds,
+        source: options.broadcasterMuteSource?.trim() || 'Mic/Aux',
+        ...extra,
+      });
 
-      const challengerWinChance = Math.max(1, Math.min(99, options.challengerWinChance ?? 50));
-      const challengerWins = (Math.random() * 100) < challengerWinChance;
-      const loser = challengerWins ? cleanOpponent : cleanChallenger;
-      const winner = challengerWins ? cleanChallenger : cleanOpponent;
+      // --- Choice 1: Random (Coin Flip with custom win odds) ---
+      if (mode === 'random') {
+        const startTpl = options.messageStart?.trim() ||
+          (options.isStreamerDuel ? DEFAULT_DUEL_MESSAGES.streamerRandomStart : DEFAULT_DUEL_MESSAGES.randomStart);
+        await sinks.sendChatMessage(renderDuelMessage(startTpl, makeTokens()));
+        await delay(1800);
 
-      const winTpl = options.messageWin?.trim() || DEFAULT_DUEL_MESSAGES.randomWin;
-      await sinks.sendChatMessage(
-        renderDuelMessage(winTpl, {
-          challenger: cleanChallenger,
-          opponent: cleanOpponent,
-          winner,
-          loser,
-          duration: timeoutDuration,
-        }),
-      );
-
-      const isLoserBroadcaster = Boolean(
-        options.broadcasterName &&
-        normalizeUsername(loser) === normalizeUsername(options.broadcasterName),
-      );
-
-      if (isLoserBroadcaster) {
+        const challengerWinChance = Math.max(1, Math.min(99, options.challengerWinChance ?? 50));
+        const challengerWins = (Math.random() * 100) < challengerWinChance;
+        const loser = challengerWins ? cleanOpponent : cleanChallenger;
+        const winner = challengerWins ? cleanChallenger : cleanOpponent;
         const muteSrc = options.broadcasterMuteSource?.trim() || 'Mic/Aux';
-        log('trigger', `[Duel] Broadcaster @${loser} lost 1v1 duel to @${winner}! Muting OBS source [${muteSrc}] for ${timeoutDuration}s`);
-        await sinks.sendChatMessage(`💀 Streamer @${loser} lost the 1v1 against @${winner}! Streamer is muted in OBS for ${timeoutDuration}s! 🔇`);
-        if (sinks.muteStreamerSource) {
-          await sinks.muteStreamerSource(muteSrc, timeoutDuration);
-        }
-      } else {
-        const timeoutResult = await sinks.smartModTimeout(
-          loser,
-          timeoutDuration,
-          `Lost 1v1 duel against ${winner}`,
-        );
 
-        if (!timeoutResult.ok) {
-          log('obs-error', `[Duel] Failed to timeout @${loser}: ${timeoutResult.error}`);
+        if (options.isStreamerDuel) {
+          if (challengerWins) {
+            // Streamer LOST!
+            const loseTpl = options.streamerLoseMessage?.trim() || DEFAULT_DUEL_MESSAGES.streamerLose;
+            await sinks.sendChatMessage(renderDuelMessage(loseTpl, makeTokens(winner, loser, { source: muteSrc })));
+            log('trigger', `[Duel] Streamer @${loser} lost 1v1 challenge to @${winner}! Muting OBS source [${muteSrc}] for ${timeoutDuration}s`);
+            if (sinks.muteStreamerSource) {
+              await sinks.muteStreamerSource(muteSrc, timeoutDuration);
+            }
+          } else {
+            // Streamer WON!
+            const winTpl = options.streamerWinMessage?.trim() || DEFAULT_DUEL_MESSAGES.streamerWin;
+            await sinks.sendChatMessage(renderDuelMessage(winTpl, makeTokens(winner, loser, { source: muteSrc })));
+            log('trigger', `[Duel] Streamer @${winner} won 1v1 challenge against @${loser}! Timing out @${loser} for ${timeoutDuration}s`);
+            await sinks.smartModTimeout(loser, timeoutDuration, `Lost 1v1 challenge against Streamer ${winner}`);
+          }
+        } else {
+          // Standard viewer vs viewer
+          const winTpl = options.messageWin?.trim() || DEFAULT_DUEL_MESSAGES.randomWin;
+          await sinks.sendChatMessage(renderDuelMessage(winTpl, makeTokens(winner, loser, { source: muteSrc })));
+
+          const isLoserBroadcaster = Boolean(
+            options.broadcasterName &&
+            normalizeUsername(loser) === normalizeUsername(options.broadcasterName),
+          );
+
+          if (isLoserBroadcaster) {
+            log('trigger', `[Duel] Broadcaster @${loser} lost 1v1 duel to @${winner}! Muting OBS source [${muteSrc}] for ${timeoutDuration}s`);
+            await sinks.sendChatMessage(`💀 Streamer @${loser} lost the 1v1 against @${winner}! Streamer is muted in OBS for ${timeoutDuration}s! 🔇`);
+            if (sinks.muteStreamerSource) {
+              await sinks.muteStreamerSource(muteSrc, timeoutDuration);
+            }
+          } else {
+            const timeoutResult = await sinks.smartModTimeout(
+              loser,
+              timeoutDuration,
+              `Lost 1v1 duel against ${winner}`,
+            );
+
+            if (!timeoutResult.ok) {
+              log('obs-error', `[Duel] Failed to timeout @${loser}: ${timeoutResult.error}`);
+            }
+          }
+        }
+
+        this.lastDuelFinishedAt = Date.now();
+        return { ok: true };
+      }
+
+      // --- Choice 2: AI Gaming Trivia Duel ---
+      let question = 'Who is the main protagonist of God of War?';
+      let answer = 'Kratos';
+      let acceptableAnswers = ['kratos', 'كرايتوس', 'كريتوس'];
+
+      if (sinks.generateTrivia) {
+        try {
+          const res = await sinks.generateTrivia({
+            language: options.language || 'auto',
+            category: options.category,
+            customInstructions: options.customInstructions,
+            recentQuestions: this.getRecentQuestions(),
+          });
+          if (res.ok && res.question && res.answer) {
+            question = res.question;
+            answer = res.answer;
+            acceptableAnswers = res.acceptableAnswers || [res.answer];
+            this.recordRecentQuestion(question, answer);
+          }
+        } catch (err) {
+          log('system', `[Duel] Trivia question generation fallback: ${err}`);
         }
       }
 
-      this.lastDuelFinishedAt = Date.now();
-      return { ok: true };
-    }
+      const duelId = crypto.randomUUID();
+      const expiresAt = Date.now() + timerSeconds * 1000;
 
-    // --- Choice 2: AI Gaming Trivia Duel ---
-    let question = 'Who is the main protagonist of God of War?';
-    let answer = 'Kratos';
-    let acceptableAnswers = ['kratos', 'كرايتوس', 'كريتوس'];
+      const timerHandle = setTimeout(async () => {
+        await this.handleTimeoutExpiration(duelId);
+      }, timerSeconds * 1000);
 
-    if (sinks.generateTrivia) {
-      try {
-        const res = await sinks.generateTrivia({
-          language: options.language || 'auto',
-          category: options.category,
-          customInstructions: options.customInstructions,
-          recentQuestions: this.getRecentQuestions(),
-        });
-        if (res.ok && res.question && res.answer) {
-          question = res.question;
-          answer = res.answer;
-          acceptableAnswers = res.acceptableAnswers || [res.answer];
-          this.recordRecentQuestion(question, answer);
-        }
-      } catch (err) {
-        log('system', `[Duel] Trivia question generation fallback: ${err}`);
-      }
-    }
-
-    const duelId = crypto.randomUUID();
-    const expiresAt = Date.now() + timerSeconds * 1000;
-
-    const timerHandle = setTimeout(async () => {
-      await this.handleTimeoutExpiration(duelId);
-    }, timerSeconds * 1000);
-
-    this.activeDuel = {
-      id: duelId,
-      challenger: cleanChallenger,
-      opponent: cleanOpponent,
-      question,
-      answer,
-      acceptableAnswers,
-      timeoutDuration,
-      timerSeconds,
-      expiresAt,
-      broadcasterName: options.broadcasterName,
-      broadcasterMuteSource: options.broadcasterMuteSource,
-      messageWin: options.messageWin,
-      messageTimeout: options.messageTimeout,
-      sinks,
-      timerHandle,
-    };
-
-    const startTpl = options.messageStart?.trim() || DEFAULT_DUEL_MESSAGES.triviaStart;
-    await sinks.sendChatMessage(
-      renderDuelMessage(startTpl, {
+      this.activeDuel = {
+        id: duelId,
         challenger: cleanChallenger,
         opponent: cleanOpponent,
         question,
-        timer: timerSeconds,
-        duration: timeoutDuration,
-      }),
-    );
+        answer,
+        acceptableAnswers,
+        timeoutDuration,
+        timerSeconds,
+        expiresAt,
+        broadcasterName: options.broadcasterName,
+        broadcasterMuteSource: options.broadcasterMuteSource,
+        isStreamerDuel: options.isStreamerDuel,
+        streamerWinMessage: options.streamerWinMessage,
+        streamerLoseMessage: options.streamerLoseMessage,
+        messageWin: options.messageWin,
+        messageTimeout: options.messageTimeout,
+        sinks,
+        timerHandle,
+      };
 
-    return { ok: true };
+      const startTpl = options.messageStart?.trim() ||
+        (options.isStreamerDuel ? DEFAULT_DUEL_MESSAGES.streamerTriviaStart : DEFAULT_DUEL_MESSAGES.triviaStart);
+      await sinks.sendChatMessage(
+        renderDuelMessage(startTpl, makeTokens(undefined, undefined, {
+          question,
+          timer: timerSeconds,
+          duration: timeoutDuration,
+        })),
+      );
+
+      return { ok: true };
     } finally {
       this.isStarting = false;
     }
@@ -537,40 +576,69 @@ class DuelGameManager {
 
     const winner = isChallenger ? duel.challenger : duel.opponent;
     const loser = isChallenger ? duel.opponent : duel.challenger;
+    const muteSrc = duel.broadcasterMuteSource?.trim() || 'Mic/Aux';
+    const streamerName = duel.broadcasterName?.trim() || (duel.isStreamerDuel ? duel.opponent : 'Streamer');
 
-    const winTpl = duel.messageWin?.trim() || DEFAULT_DUEL_MESSAGES.triviaWin;
-    await duel.sinks.sendChatMessage(
-      renderDuelMessage(winTpl, {
-        challenger: duel.challenger,
-        opponent: duel.opponent,
-        winner,
-        loser,
-        answer: message.message.trim(),
-        correctAnswer: duel.answer,
-        question: duel.question,
-        duration: duel.timeoutDuration,
-        timer: duel.timerSeconds,
-      }),
-    );
+    const tokens = {
+      challenger: duel.challenger,
+      user: duel.challenger,
+      opponent: duel.opponent,
+      target: duel.opponent,
+      streamer: streamerName,
+      broadcaster: streamerName,
+      winner,
+      loser,
+      answer: message.message.trim(),
+      correctAnswer: duel.answer,
+      question: duel.question,
+      duration: duel.timeoutDuration,
+      timer: duel.timerSeconds,
+      source: muteSrc,
+    };
 
-    const isLoserBroadcaster = Boolean(
-      duel.broadcasterName &&
-      normalizeUsername(loser) === normalizeUsername(duel.broadcasterName),
-    );
-
-    if (isLoserBroadcaster) {
-      const muteSrc = duel.broadcasterMuteSource?.trim() || 'Mic/Aux';
-      duel.sinks.log?.('trigger', `[Duel] Streamer @${loser} lost trivia duel to @${winner}! Muting OBS source [${muteSrc}] for ${duel.timeoutDuration}s`);
-      await duel.sinks.sendChatMessage(`💀 Streamer @${loser} lost the trivia duel against @${winner}! Streamer is muted in OBS for ${duel.timeoutDuration}s! 🔇`);
-      if (duel.sinks.muteStreamerSource) {
-        await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
+    if (duel.isStreamerDuel) {
+      if (isChallenger) {
+        // Challenger answered first -> Streamer LOST!
+        const loseTpl = duel.streamerLoseMessage?.trim() || DEFAULT_DUEL_MESSAGES.streamerLose;
+        await duel.sinks.sendChatMessage(renderDuelMessage(loseTpl, tokens));
+        duel.sinks.log?.('trigger', `[Duel] Streamer @${loser} lost trivia challenge to @${winner}! Muting OBS source [${muteSrc}] for ${duel.timeoutDuration}s`);
+        if (duel.sinks.muteStreamerSource) {
+          await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
+        }
+      } else {
+        // Streamer answered first -> Streamer WON!
+        const winTpl = duel.streamerWinMessage?.trim() || DEFAULT_DUEL_MESSAGES.streamerWin;
+        await duel.sinks.sendChatMessage(renderDuelMessage(winTpl, tokens));
+        duel.sinks.log?.('trigger', `[Duel] Streamer @${winner} won trivia challenge against @${loser}! Timing out @${loser} for ${duel.timeoutDuration}s`);
+        await duel.sinks.smartModTimeout(
+          loser,
+          duel.timeoutDuration,
+          `Lost trivia challenge against Streamer ${winner} (Answer: ${duel.answer})`,
+        );
       }
     } else {
-      await duel.sinks.smartModTimeout(
-        loser,
-        duel.timeoutDuration,
-        `Lost trivia duel against ${winner} (Answer: ${duel.answer})`,
+      // Standard viewer vs viewer
+      const winTpl = duel.messageWin?.trim() || DEFAULT_DUEL_MESSAGES.triviaWin;
+      await duel.sinks.sendChatMessage(renderDuelMessage(winTpl, tokens));
+
+      const isLoserBroadcaster = Boolean(
+        duel.broadcasterName &&
+        normalizeUsername(loser) === normalizeUsername(duel.broadcasterName),
       );
+
+      if (isLoserBroadcaster) {
+        duel.sinks.log?.('trigger', `[Duel] Streamer @${loser} lost trivia duel to @${winner}! Muting OBS source [${muteSrc}] for ${duel.timeoutDuration}s`);
+        await duel.sinks.sendChatMessage(`💀 Streamer @${loser} lost the trivia duel against @${winner}! Streamer is muted in OBS for ${duel.timeoutDuration}s! 🔇`);
+        if (duel.sinks.muteStreamerSource) {
+          await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
+        }
+      } else {
+        await duel.sinks.smartModTimeout(
+          loser,
+          duel.timeoutDuration,
+          `Lost trivia duel against ${winner} (Answer: ${duel.answer})`,
+        );
+      }
     }
 
     return true;
@@ -583,48 +651,67 @@ class DuelGameManager {
     this.activeDuel = null;
     this.lastDuelFinishedAt = Date.now();
 
-    const timeoutTpl = duel.messageTimeout?.trim() || DEFAULT_DUEL_MESSAGES.triviaTimeout;
-    await duel.sinks.sendChatMessage(
-      renderDuelMessage(timeoutTpl, {
-        challenger: duel.challenger,
-        opponent: duel.opponent,
-        answer: duel.answer,
-        question: duel.question,
-        duration: duel.timeoutDuration,
-        timer: duel.timerSeconds,
-      }),
-    );
+    const muteSrc = duel.broadcasterMuteSource?.trim() || 'Mic/Aux';
+    const streamerName = duel.broadcasterName?.trim() || (duel.isStreamerDuel ? duel.opponent : 'Streamer');
 
-    // Timeout or mute both players
-    const isChallengerBroadcaster = Boolean(
-      duel.broadcasterName &&
-      normalizeUsername(duel.challenger) === normalizeUsername(duel.broadcasterName),
-    );
-    const isOpponentBroadcaster = Boolean(
-      duel.broadcasterName &&
-      normalizeUsername(duel.opponent) === normalizeUsername(duel.broadcasterName),
-    );
+    const tokens = {
+      challenger: duel.challenger,
+      user: duel.challenger,
+      opponent: duel.opponent,
+      target: duel.opponent,
+      streamer: streamerName,
+      broadcaster: streamerName,
+      answer: duel.answer,
+      question: duel.question,
+      duration: duel.timeoutDuration,
+      timer: duel.timerSeconds,
+      source: muteSrc,
+    };
 
-    if (isChallengerBroadcaster) {
-      const muteSrc = duel.broadcasterMuteSource?.trim() || 'Mic/Aux';
-      if (duel.sinks.muteStreamerSource) await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
-    } else {
+    if (duel.isStreamerDuel) {
+      const timeoutTpl = duel.messageTimeout?.trim() || DEFAULT_DUEL_MESSAGES.streamerTriviaTimeout;
+      await duel.sinks.sendChatMessage(renderDuelMessage(timeoutTpl, tokens));
+      if (duel.sinks.muteStreamerSource) {
+        await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
+      }
       await duel.sinks.smartModTimeout(
         duel.challenger,
         duel.timeoutDuration,
-        `Failed trivia duel against ${duel.opponent} (Time expired, answer was ${duel.answer})`,
+        `Failed trivia challenge against Streamer (Time expired, answer was ${duel.answer})`,
       );
-    }
-
-    if (isOpponentBroadcaster) {
-      const muteSrc = duel.broadcasterMuteSource?.trim() || 'Mic/Aux';
-      if (duel.sinks.muteStreamerSource) await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
     } else {
-      await duel.sinks.smartModTimeout(
-        duel.opponent,
-        duel.timeoutDuration,
-        `Failed trivia duel against ${duel.challenger} (Time expired, answer was ${duel.answer})`,
+      const timeoutTpl = duel.messageTimeout?.trim() || DEFAULT_DUEL_MESSAGES.triviaTimeout;
+      await duel.sinks.sendChatMessage(renderDuelMessage(timeoutTpl, tokens));
+
+      // Timeout or mute both players
+      const isChallengerBroadcaster = Boolean(
+        duel.broadcasterName &&
+        normalizeUsername(duel.challenger) === normalizeUsername(duel.broadcasterName),
       );
+      const isOpponentBroadcaster = Boolean(
+        duel.broadcasterName &&
+        normalizeUsername(duel.opponent) === normalizeUsername(duel.broadcasterName),
+      );
+
+      if (isChallengerBroadcaster) {
+        if (duel.sinks.muteStreamerSource) await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
+      } else {
+        await duel.sinks.smartModTimeout(
+          duel.challenger,
+          duel.timeoutDuration,
+          `Failed trivia duel against ${duel.opponent} (Time expired, answer was ${duel.answer})`,
+        );
+      }
+
+      if (isOpponentBroadcaster) {
+        if (duel.sinks.muteStreamerSource) await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
+      } else {
+        await duel.sinks.smartModTimeout(
+          duel.opponent,
+          duel.timeoutDuration,
+          `Failed trivia duel against ${duel.challenger} (Time expired, answer was ${duel.answer})`,
+        );
+      }
     }
   }
 }

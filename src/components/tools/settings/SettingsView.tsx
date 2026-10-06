@@ -1,4 +1,4 @@
-import { AlertCircle, Bot, Check, Crown, KeyRound, LogOut, Radio, Sparkles } from 'lucide-react';
+import { AlertCircle, Bot, Check, Crown, KeyRound, LogOut, Minus, Monitor, Plus, Radio, RotateCcw, Sparkles, ZoomIn } from 'lucide-react';
 import { useState } from 'react';
 import { t } from '../../../i18n/translations';
 import { THEME_OPTIONS } from '../../../lib/theme';
@@ -12,6 +12,7 @@ import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { Input } from '../../ui/Input';
 import { SegmentedControl } from '../../ui/SegmentedControl';
+import { Slider } from '../../ui/Slider';
 import { Switch } from '../../ui/Switch';
 import { TriggerGlobalSettings } from '../auto-replies/TriggerGlobalSettings';
 import { KeybindSettings } from './KeybindSettings';
@@ -38,6 +39,12 @@ export function SettingsView() {
   const saveOpenRouterKey = useSettingsStore((s) => s.saveOpenRouterKey);
   const removeOpenRouterKey = useSettingsStore((s) => s.removeOpenRouterKey);
   const simulateUpdate = useUpdateStore((s) => s.simulateUpdate);
+  const uiScaleMode = useSettingsStore((s) => s.uiScaleMode);
+  const uiCustomScale = useSettingsStore((s) => s.uiCustomScale);
+  const effectiveScale = useSettingsStore((s) => s.effectiveScale);
+  const setUiScale = useSettingsStore((s) => s.setUiScale);
+  const adjustScale = useSettingsStore((s) => s.adjustScale);
+  const resetScale = useSettingsStore((s) => s.resetScale);
 
   const [apiKey, setApiKey] = useState('');
   const [provider, setProvider] = useState<'openrouter' | 'groq'>('openrouter');
@@ -163,6 +170,119 @@ export function SettingsView() {
                     </button>
                   );
                 })}
+              </div>
+            </Card>
+
+            {/* Display & UI Scaling */}
+            <Card title={t(lang, 'settings.uiScaleTitle')}>
+              <p className="mb-3 font-sans text-xs text-muted">
+                {t(lang, 'settings.uiScaleDesc')}
+              </p>
+
+              {/* Mode Selection */}
+              <div className="mb-4">
+                <SegmentedControl
+                  name="ui-scale-mode"
+                  value={uiScaleMode}
+                  options={[
+                    { value: 'auto', label: t(lang, 'settings.uiScaleAuto') },
+                    { value: 'custom', label: t(lang, 'settings.uiScaleCustom') },
+                  ]}
+                  onChange={(val) => setUiScale(val as 'auto' | 'custom', uiCustomScale)}
+                />
+              </div>
+
+              {/* Status Row */}
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-[5px] border border-white/[0.08] bg-[#1d2228] p-3 text-xs">
+                <div className="flex items-center gap-2 text-ink/80">
+                  <Monitor size={15} className="text-accent" />
+                  <span>{t(lang, 'settings.uiScaleDetected')}:</span>
+                  <span className="font-mono font-bold text-ink">
+                    {typeof window !== 'undefined' ? `${window.screen.width} × ${window.screen.height}` : '1920 × 1080'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted">{t(lang, 'settings.uiScaleActive')}:</span>
+                  <span className="rounded bg-accent/20 px-2 py-0.5 font-mono text-xs font-bold text-accent">
+                    {Math.round(effectiveScale * 100)}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Custom Scale Controls */}
+              {uiScaleMode === 'custom' && (
+                <div className="space-y-4 rounded-[5px] border border-white/[0.08] bg-[#23282e] p-3.5">
+                  {/* Preset chips */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[0.8, 0.9, 1.0, 1.1, 1.25, 1.5].map((preset) => {
+                      const isCurrent = Math.abs(uiCustomScale - preset) < 0.01;
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setUiScale('custom', preset)}
+                          className={`rounded px-2.5 py-1 font-mono text-xs font-semibold transition-colors ${
+                            isCurrent
+                              ? 'bg-accent text-on-accent shadow-xs'
+                              : 'bg-[#2f353c] text-ink/80 hover:bg-[#38414b] hover:text-ink'
+                          }`}
+                        >
+                          {Math.round(preset * 100)}%
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Slider & adjustment buttons */}
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => adjustScale(-0.05)}
+                      disabled={uiCustomScale <= 0.75}
+                      title="Zoom out (-5%)"
+                      className="size-8 p-0"
+                    >
+                      <Minus size={14} />
+                    </Button>
+                    <div className="flex-1">
+                      <Slider
+                        value={Math.round(uiCustomScale * 100)}
+                        min={75}
+                        max={175}
+                        step={5}
+                        onChange={(val) => setUiScale('custom', val / 100)}
+                        ariaLabel={t(lang, 'settings.uiScaleActive')}
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => adjustScale(0.05)}
+                      disabled={uiCustomScale >= 1.75}
+                      title="Zoom in (+5%)"
+                      className="size-8 p-0"
+                    >
+                      <Plus size={14} />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => resetScale()}
+                      title={t(lang, 'settings.uiScaleReset')}
+                      className="gap-1 px-2.5 text-xs"
+                    >
+                      <RotateCcw size={12} />
+                      {t(lang, 'settings.uiScaleReset')}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Hotkeys reminder */}
+              <div className="mt-3 flex items-center gap-2 text-[11px] text-muted">
+                <ZoomIn size={13} className="shrink-0 text-muted" />
+                <span>{t(lang, 'settings.uiScaleHotkeysHint')}</span>
               </div>
             </Card>
           </div>

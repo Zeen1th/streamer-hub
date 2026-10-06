@@ -235,6 +235,26 @@ const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceSt
         duelBroadcasterMuteSource: options?.duelBroadcasterMuteSource ?? '',
         ...options,
       };
+    case 'duel_streamer':
+      return {
+        id,
+        type: 'duel_streamer',
+        duelMode: options?.duelMode ?? 'ai_trivia',
+        duelOpponent: options?.duelOpponent ?? '{broadcaster}',
+        duelTimeoutDuration: options?.duelTimeoutDuration ?? 60,
+        duelTimerSeconds: options?.duelTimerSeconds ?? 30,
+        duelChallengerWinChance: options?.duelChallengerWinChance ?? 50,
+        duelAllowBroadcaster: true,
+        duelBroadcasterMuteSource: options?.duelBroadcasterMuteSource ?? '',
+        duelLanguage: options?.duelLanguage ?? 'auto',
+        duelCategory: options?.duelCategory ?? 'general',
+        duelInstructions: options?.duelInstructions ?? 'Keep questions simple and focused on popular games like Souls games, Zelda, and Monster Hunter. The answer must be clear, well-known, and 1 to 3 words.',
+        duelMessageStart: options?.duelMessageStart ?? '👑 [Streamer Challenge] @{challenger} has challenged Streamer @{streamer}! 🎮 Question: {question} | ⏱️ {timer}s to answer! First to answer wins!',
+        duelStreamerWinMessage: options?.duelStreamerWinMessage ?? '👑 Streamer @{streamer} won against @{challenger}! @{challenger} gets timed out for {duration}s! 💀',
+        duelStreamerLoseMessage: options?.duelStreamerLoseMessage ?? '💀 Streamer @{streamer} lost against @{challenger}! Streamer is muted in OBS [{source}] for {duration}s! 🔇',
+        duelMessageTimeout: options?.duelMessageTimeout ?? "⏰ Time's up! Neither answered! (Answer: {answer}). Streamer is muted for {duration}s and @{challenger} is timed out for {duration}s! 💀",
+        ...options,
+      };
     case 'poll':
       return {
         id,
@@ -862,16 +882,22 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
               ? (appLang === 'ar' ? 'ar' : 'en')
               : step.duelLanguage;
 
+          const isStreamerDuel = step.type === 'duel_streamer';
+          const defaultOpponent = isStreamerDuel ? (broadcaster || 'Streamer') : (ctx.userInput || '');
+
           const res = await duelGameManager.startDuel({
             challenger: ctx.username,
-            opponentRaw: step.duelOpponent || ctx.userInput || '',
+            opponentRaw: step.duelOpponent || defaultOpponent,
             mode: step.duelMode || 'random',
             challengerWinChance: step.duelChallengerWinChance ?? 50,
-            allowBroadcaster: step.duelAllowBroadcaster ?? true,
+            allowBroadcaster: isStreamerDuel || (step.duelAllowBroadcaster ?? true),
             broadcasterMuteSource: step.duelBroadcasterMuteSource || '',
             timeoutDuration: step.duelTimeoutDuration ?? 60,
             timerSeconds: step.duelTimerSeconds ?? 30,
             broadcasterName: broadcaster,
+            isStreamerDuel,
+            streamerWinMessage: step.duelStreamerWinMessage,
+            streamerLoseMessage: step.duelStreamerLoseMessage,
             language: resolvedLang,
             category: step.duelCategory,
             customInstructions: step.duelInstructions,

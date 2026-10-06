@@ -9,6 +9,7 @@ import {
   Clock,
   Coins,
   Copy,
+  Crown,
   Edit3,
   ExternalLink,
   FileText,
@@ -405,6 +406,111 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
 }
 
 // ---------------------------------------------------------------------------
+// Quick Token Input (Maintains cursor position & prevents focus loss on click)
+// ---------------------------------------------------------------------------
+interface QuickTokenInputProps {
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+  tokens: string[];
+  placeholder?: string;
+  multiline?: boolean;
+  rows?: number;
+  hint?: string;
+  className?: string;
+}
+
+function QuickTokenInput({
+  label,
+  value,
+  onChange,
+  tokens,
+  placeholder,
+  multiline = false,
+  rows = 2,
+  hint,
+  className = '',
+}: QuickTokenInputProps) {
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+
+  const handleInsertToken = (token: string) => {
+    const el = inputRef.current;
+    if (!el) {
+      onChange(value ? `${value} ${token}` : token);
+      return;
+    }
+
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? value.length;
+    const before = value.substring(0, start);
+    const after = value.substring(end);
+
+    const needsSpaceBefore = before.length > 0 && !before.endsWith(' ');
+    const tokenToInsert = (needsSpaceBefore ? ' ' : '') + token + ' ';
+    const nextVal = before + tokenToInsert + after;
+    const nextCursor = start + tokenToInsert.length;
+
+    onChange(nextVal);
+
+    requestAnimationFrame(() => {
+      if (el) {
+        el.focus();
+        el.setSelectionRange(nextCursor, nextCursor);
+      }
+    });
+  };
+
+  return (
+    <div className={`flex flex-col gap-1.5 ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
+        <label className="font-sans text-[11.5px] font-medium text-zinc-300">
+          {label}
+        </label>
+        {tokens.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1">
+            {tokens.map((tok) => (
+              <button
+                key={tok}
+                type="button"
+                onMouseDown={(e) => {
+                  // Crucial: prevents blur, keeping cursor in the input field!
+                  e.preventDefault();
+                }}
+                onClick={() => handleInsertToken(tok)}
+                className="rounded border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-300 hover:border-amber-400 hover:bg-amber-500/25 active:scale-95 transition-all cursor-pointer"
+                title={`Insert ${tok}`}
+              >
+                {tok}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {multiline ? (
+        <textarea
+          ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          rows={rows}
+          className="w-full rounded-[6px] border border-white/[0.12] bg-[#0e1017] p-2.5 font-mono text-[11.5px] text-white placeholder-zinc-500 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+      ) : (
+        <input
+          ref={inputRef as React.RefObject<HTMLInputElement>}
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="h-8.5 w-full rounded-[6px] border border-white/[0.12] bg-[#0e1017] px-2.5 font-mono text-[11.5px] text-white placeholder-zinc-500 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+      )}
+      {hint && <p className="text-[10px] text-muted">{hint}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Sub-Action Edit Modal
 // ---------------------------------------------------------------------------
 interface EditSubActionModalProps {
@@ -509,8 +615,10 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   const [duelMessageStart, setDuelMessageStart] = useState<string>(step.duelMessageStart ?? '');
   const [duelMessageWin, setDuelMessageWin] = useState<string>(step.duelMessageWin ?? '');
   const [duelMessageTimeout, setDuelMessageTimeout] = useState<string>(step.duelMessageTimeout ?? '');
+  const [duelStreamerWinMessage, setDuelStreamerWinMessage] = useState<string>(step.duelStreamerWinMessage ?? '');
+  const [duelStreamerLoseMessage, setDuelStreamerLoseMessage] = useState<string>(step.duelStreamerLoseMessage ?? '');
   const [showAdvancedDuelMessages, setShowAdvancedDuelMessages] = useState<boolean>(
-    Boolean(step.duelMessageStart || step.duelMessageWin || step.duelMessageTimeout)
+    Boolean(step.duelMessageStart || step.duelMessageWin || step.duelMessageTimeout || step.duelStreamerWinMessage || step.duelStreamerLoseMessage)
   );
 
   const handleBrowseSound = async () => {
@@ -715,6 +823,23 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
           duelBroadcasterMuteSource: duelBroadcasterMuteSource.trim() || undefined,
         });
         break;
+      case 'duel_streamer':
+        onSave({
+          duelMode,
+          duelOpponent: '{broadcaster}',
+          duelTimeoutDuration: Math.max(5, Number(duelTimeoutDuration) || 60),
+          duelTimerSeconds: Math.max(5, Number(duelTimerSeconds) || 30),
+          duelLanguage,
+          duelCategory: duelCategory.trim(),
+          duelInstructions: duelInstructions.trim(),
+          duelChallengerWinChance: Math.max(1, Math.min(99, Number(duelChallengerWinChance) || 50)),
+          duelBroadcasterMuteSource: duelBroadcasterMuteSource.trim() || undefined,
+          duelStreamerWinMessage: duelStreamerWinMessage.trim() || undefined,
+          duelStreamerLoseMessage: duelStreamerLoseMessage.trim() || undefined,
+          duelMessageStart: duelMessageStart.trim() || undefined,
+          duelMessageTimeout: duelMessageTimeout.trim() || undefined,
+        });
+        break;
       case 'poll':
         onSave({
           pollAction,
@@ -776,6 +901,8 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                   ? (lang === 'ar' ? 'OBS > عرض صورة أو GIF' : 'OBS > Display Picture or GIF')
                   : step.type === 'duel'
                   ? (lang === 'ar' ? 'التفاعل > تحدي التايم آوت (المبارزة)' : 'Interactivity > Timeout Duel')
+                  : step.type === 'duel_streamer'
+                  ? (lang === 'ar' ? 'التفاعل > تحدي الستريمر 1v1 (كتم المايك)' : 'Interactivity > Streamer 1v1 Duel')
                   : step.type === 'poll'
                   ? (lang === 'ar' ? 'التفاعل > استطلاع وتصويت مباشر' : 'Interactivity > Live Poll')
                   : step.type === 'mic_mute'
@@ -1983,73 +2110,49 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
 
                 {showAdvancedDuelMessages && (
                   <div className="flex flex-col gap-3 p-3.5 border-t border-white/[0.06] bg-[#0f1118] animate-in fade-in duration-100">
-                    {/* Available tokens chips */}
-                    <div className="flex flex-wrap items-center gap-1.5 pb-1">
-                      <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
-                      {(duelMode === 'ai_trivia'
-                        ? ['{challenger}', '{opponent}', '{winner}', '{loser}', '{question}', '{answer}', '{timer}', '{duration}']
-                        : ['{challenger}', '{opponent}', '{winner}', '{loser}', '{duration}']
-                      ).map((tok) => (
-                        <button
-                          key={tok}
-                          type="button"
-                          onClick={() => {
-                            insertToken(tok, setDuelMessageStart);
-                          }}
-                          className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10.5px] text-teal-300 hover:border-teal-400 hover:bg-teal-500/10 transition-colors cursor-pointer"
-                        >
-                          {tok}
-                        </button>
-                      ))}
-                    </div>
-
                     {/* Start Announcement */}
-                    <div className="flex flex-col gap-1">
-                      <label className="font-sans text-[11.5px] font-medium text-zinc-300">
-                        {t(lang, 'sequence.duelMsgStart')}
-                      </label>
-                      <Input
-                        value={duelMessageStart}
-                        onChange={(e) => setDuelMessageStart(e.target.value)}
-                        placeholder={
-                          duelMode === 'ai_trivia'
-                            ? DEFAULT_DUEL_MESSAGES.triviaStart
-                            : DEFAULT_DUEL_MESSAGES.randomStart
-                        }
-                        className="h-8.5 font-mono text-[11.5px]"
-                      />
-                    </div>
+                    <QuickTokenInput
+                      label={t(lang, 'sequence.duelMsgStart')}
+                      value={duelMessageStart}
+                      onChange={setDuelMessageStart}
+                      placeholder={
+                        duelMode === 'ai_trivia'
+                          ? DEFAULT_DUEL_MESSAGES.triviaStart
+                          : DEFAULT_DUEL_MESSAGES.randomStart
+                      }
+                      tokens={
+                        duelMode === 'ai_trivia'
+                          ? ['{challenger}', '{opponent}', '{timer}', '{question}', '{duration}']
+                          : ['{challenger}', '{opponent}', '{duration}']
+                      }
+                    />
 
                     {/* Win Announcement */}
-                    <div className="flex flex-col gap-1">
-                      <label className="font-sans text-[11.5px] font-medium text-zinc-300">
-                        {t(lang, 'sequence.duelMsgWin')}
-                      </label>
-                      <Input
-                        value={duelMessageWin}
-                        onChange={(e) => setDuelMessageWin(e.target.value)}
-                        placeholder={
-                          duelMode === 'ai_trivia'
-                            ? DEFAULT_DUEL_MESSAGES.triviaWin
-                            : DEFAULT_DUEL_MESSAGES.randomWin
-                        }
-                        className="h-8.5 font-mono text-[11.5px]"
-                      />
-                    </div>
+                    <QuickTokenInput
+                      label={t(lang, 'sequence.duelMsgWin')}
+                      value={duelMessageWin}
+                      onChange={setDuelMessageWin}
+                      placeholder={
+                        duelMode === 'ai_trivia'
+                          ? DEFAULT_DUEL_MESSAGES.triviaWin
+                          : DEFAULT_DUEL_MESSAGES.randomWin
+                      }
+                      tokens={
+                        duelMode === 'ai_trivia'
+                          ? ['{challenger}', '{opponent}', '{winner}', '{loser}', '{answer}', '{duration}']
+                          : ['{challenger}', '{opponent}', '{winner}', '{loser}', '{duration}']
+                      }
+                    />
 
                     {/* Timeout Announcement (AI Trivia only) */}
                     {duelMode === 'ai_trivia' && (
-                      <div className="flex flex-col gap-1">
-                        <label className="font-sans text-[11.5px] font-medium text-zinc-300">
-                          {t(lang, 'sequence.duelMsgTimeout')}
-                        </label>
-                        <Input
-                          value={duelMessageTimeout}
-                          onChange={(e) => setDuelMessageTimeout(e.target.value)}
-                          placeholder={DEFAULT_DUEL_MESSAGES.triviaTimeout}
-                          className="h-8.5 font-mono text-[11.5px]"
-                        />
-                      </div>
+                      <QuickTokenInput
+                        label={t(lang, 'sequence.duelMsgTimeout')}
+                        value={duelMessageTimeout}
+                        onChange={setDuelMessageTimeout}
+                        placeholder={DEFAULT_DUEL_MESSAGES.triviaTimeout}
+                        tokens={['{challenger}', '{opponent}', '{answer}', '{duration}']}
+                      />
                     )}
 
                     <div className="flex justify-end pt-1">
@@ -2079,6 +2182,393 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                   </div>
                   <p className="text-zinc-300 text-[11px] leading-relaxed">
                     {t(lang, 'sequence.duelExplanation')}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STREAMER 1V1 DUEL (MINI-GAME WITH STREAMER) */}
+          {step.type === 'duel_streamer' && (
+            <div className="flex flex-col gap-3.5">
+              {/* Target Streamer Banner */}
+              <div className="flex items-center justify-between rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex size-7 items-center justify-center rounded bg-yellow-500/20 text-yellow-400">
+                    <Crown size={15} />
+                  </div>
+                  <div>
+                    <span className="font-sans text-[12.5px] font-bold text-white">
+                      {t(lang, 'sequence.duelStreamerTarget')}
+                    </span>
+                    <p className="text-[10.5px] text-muted">
+                      {t(lang, 'sequence.duelStreamerTargetHint')}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded bg-yellow-500/20 px-2.5 py-1 font-mono text-[11px] font-semibold text-yellow-300 border border-yellow-500/40">
+                  @{'{broadcaster}'}
+                </div>
+              </div>
+
+              {/* Mode Selector */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.duelMode')}
+                </label>
+                <SegmentedControl<'random' | 'ai_trivia'>
+                  value={duelMode}
+                  onChange={setDuelMode}
+                  options={[
+                    { value: 'random', label: t(lang, 'sequence.duelModeRandom') },
+                    { value: 'ai_trivia', label: t(lang, 'sequence.duelModeAiTrivia') },
+                  ]}
+                />
+              </div>
+
+              {/* Challenger Win Probability Slider (Random Mode) */}
+              {duelMode === 'random' && (
+                <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-sans text-[12px] font-medium text-zinc-300">
+                      {t(lang, 'sequence.duelWinChance')}
+                    </span>
+                    <span className="font-mono text-[11px] text-amber-400 font-semibold">
+                      {t(lang, 'sequence.duelChallengerOdds', {
+                        n: duelChallengerWinChance,
+                        opp: 100 - duelChallengerWinChance,
+                      })}
+                    </span>
+                  </div>
+                  <Slider
+                    value={duelChallengerWinChance}
+                    min={1}
+                    max={99}
+                    step={1}
+                    onChange={(v) => setDuelChallengerWinChance(v)}
+                    ariaLabel={t(lang, 'sequence.duelWinChance')}
+                  />
+                  <div className="flex items-center justify-between pt-1">
+                    <p className="text-[10.5px] text-muted">
+                      {t(lang, 'sequence.duelWinChanceHint')}
+                    </p>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {[25, 50, 75].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => setDuelChallengerWinChance(pct)}
+                          className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors cursor-pointer ${
+                            duelChallengerWinChance === pct
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : 'bg-white/5 text-muted hover:text-white border border-white/10'
+                          }`}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* OBS Audio Source To Mute (Streamer Mic) */}
+              <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                {!obsConnected ? (
+                  <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
+                    <div className="flex items-start gap-2">
+                      <Info size={13} className="mt-0.5 shrink-0 text-amber-400" />
+                      <span>{t(lang, 'sequence.obsDisconnectedNotice')}</span>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1 border-t border-amber-500/20">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void handleQuickConnectObs()}
+                        disabled={isConnectingObs}
+                        className="h-6 gap-1.5 px-2 text-[10.5px] font-medium bg-amber-500 hover:bg-amber-400 text-black border-none"
+                      >
+                        {isConnectingObs ? (
+                          <RefreshCw size={10} className="animate-spin" />
+                        ) : (
+                          <Zap size={10} />
+                        )}
+                        <span>{t(lang, 'sequence.autoDetectAndConnect')}</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleOpenObsSettings}
+                        className="h-6 gap-1 px-1.5 text-[10.5px] text-amber-300 hover:text-white hover:bg-amber-500/20"
+                      >
+                        <Sliders size={10} />
+                        <span>{t(lang, 'sequence.openObsSettings')}</span>
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10.5px] text-emerald-300">
+                    <div className="flex items-center gap-1.5">
+                      <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>{t(lang, 'sequence.obsConnectedStatus', { n: availableObsAudioSources.length })}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleOpenObsSettings}
+                      className="text-[10px] text-emerald-400 hover:underline cursor-pointer"
+                    >
+                      {t(lang, 'sequence.openObsSettings')}
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <label className="font-sans text-[11.5px] font-medium text-zinc-300">
+                    {t(lang, 'sequence.duelBroadcasterMuteSource')}
+                  </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void fetchObsAudioSources()}
+                    disabled={isLoadingObsSources}
+                    className="h-5 gap-1 px-1.5 text-[10.5px] text-zinc-300 hover:text-white"
+                    title={t(lang, 'sequence.refreshSources')}
+                  >
+                    <RefreshCw size={10} className={isLoadingObsSources ? 'animate-spin' : ''} />
+                    <span>{t(lang, 'sequence.refreshSources')}</span>
+                  </Button>
+                </div>
+
+                <select
+                  value={duelBroadcasterMuteSource}
+                  onChange={(e) => setDuelBroadcasterMuteSource(e.target.value)}
+                  className="h-8.5 rounded-md border border-white/15 bg-[#0e1017] px-2.5 font-sans text-[12px] text-foreground focus:border-accent focus:outline-none"
+                >
+                  <option value="">{t(lang, 'sequence.obsDefaultMic')}</option>
+                  {availableObsAudioSources.map((source) => (
+                    <option key={source.name} value={source.name}>
+                      {source.name} ({source.kind}) {source.muted ? '🔇' : '🔊'}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-muted">
+                  {t(lang, 'sequence.duelBroadcasterMuteSourceHint')}
+                </p>
+              </div>
+
+              {/* Penalty / Mute Duration */}
+              <DurationPicker
+                value={duelTimeoutDuration}
+                onChange={setDuelTimeoutDuration}
+                min={5}
+                max={600}
+                step={5}
+                presets={[15, 30, 60, 120, 300]}
+                label={t(lang, 'sequence.duelStreamerMuteDuration')}
+                accentColor="rose"
+              />
+
+              {/* AI Trivia Specific Settings */}
+              {duelMode === 'ai_trivia' && (
+                <div className="flex flex-col gap-3 rounded-md border border-white/[0.08] bg-[#12151e] p-3.5 animate-in fade-in duration-100">
+                  {/* Language Selector */}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Languages size={13} className="text-sky-400" />
+                      <label className="font-sans text-[12px] font-medium text-zinc-300">
+                        {t(lang, 'sequence.duelLanguage')}
+                      </label>
+                    </div>
+                    <SegmentedControl<'auto' | 'en' | 'ar'>
+                      value={duelLanguage}
+                      onChange={setDuelLanguage}
+                      options={[
+                        { value: 'auto', label: t(lang, 'sequence.duelLanguageAuto') },
+                        { value: 'en', label: t(lang, 'sequence.duelLanguageEn') },
+                        { value: 'ar', label: t(lang, 'sequence.duelLanguageAr') },
+                      ]}
+                    />
+                  </div>
+
+                  {/* Trivia Question Countdown Timer */}
+                  <DurationPicker
+                    value={duelTimerSeconds}
+                    onChange={setDuelTimerSeconds}
+                    min={5}
+                    max={90}
+                    step={5}
+                    presets={[10, 15, 20, 30, 45, 60]}
+                    label={t(lang, 'sequence.duelTimerSeconds')}
+                    accentColor="sky"
+                  />
+
+                  {/* Preset Ideas / Categories Chips */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Gamepad2 size={13} className="text-amber-400" />
+                        <label className="font-sans text-[12px] font-medium text-zinc-300">
+                          {t(lang, 'sequence.duelCategory')}
+                        </label>
+                      </div>
+                      <span className="font-mono text-[10.5px] text-muted">
+                        {duelCategory || 'general'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { id: 'general', label: t(lang, 'sequence.duelCategoryGeneral'), emoji: '🎮' },
+                        { id: 'souls', label: t(lang, 'sequence.duelCategorySouls'), emoji: '⚔️' },
+                        { id: 'monster_hunter', label: t(lang, 'sequence.duelCategoryMonsterHunter'), emoji: '🐉' },
+                        { id: 'zelda', label: t(lang, 'sequence.duelCategoryZelda'), emoji: '🗡️' },
+                        { id: 'esports', label: t(lang, 'sequence.duelCategoryEsports'), emoji: '🎯' },
+                        { id: 'rpg', label: t(lang, 'sequence.duelCategoryRpg'), emoji: '🧙‍♂️' },
+                      ].map((cat) => {
+                        const isSelected = duelCategory.toLowerCase() === cat.id;
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setDuelCategory(cat.id)}
+                            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer border ${
+                              isSelected
+                                ? 'border-amber-500/40 bg-amber-500/20 text-amber-300'
+                                : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <span>{cat.emoji}</span>
+                            <span>{cat.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom Topic Input */}
+                    <Input
+                      value={duelCategory}
+                      onChange={(e) => setDuelCategory(e.target.value)}
+                      placeholder={t(lang, 'sequence.duelCategoryCustom')}
+                      className="h-8.5 font-mono text-[11.5px]"
+                    />
+                  </div>
+
+                  {/* Custom Prompt Instructions for AI */}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles size={13} className="text-violet-400" />
+                        <label className="font-sans text-[12px] font-medium text-zinc-300">
+                          {t(lang, 'sequence.duelInstructions')}
+                        </label>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDuelInstructions(defaultDuelInstructions)}
+                        className="flex items-center gap-1 text-[10.5px] text-muted hover:text-white transition-colors cursor-pointer"
+                        title={t(lang, 'sequence.duelResetInstructions')}
+                      >
+                        <RotateCcw size={10} />
+                        <span>{t(lang, 'sequence.duelResetInstructions')}</span>
+                      </button>
+                    </div>
+                    <textarea
+                      value={duelInstructions}
+                      onChange={(e) => setDuelInstructions(e.target.value)}
+                      placeholder={defaultDuelInstructions}
+                      rows={3}
+                      className="w-full rounded-md border border-white/15 bg-[#0e1017] p-2.5 font-sans text-[11.5px] leading-relaxed text-foreground placeholder-zinc-500 focus:border-accent focus:outline-none"
+                    />
+                    <p className="text-[10px] text-muted">
+                      {t(lang, 'sequence.duelInstructionsHint')}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Dedicated Streamer Win & Lose Outcome Messages */}
+              <div className="flex flex-col gap-3 rounded-md border border-white/[0.08] bg-[#12151e] p-3.5">
+                <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
+                  <span className="font-sans text-[12px] font-bold text-white">
+                    {t(lang, 'sequence.duelCustomMessages')}
+                  </span>
+                  <p className="text-[10.5px] text-muted">
+                    {t(lang, 'sequence.duelQuickTokensHint')}
+                  </p>
+                </div>
+
+                {/* Streamer Won Message Field */}
+                <QuickTokenInput
+                  label={t(lang, 'sequence.duelStreamerWinMsg')}
+                  value={duelStreamerWinMessage}
+                  onChange={setDuelStreamerWinMessage}
+                  placeholder={DEFAULT_DUEL_MESSAGES.streamerWin}
+                  tokens={['{streamer}', '{challenger}', '{duration}', '{winner}', '{loser}', '{answer}']}
+                  hint={lang === 'ar' ? 'الرسالة عند فوز الستريمر (يُعاقب المتحدي بتايم آوت)' : 'Message when the streamer wins (challenger gets timed out)'}
+                />
+
+                {/* Streamer Lost Message Field */}
+                <QuickTokenInput
+                  label={t(lang, 'sequence.duelStreamerLoseMsg')}
+                  value={duelStreamerLoseMessage}
+                  onChange={setDuelStreamerLoseMessage}
+                  placeholder={DEFAULT_DUEL_MESSAGES.streamerLose}
+                  tokens={['{streamer}', '{challenger}', '{source}', '{duration}', '{winner}', '{loser}', '{answer}']}
+                  hint={lang === 'ar' ? 'الرسالة عند خسارة الستريمر (يُكتم مايك الستريمر في OBS)' : 'Message when the streamer loses (streamer mic gets muted in OBS)'}
+                />
+
+                {/* Start Announcement */}
+                <QuickTokenInput
+                  label={t(lang, 'sequence.duelMsgStart')}
+                  value={duelMessageStart}
+                  onChange={setDuelMessageStart}
+                  placeholder={
+                    duelMode === 'ai_trivia'
+                      ? DEFAULT_DUEL_MESSAGES.streamerTriviaStart
+                      : DEFAULT_DUEL_MESSAGES.streamerRandomStart
+                  }
+                  tokens={['{streamer}', '{challenger}', '{duration}', '{timer}', '{question}']}
+                />
+
+                {/* Trivia Timeout Announcement (AI Trivia only) */}
+                {duelMode === 'ai_trivia' && (
+                  <QuickTokenInput
+                    label={t(lang, 'sequence.duelMsgTimeout')}
+                    value={duelMessageTimeout}
+                    onChange={setDuelMessageTimeout}
+                    placeholder={DEFAULT_DUEL_MESSAGES.streamerTriviaTimeout}
+                    tokens={['{streamer}', '{challenger}', '{answer}', '{source}', '{duration}']}
+                  />
+                )}
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDuelStreamerWinMessage('');
+                      setDuelStreamerLoseMessage('');
+                      setDuelMessageStart('');
+                      setDuelMessageTimeout('');
+                    }}
+                    className="flex items-center gap-1 text-[11px] text-muted hover:text-rose-400 transition-colors cursor-pointer"
+                  >
+                    <RotateCcw size={11} />
+                    <span>{t(lang, 'sequence.duelResetMessages')}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Streamer Duel Explanation Banner */}
+              <div className="flex items-start gap-2.5 rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-[11.5px] text-yellow-200">
+                <Crown size={16} className="mt-0.5 shrink-0 text-yellow-400" />
+                <div className="space-y-1">
+                  <div className="font-semibold text-white">
+                    {lang === 'ar' ? 'تحدي الستريمر 1v1 (كتم المايك)' : 'Streamer 1v1 Showdown (Mute Streamer Mic)'}
+                  </div>
+                  <p className="text-zinc-300 text-[11px] leading-relaxed">
+                    {t(lang, 'sequence.duelStreamerExplanation')}
                   </p>
                 </div>
               </div>
@@ -2421,9 +2911,16 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       }
       case 'duel': {
         const modeLabel = st.duelMode === 'random'
-          ? (lang === 'ar' ? 'قرعة 50/50' : 'Random 50/50')
+          ? (lang === 'ar' ? 'قرعة' : 'Random')
           : (lang === 'ar' ? 'سؤال ألعاب بالذكاء الاصطناعي' : 'AI Gaming Trivia');
         return `${lang === 'ar' ? 'تحدي تايم آوت: ضد' : 'Timeout Duel: vs'} ${st.duelOpponent || '{input}'} (${modeLabel}, ${st.duelTimeoutDuration ?? 60}s)`;
+      }
+      case 'duel_streamer': {
+        const modeLabel = st.duelMode === 'random'
+          ? (lang === 'ar' ? 'قرعة' : 'Random')
+          : (lang === 'ar' ? 'سؤال ألعاب بالذكاء الاصطناعي' : 'AI Gaming Trivia');
+        const muteSourceLabel = st.duelBroadcasterMuteSource || (lang === 'ar' ? 'المايك الافتراضي' : 'Default Mic');
+        return `${lang === 'ar' ? 'تحدي الستريمر 1v1: كتم' : 'Streamer 1v1 Duel: Mute'} ${muteSourceLabel} (${modeLabel}, ${st.duelTimeoutDuration ?? 60}s)`;
       }
       case 'poll':
         return st.pollAction === 'start'
@@ -2545,6 +3042,14 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       desc: lang === 'ar' ? 'مبارزة بين مشاهدين: قرعة 50/50 أو سؤال ألعاب بالذكاء الاصطناعي والخاسر يُعاقب بالتايم آوت' : 'Mini-game showdown: 50/50 roulette or AI gaming trivia; loser gets timed out',
       icon: Swords,
       color: 'text-amber-400',
+    },
+    {
+      id: 'duel_streamer',
+      type: 'duel_streamer' as SequenceStepType,
+      title: lang === 'ar' ? 'التفاعل: تحدي الستريمر 1v1 (كتم المايك)' : 'Interactivity: Streamer 1v1 Duel (Mute Mic)',
+      desc: lang === 'ar' ? 'تحدي ضد الستريمر: إذا خسر الستريمر يُكتم مايك OBS وإذا فاز يُعاقب المتحدي بتايم آوت' : '1v1 challenge against the streamer: loser streamer gets OBS mic muted; loser challenger gets timed out',
+      icon: Crown,
+      color: 'text-yellow-400',
     },
     {
       id: 'poll',
@@ -3563,6 +4068,23 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                       </button>
                       <button
                         type="button"
+                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-yellow-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'duel_streamer', {
+                            duelMode: 'ai_trivia',
+                            duelOpponent: '{broadcaster}',
+                            duelTimeoutDuration: 60,
+                            duelTimerSeconds: 30,
+                          });
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <Crown size={13} />
+                        <span>{t(lang, 'sequence.stepDuelStreamer')}</span>
+                      </button>
+                      <button
+                        type="button"
                         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-violet-400 transition-colors"
                         onClick={() => {
                           const ns = addStep(sequence.id, 'poll');
@@ -3722,6 +4244,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                 <ImageIcon size={13} className="text-pink-400 shrink-0" />
                               ) : st.type === 'duel' ? (
                                 <Swords size={13} className="text-amber-400 shrink-0" />
+                              ) : st.type === 'duel_streamer' ? (
+                                <Crown size={13} className="text-yellow-400 shrink-0" />
                               ) : st.type === 'poll' ? (
                                 <BarChart3 size={13} className="text-violet-400 shrink-0" />
                               ) : st.type === 'mic_mute' ? (
@@ -4072,6 +4596,23 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               >
                 <Swords size={14} />
                 <span>{t(lang, 'sequence.stepDuel')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-yellow-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'duel_streamer', {
+                    duelMode: 'ai_trivia',
+                    duelOpponent: '{broadcaster}',
+                    duelTimeoutDuration: 60,
+                    duelTimerSeconds: 30,
+                  });
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <Crown size={14} />
+                <span>{t(lang, 'sequence.stepDuelStreamer')}</span>
               </button>
               <button
                 type="button"

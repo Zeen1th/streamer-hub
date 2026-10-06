@@ -600,3 +600,48 @@ test('executeSequence passes micMuteSourceName to muteMic sink', async () => {
   assert.equal(mutedSources[0].sourceName, 'Elgato Wave 3');
 });
 
+test('executeSequence executes duel_streamer and replaces broadcaster and streamer tokens', async () => {
+  const seq = {
+    id: 'seq-streamer-duel',
+    name: 'Streamer 1v1 Sequence',
+    enabled: true,
+    triggers: [],
+    steps: [
+      {
+        id: 's-duel',
+        type: 'duel_streamer',
+        duelMode: 'ai_trivia',
+        duelOpponent: '{broadcaster}',
+        duelTimeoutDuration: 45,
+        duelTimerSeconds: 25,
+        duelBroadcasterMuteSource: 'Mic Aux 1',
+        duelStreamerWinMessage: 'Streamer {streamer} won against {challenger}!',
+        duelStreamerLoseMessage: 'Streamer {streamer} lost against {challenger}! Muted {source} for {duration}s!',
+      },
+    ],
+  };
+
+  const executedDuels = [];
+  const result = await executeSequence(
+    seq,
+    {
+      username: 'BoldChallenger',
+      broadcasterName: 'Zeen1th',
+    },
+    {
+      executeDuel: async (step, ctx) => {
+        executedDuels.push({ step, ctx });
+        return true;
+      },
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(executedDuels.length, 1);
+  assert.equal(executedDuels[0].step.type, 'duel_streamer');
+  assert.equal(executedDuels[0].step.duelOpponent, 'Zeen1th');
+  assert.equal(executedDuels[0].step.duelTimeoutDuration, 45);
+  assert.equal(executedDuels[0].step.duelBroadcasterMuteSource, 'Mic Aux 1');
+});
+
+

@@ -547,3 +547,67 @@ test('startDuel obeys challengerWinChance probabilities', async () => {
   duelGameManager.reset();
 });
 
+test('streamer 1v1 duel triggers dedicated streamer win/lose outcomes and custom messages', async () => {
+  duelGameManager.reset();
+  const sentMessages = [];
+  const timeouts = [];
+  const mutedSources = [];
+
+  const mockSinks = {
+    sendChatMessage: async (msg) => { sentMessages.push(msg); return true; },
+    smartModTimeout: async (target, duration, reason) => { timeouts.push({ target, duration, reason }); return { ok: true }; },
+    muteStreamerSource: async (source, duration) => { mutedSources.push({ source, duration }); return true; },
+    delay: async () => {},
+  };
+
+  // Case 1: Streamer Loses (challengerWinChance = 100%)
+  const resLose = await duelGameManager.startDuel({
+    challenger: 'HeroChallenger',
+    opponentRaw: '@BigStreamer',
+    mode: 'random',
+    isStreamerDuel: true,
+    broadcasterName: 'BigStreamer',
+    broadcasterMuteSource: 'Mic 1',
+    challengerWinChance: 100,
+    timeoutDuration: 45,
+    streamerLoseMessage: 'Streamer {streamer} lost to {challenger}! Source {source} is muted for {duration}s!',
+    streamerWinMessage: 'Streamer {streamer} defeated {challenger}!',
+    sinks: mockSinks,
+  });
+
+  assert.equal(resLose.ok, true);
+  // OBS audio source must be muted for 45s
+  assert.equal(mutedSources.length, 1);
+  assert.equal(mutedSources[0].source, 'Mic 1');
+  assert.equal(mutedSources[0].duration, 45);
+  // Message must format correctly
+  const loseMsg = sentMessages.find((m) => m.includes('lost to HeroChallenger'));
+  assert.ok(loseMsg, 'Should send custom streamerLoseMessage');
+  assert.ok(loseMsg.includes('Source Mic 1 is muted for 45s'));
+
+  // Case 2: Streamer Wins (challengerWinChance = 0%)
+  const resWin = await duelGameManager.startDuel({
+    challenger: 'BraveChallenger',
+    opponentRaw: '@BigStreamer',
+    mode: 'random',
+    isStreamerDuel: true,
+    broadcasterName: 'BigStreamer',
+    challengerWinChance: 0,
+    timeoutDuration: 60,
+    streamerWinMessage: 'Streamer {streamer} defeated {challenger} who is timed out for {duration}s!',
+    sinks: mockSinks,
+  });
+
+  assert.equal(resWin.ok, true);
+  // Challenger must be timed out
+  assert.equal(timeouts.length, 1);
+  assert.equal(timeouts[0].target, 'BraveChallenger');
+  assert.equal(timeouts[0].duration, 60);
+  // Win message formatted
+  const winMsg = sentMessages.find((m) => m.includes('defeated BraveChallenger'));
+  assert.ok(winMsg, 'Should send custom streamerWinMessage');
+  assert.ok(winMsg.includes('timed out for 60s'));
+
+  duelGameManager.reset();
+});
+

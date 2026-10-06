@@ -9,6 +9,7 @@ export interface SequenceExecutionContext {
   raider?: string;
   viewers?: number;
   streak?: number;
+  broadcasterName?: string;
 }
 
 export interface SequenceExecutionSinks {
@@ -79,6 +80,8 @@ export function replaceSequenceTokens(template: string, ctx: SequenceExecutionCo
     target = extractTargetUsername(raider);
   }
 
+  const streamer = ctx.broadcasterName || 'streamer';
+
   return template
     .replace(/\{username\}/gi, username)
     .replace(/\{user\}/gi, username)
@@ -88,7 +91,9 @@ export function replaceSequenceTokens(template: string, ctx: SequenceExecutionCo
     .replace(/\{target_user\}/gi, target)
     .replace(/\{raider\}/gi, raider)
     .replace(/\{viewers\}/gi, viewers)
-    .replace(/\{streak\}/gi, streak);
+    .replace(/\{streak\}/gi, streak)
+    .replace(/\{streamer\}/gi, streamer)
+    .replace(/\{broadcaster\}/gi, streamer);
 }
 
 export function calculateWaitMs(duration?: number, unit?: 'seconds' | 'minutes'): number {
@@ -392,6 +397,25 @@ export async function executeSequence(
             await sinks.executeDuel(
               {
                 ...step,
+                duelOpponent: cleanOpponent,
+              },
+              ctx,
+            );
+          }
+          break;
+        }
+
+        case 'duel_streamer': {
+          const mode = step.duelMode || 'random';
+          const streamerTarget = ctx.broadcasterName?.trim() || 'streamer';
+          const rawOpponent = step.duelOpponent ? replaceSequenceTokens(step.duelOpponent, ctx).trim() : streamerTarget;
+          const cleanOpponent = extractTargetUsername(rawOpponent) || rawOpponent.replace(/^@+/, '') || streamerTarget;
+          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Challenge Streamer (${mode}) against "${cleanOpponent}"`);
+          if (sinks.executeDuel) {
+            await sinks.executeDuel(
+              {
+                ...step,
+                type: 'duel_streamer',
                 duelOpponent: cleanOpponent,
               },
               ctx,

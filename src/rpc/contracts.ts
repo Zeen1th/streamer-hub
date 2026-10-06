@@ -167,6 +167,7 @@ export type SequenceStepType =
   | 'obs_text'
   | 'obs_image'
   | 'duel'
+  | 'duel_streamer'
   | 'poll'
   | 'mic_mute';
 export type SequenceWaitUnit = 'seconds' | 'minutes';
@@ -295,6 +296,8 @@ export interface SequenceStep {
   duelChallengerWinChance?: number;
   duelAllowBroadcaster?: boolean;
   duelBroadcasterMuteSource?: string;
+  duelStreamerWinMessage?: string;
+  duelStreamerLoseMessage?: string;
 
   // Live Poll
   pollAction?: 'start' | 'end' | 'reset';
@@ -713,6 +716,7 @@ export const Channels = {
   AlertsCompress: 'alerts/compress',
   AlertsCancel: 'alerts/cancel',
   AlertsOpenFolder: 'alerts/open-folder',
+  AlertsOpenFile: 'alerts/open-file',
   AlertsSaveDroppedFile: 'alerts/save-dropped-file',
   ChatOverlayShowImage: 'chat-overlay/show-image',
   ChatOverlayHideImage: 'chat-overlay/hide-image',
@@ -772,7 +776,7 @@ export interface HostApi {
     request: { filePath: string; content: string };
     response: { ok: boolean; error?: string };
   };
-  [Channels.DialogSaveFile]: { request: { defaultName: string }; response: { path: string | null } };
+  [Channels.DialogSaveFile]: { request: { defaultName: string; filter?: string; title?: string }; response: { path: string | null } };
   [Channels.LogAppend]: { request: LogPayload; response: { ok: boolean } };
   [Channels.TwitchAuthorize]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchForget]: { request: undefined; response: { ok: boolean } };
@@ -898,6 +902,7 @@ export interface HostApi {
   [Channels.AlertsCompress]: { request: CompressAlertPayload; response: { ok: boolean; error?: string } };
   [Channels.AlertsCancel]: { request: undefined; response: { ok: boolean } };
   [Channels.AlertsOpenFolder]: { request: { path: string }; response: { ok: boolean } };
+  [Channels.AlertsOpenFile]: { request: { path: string }; response: { ok: boolean } };
   [Channels.AlertsSaveDroppedFile]: { request: { fileName: string; fileBase64: string }; response: { ok: boolean; filePath?: string; error?: string } };
   [Channels.ChatOverlayShowImage]: { request: ShowOverlayImagePayload; response: { ok: boolean; error?: string } };
   [Channels.ChatOverlayHideImage]: { request: undefined; response: { ok: boolean } };
@@ -982,6 +987,19 @@ export interface CompressAlertPayload {
   targetSizeMb?: number;
   customCrf?: number;
   customMaxBitrateK?: number;
+  lumaKeyEnabled?: boolean;
+  rotation?: 0 | 90 | 180 | 270;
+  keyType?: 'luma' | 'color';
+  keyColor?: string;
+  lumaKeyMode?: 'dark' | 'bright' | 'custom';
+  lumaThreshold?: number;
+  lumaTolerance?: number;
+  lumaSoftness?: number;
+  lumaInvert?: boolean;
+  lumaChoke?: number;
+  lumaGamma?: number;
+  lumaOpacity?: number;
+  outputFormat?: 'webm' | 'mov';
 }
 
 export interface EventMap {

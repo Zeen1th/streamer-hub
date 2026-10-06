@@ -565,4 +565,52 @@ test('handles AlertsSaveDroppedFile in mock host', async () => {
   assert.equal(res.filePath, 'mock_uploads/my_alert.webm');
 });
 
+test('handles AlertsCompress with Luma Key options and custom output in mock host', async () => {
+  const { Channels, Events, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const completedPromise = waitForEvent(host, Events.AlertsCompleted);
+
+  const res = await invoke(host, PROTOCOL_VERSION, Channels.AlertsCompress, {
+    inputPath: 'my_video.mp4',
+    outputPath: 'D:\\Exports\\my_video_custom.webm',
+    lumaKeyEnabled: true,
+    lumaKeyMode: 'dark',
+    lumaTolerance: 0.18,
+    lumaSoftness: 0.08,
+    outputFormat: 'webm',
+  });
+
+  assert.equal(res.ok, true);
+
+  const completedPayload = await completedPromise;
+  assert.ok(completedPayload);
+  assert.equal(completedPayload.success, true);
+  assert.equal(completedPayload.outputPath, 'D:\\Exports\\my_video_custom.webm');
+});
+
+test('handles DialogSaveFile with custom defaultName and filter in mock host', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const res = await invoke(host, PROTOCOL_VERSION, Channels.DialogSaveFile, {
+    defaultName: 'my_alert_lumakey.webm',
+    filter: 'WebM Video (*.webm)|*.webm',
+    title: 'Choose where to save',
+  });
+
+  assert.equal(res.path, 'C:\\StreamerHub\\my_alert_lumakey.webm');
+});
+
+test('handles AlertsOpenFile in mock host', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const res = await invoke(host, PROTOCOL_VERSION, Channels.AlertsOpenFile, {
+    path: 'C:\\StreamerHub\\my_alert_lumakey.webm',
+  });
+
+  assert.equal(res.ok, true);
+});
+
 

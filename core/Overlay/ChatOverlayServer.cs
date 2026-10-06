@@ -855,7 +855,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
         var allowedExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".webm", ".mp4"
+            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".webm", ".mp4", ".mov", ".mkv"
         };
 
         if (!allowedExts.Contains(ext))
@@ -864,15 +864,88 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             return;
         }
 
-        response.StatusCode = (int)HttpStatusCode.OK;
         response.ContentType = ContentTypeFor(filePath);
         response.Headers[HttpResponseHeader.CacheControl] = "no-cache";
         response.Headers["X-Content-Type-Options"] = "nosniff";
+        response.Headers["Accept-Ranges"] = "bytes";
+        response.Headers["Access-Control-Expose-Headers"] = "Content-Range, Accept-Ranges, Content-Length";
 
-        var bytes = await File.ReadAllBytesAsync(filePath, cancellationToken).ConfigureAwait(false);
-        response.ContentLength64 = bytes.Length;
-        await response.OutputStream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
-        response.Close();
+        var info = new FileInfo(filePath);
+        var total = info.Length;
+        long start = 0, end = total - 1;
+        var partial = false;
+
+        var rangeHeader = context.Request.Headers["Range"];
+        if (!string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase))
+        {
+            var spec = rangeHeader["bytes=".Length..].Split(',')[0].Trim();
+            var dash = spec.IndexOf('-');
+            if (dash >= 0)
+            {
+                var startText = spec[..dash];
+                var endText = spec[(dash + 1)..];
+                bool ok;
+                if (startText.Length == 0)
+                {
+                    // suffix range: last N bytes
+                    ok = long.TryParse(endText, out var suffix) && suffix > 0;
+                    if (ok)
+                    {
+                        start = Math.Max(0, total - suffix);
+                        end = total - 1;
+                    }
+                }
+                else
+                {
+                    ok = long.TryParse(startText, out start);
+                    if (ok && endText.Length > 0)
+                        ok = long.TryParse(endText, out end);
+                    else
+                        end = total - 1;
+                }
+
+                if (!ok || start < 0 || start >= total || end < start)
+                {
+                    response.StatusCode = (int)HttpStatusCode.RequestedRangeNotSatisfiable;
+                    response.Headers["Content-Range"] = $"bytes */{total}";
+                    response.ContentLength64 = 0;
+                    response.Close();
+                    return;
+                }
+
+                end = Math.Min(end, total - 1);
+                partial = true;
+            }
+        }
+
+        var length = end - start + 1;
+        response.StatusCode = partial ? (int)HttpStatusCode.PartialContent : (int)HttpStatusCode.OK;
+        if (partial)
+            response.Headers["Content-Range"] = $"bytes {start}-{end}/{total}";
+        response.ContentLength64 = length;
+
+        try
+        {
+            await using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 81920, useAsync: true);
+            fs.Seek(start, SeekOrigin.Begin);
+            var buffer = new byte[81920];
+            var remaining = length;
+            while (remaining > 0)
+            {
+                var read = await fs.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), cancellationToken).ConfigureAwait(false);
+                if (read <= 0) break;
+                await response.OutputStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                remaining -= read;
+            }
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // client aborted (browser cancels range requests while seeking)
+        }
+        finally
+        {
+            TryClose(response);
+        }
     }
 
     private async Task HandleUploadAlertFileAsync(HttpListenerContext context, CancellationToken cancellationToken)
@@ -1057,6 +1130,10 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         ".png" => "image/png",
         ".jpg" or ".jpeg" => "image/jpeg",
         ".webp" => "image/webp",
+        ".webm" => "video/webm",
+        ".mp4" => "video/mp4",
+        ".mov" => "video/quicktime",
+        ".mkv" => "video/x-matroska",
         ".woff2" => "font/woff2",
         ".json" => "application/json; charset=utf-8",
         _ => "application/octet-stream",

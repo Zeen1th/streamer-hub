@@ -1,4 +1,4 @@
-import type { ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayImagePayload, TwitchRewardInfo, TwitchSettings } from './contracts';
+import type { ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayImagePayload, TwitchRewardInfo, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -330,9 +330,14 @@ export class MockHost {
         this.respond(request, { ok: true });
         break;
       }
-      case 'dialog/save-file':
-        this.respond(request, { path: 'C:\\StreamerHub\\deaths.txt' });
+      case Channels.DialogSaveFile:
+      case 'dialog/save-file': {
+        const payload = request.payload as { defaultName?: string } | undefined;
+        this.respond(request, {
+          path: payload?.defaultName ? `C:\\StreamerHub\\${payload.defaultName}` : 'C:\\StreamerHub\\deaths.txt',
+        });
         break;
+      }
       case Channels.AudioPlaySound:
       case 'audio/play-sound':
         this.respond(request, { ok: true });
@@ -813,7 +818,9 @@ export class MockHost {
         break;
       }
       case Channels.AlertsCompress: {
-        const payload = request.payload as { inputPath?: string; targetSizeMb?: number } | undefined;
+        const payload = request.payload as CompressAlertPayload | undefined;
+        const defaultExt = payload?.outputFormat === 'mov' ? '.mov' : '.webm';
+        const defaultOut = payload?.outputPath || (payload?.lumaKeyEnabled ? `sample_alert_lumakey${defaultExt}` : `sample_alert_under30mb${defaultExt}`);
         this.schedule(() => {
           this.emitEvent(Events.AlertsProgress, {
             percent: 50,
@@ -835,7 +842,7 @@ export class MockHost {
             this.emitEvent(Events.AlertsCompleted, {
               success: true,
               inputPath: payload?.inputPath || 'sample_alert.webm',
-              outputPath: 'sample_alert_under30mb.webm',
+              outputPath: defaultOut,
               originalSizeBytes: 88595581,
               compressedSizeBytes: 24761340,
               durationSeconds: 32.0,
@@ -849,6 +856,7 @@ export class MockHost {
         this.respond(request, { ok: true });
         break;
       case Channels.AlertsOpenFolder:
+      case Channels.AlertsOpenFile:
         this.respond(request, { ok: true });
         break;
       case Channels.AlertsSaveDroppedFile: {

@@ -258,7 +258,20 @@ public sealed class AlertCompressorService
         int? customCrf,
         int? customMaxBitrateK,
         Action<CompressionProgress> onProgress,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool lumaKeyEnabled = false,
+        string? lumaKeyMode = "dark",
+        double? lumaThreshold = 0.15,
+        double? lumaTolerance = 0.10,
+        double? lumaSoftness = 0.08,
+        bool? lumaInvert = false,
+        double? lumaChoke = 0.0,
+        double? lumaGamma = 1.0,
+        double? lumaOpacity = 1.0,
+        string? outputFormat = "webm",
+        string? keyType = "luma",
+        string? keyColor = "#00ff00",
+        int? rotation = 0)
     {
         if (!File.Exists(inputPath))
             return new CompressionResult(false, inputPath, outputPath ?? string.Empty, 0, 0, 0, "Input file does not exist.");
@@ -270,18 +283,31 @@ public sealed class AlertCompressorService
         var info = await InspectVideoAsync(inputPath, ct).ConfigureAwait(false);
         var originalSize = info.FileSizeBytes;
 
+        var isMov = string.Equals(outputFormat, "mov", StringComparison.OrdinalIgnoreCase) ||
+                    (outputPath?.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ?? false);
+        var formatExt = isMov ? ".mov" : ".webm";
+
         if (string.IsNullOrWhiteSpace(outputPath))
         {
             var dir = Path.GetDirectoryName(inputPath) ?? AppContext.BaseDirectory;
             var nameWithoutExt = Path.GetFileNameWithoutExtension(inputPath);
-            outputPath = Path.Combine(dir, $"{nameWithoutExt}_under30mb.webm");
+            var suffix = lumaKeyEnabled ? "_lumakey" : "_under30mb";
+            outputPath = Path.Combine(dir, $"{nameWithoutExt}{suffix}{formatExt}");
+        }
+        else
+        {
+            var outDir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(outDir))
+            {
+                try { Directory.CreateDirectory(outDir); } catch { }
+            }
         }
 
         // Calculate bitrate ceiling and CRF
-        // Reserve 15% safety margin under targetSizeMb
+        // Reserve 12% safety margin under targetSizeMb
         var safeTargetMb = Math.Min(targetSizeMb * 0.88, 26.5);
         var targetBits = safeTargetMb * 1024 * 1024 * 8;
-        var totalBitrateKbps = (int)Math.Round((targetBits / info.DurationSeconds) / 1000);
+        var totalBitrateKbps = info.DurationSeconds > 0 ? (int)Math.Round((targetBits / info.DurationSeconds) / 1000) : 2500;
 
         // Alpha stream consumes ~35% of total muxed bits in yuva420p BlockAddition mode
         var calculatedVideoBitrateK = Math.Clamp((int)(totalBitrateKbps * 0.65), 1000, 8000);
@@ -330,26 +356,112 @@ public sealed class AlertCompressorService
         }
 
         args.Add($"-i \"{inputPath}\"");
-        args.Add("-c:v libvpx-vp9");
-        args.Add("-pix_fmt yuva420p");
-        args.Add($"-b:v {maxBitrateK}k");
-        args.Add($"-crf {crf}");
-        args.Add("-row-mt 1");
-        args.Add($"-threads {threads}");
-        args.Add("-cpu-used 3");
 
-        // Audio handling
-        if (info.AudioCodec == "opus")
+        // Video filters
+        var vfFilters = new List<string>();
+        if (lumaKeyEnabled)
         {
-            args.Add("-c:a copy");
+            var targetThresh = (lumaKeyMode?.ToLowerInvariant()) switch
+            {
+                "bright" => 1.0,
+                "custom" => Math.Clamp(lumaThreshold ?? 0.15, 0.0, 1.0),
+                _ => 0.0 // "dark" mode targets black
+            };
+            var effTol = Math.Clamp(lumaTolerance ?? 0.15, 0.001, 1.0);
+            var effSoft = Math.Clamp(lumaSoftness ?? 0.08, 0.0, 1.0);
+
+            // Lossless 90-degree rotation (pure pixel remap, no resampling)
+            switch ((((rotation ?? 0) % 360) + 360) % 360)
+            {
+                case 90: vfFilters.Add("transpose=1"); break;
+                case 180: vfFilters.Add("hflip,vflip"); break;
+                case 270: vfFilters.Add("transpose=2"); break;
+            }
+
+            vfFilters.Add("format=yuva420p");
+            var hex = (keyColor ?? "#00ff00").TrimStart('#');
+            var isColorKey = string.Equals(keyType, "color", StringComparison.OrdinalIgnoreCase) &&
+                             hex.Length == 6 && hex.All(Uri.IsHexDigit);
+            if (isColorKey)
+            {
+                vfFilters.Add(FormattableString.Invariant($"colorkey=color=0x{hex}:similarity={Math.Max(effTol, 0.01):F3}:blend={effSoft:F3}"));
+            }
+            else
+            {
+                vfFilters.Add(FormattableString.Invariant($"lumakey=threshold={targetThresh:F3}:tolerance={effTol:F3}:softness={effSoft:F3}"));
+            }
+            if (lumaInvert == true)
+            {
+                vfFilters.Add("lutrgb=a='255-val'");
+            }
+
+            // Matte shaping: choke (shrink), gamma curve, then global opacity
+            var effChoke = Math.Clamp(lumaChoke ?? 0.0, 0.0, 0.9);
+            var effGamma = Math.Clamp(lumaGamma ?? 1.0, 0.2, 5.0);
+            var effOpacity = Math.Clamp(lumaOpacity ?? 1.0, 0.0, 1.0);
+            if (effChoke > 0.0 || Math.Abs(effGamma - 1.0) > 0.001 || effOpacity < 0.999)
+            {
+                vfFilters.Add(FormattableString.Invariant(
+                    $"lut=a='maxval*{effOpacity:F3}*pow(clip((val-{effChoke:F3}*maxval)/(maxval*(1-{effChoke:F3})),0,1),{effGamma:F3})'"));
+            }
         }
-        else if (info.AudioCodec != "none")
+
+        if (vfFilters.Count > 0)
         {
-            args.Add("-c:a libopus -b:a 128k");
+            args.Add($"-vf \"{string.Join(",", vfFilters)}\"");
+        }
+
+        if (isMov)
+        {
+            // Apple ProRes 4444 with 10-bit alpha for maximum fidelity and editor compatibility
+            args.Add("-c:v prores_ks");
+            args.Add("-profile:v 4444");
+            args.Add("-pix_fmt yuva444p10le");
+            args.Add($"-threads {threads}");
+
+            if (info.AudioCodec != "none")
+            {
+                args.Add("-c:a aac -b:a 192k");
+            }
+            else
+            {
+                args.Add("-an");
+            }
         }
         else
         {
-            args.Add("-an");
+            // WebM VP9 with yuva420p alpha channel
+            args.Add("-c:v libvpx-vp9");
+            args.Add("-pix_fmt yuva420p");
+            if (lumaKeyEnabled && customMaxBitrateK.HasValue)
+            {
+                var targetK = Math.Clamp(maxBitrateK, 200, 100000);
+                args.Add($"-b:v {targetK}k");
+                args.Add($"-maxrate {(int)(targetK * 1.5)}k");
+                args.Add($"-bufsize {targetK * 2}k");
+            }
+            else
+            {
+                args.Add($"-b:v {maxBitrateK}k");
+                args.Add($"-crf {crf}");
+            }
+            args.Add("-row-mt 1");
+            args.Add($"-threads {threads}");
+            args.Add("-cpu-used 3");
+
+            // Audio handling
+            if (info.AudioCodec == "opus")
+            {
+                args.Add("-c:a copy");
+            }
+            else if (info.AudioCodec != "none")
+            {
+                args.Add("-c:a libopus -b:a 128k");
+            }
+            else
+            {
+                args.Add("-an");
+            }
         }
 
         args.Add($"\"{outputPath}\"");

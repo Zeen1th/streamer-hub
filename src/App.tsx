@@ -82,6 +82,39 @@ export default function App() {
     return () => media?.removeEventListener('change', apply);
   }, [theme]);
 
+  const effectiveScale = useSettingsStore((s) => s.effectiveScale);
+
+  useEffect(() => {
+    (document.documentElement as HTMLElement).style.zoom = String(effectiveScale);
+    document.documentElement.style.setProperty('--app-ui-scale', String(effectiveScale));
+  }, [effectiveScale]);
+
+  useEffect(() => {
+    const handleScreenChange = () => {
+      useSettingsStore.getState().refreshAutoScale();
+    };
+    window.addEventListener('resize', handleScreenChange);
+    return () => window.removeEventListener('resize', handleScreenChange);
+  }, []);
+
+  useEffect(() => {
+    const handleZoomHotkeys = (e: KeyboardEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        useSettingsStore.getState().adjustScale(0.05);
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        useSettingsStore.getState().adjustScale(-0.05);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        useSettingsStore.getState().resetScale();
+      }
+    };
+    window.addEventListener('keydown', handleZoomHotkeys);
+    return () => window.removeEventListener('keydown', handleZoomHotkeys);
+  }, []);
+
   useEffect(() => { void useUpdateStore.getState().check(); }, []);
 
   useEffect(() => {
@@ -236,9 +269,10 @@ export default function App() {
     <div
       data-app={resolvedTheme}
       className={cn(
-        'app-shell flex h-full w-full min-w-[900px] flex-col overflow-hidden font-sans text-ink',
+        'app-shell flex h-full w-full flex-col overflow-hidden font-sans text-ink',
         resolvedTheme === 'dark' ? 'bg-[#1a2228]' : 'bg-surface',
       )}
+      style={{ minWidth: 'min(900px, 100vw)' }}
     >
       <Titlebar />
       <ActionBar />

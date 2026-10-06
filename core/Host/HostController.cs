@@ -136,7 +136,7 @@ public sealed class HostController : IDisposable
     private sealed record DeleteCounterPayload(string CounterId);
     private sealed record SaveKeybindsPayload(List<ActionKeybind>? Bindings);
     private sealed record ObsWritePayload(string FilePath, string Content);
-    private sealed record SaveFilePayload(string DefaultName);
+    private sealed record SaveFilePayload(string DefaultName, string? Filter = null, string? Title = null);
     private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null, string? PreferredChatSender = null, bool? StartupEnabled = null, bool? CloseToTray = null);
     private sealed record SaveAutoReplyPayload(AutoReply? Rule);
     private sealed record SaveAutoReplySettingsPayload(AutoReplySettings? Settings);
@@ -488,7 +488,7 @@ public sealed class HostController : IDisposable
         _dispatcher.Register(Channels.DialogSaveFile, (payload, _) =>
         {
             var request = Json.Deserialize<SaveFilePayload>(payload ?? default);
-            return Task.FromResult<object?>(new { path = ShowSaveDialog(request?.DefaultName ?? "deaths.txt") });
+            return Task.FromResult<object?>(new { path = ShowSaveDialog(request?.DefaultName ?? "deaths.txt", request?.Filter, request?.Title) });
         });
         _dispatcher.Register(Channels.DialogOpenFile, (payload, _) =>
         {
@@ -1319,7 +1319,20 @@ public sealed class HostController : IDisposable
                     req.CustomCrf,
                     req.CustomMaxBitrateK,
                     progress => PostEvent(Events.AlertsProgress, progress),
-                    ct
+                    ct,
+                    req.LumaKeyEnabled ?? false,
+                    req.LumaKeyMode,
+                    req.LumaThreshold,
+                    req.LumaTolerance,
+                    req.LumaSoftness,
+                    req.LumaInvert,
+                    req.LumaChoke,
+                    req.LumaGamma,
+                    req.LumaOpacity,
+                    req.OutputFormat,
+                    req.KeyType,
+                    req.KeyColor,
+                    req.Rotation
                 ).ConfigureAwait(false);
 
                 PostEvent(Events.AlertsCompleted, result);
@@ -1343,6 +1356,19 @@ public sealed class HostController : IDisposable
                         Process.Start("explorer.exe", $"/select,\"{req.Path}\"");
                     else if (Directory.Exists(req.Path))
                         Process.Start("explorer.exe", $"\"{req.Path}\"");
+                }
+                catch { }
+            }
+            return Task.FromResult<object?>(new { ok = true });
+        });
+        _dispatcher.Register(Channels.AlertsOpenFile, (payload, _) =>
+        {
+            var req = Json.Deserialize<OpenFolderPayload>(payload ?? default);
+            if (req is not null && !string.IsNullOrWhiteSpace(req.Path) && File.Exists(req.Path))
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(req.Path) { UseShellExecute = true });
                 }
                 catch { }
             }
@@ -2199,7 +2225,7 @@ public sealed class HostController : IDisposable
         await ConnectWithTokensAsync(tokens, TwitchConstants.ClientId).ConfigureAwait(false);
     }
 
-    private string? ShowSaveDialog(string defaultName)
+    private string? ShowSaveDialog(string defaultName, string? filter = null, string? title = null)
     {
         string? path = null;
         Ui(() =>
@@ -2207,8 +2233,8 @@ public sealed class HostController : IDisposable
             using var dialog = new SaveFileDialog
             {
                 FileName = defaultName,
-                Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
-                Title = "Choose the OBS text file",
+                Filter = filter ?? "Text files (*.txt)|*.txt|All files (*.*)|*.*",
+                Title = title ?? "Choose file location",
             };
             if (dialog.ShowDialog(_form) == DialogResult.OK) path = dialog.FileName;
         });

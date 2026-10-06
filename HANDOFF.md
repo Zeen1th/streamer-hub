@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
  
-**Version:** `v0.4.5`  
+**Version:** `v0.4.6`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -154,37 +154,79 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - **Loop Prevention**:
   - Only synthetic messages generated locally by the app (`PublishSelfChatMessage`, `id: self-*`, `isSelf: true`) and messages originating from the connected bot account are ignored, preventing echo loops while leaving human chatters and the broadcaster fully operational.
 
-### 2.7 Alert Studio & Transparent WebM Compressor (`core/Media/AlertCompressorService.cs`)
-- **Purpose**: High-performance local media optimizer tailored for Twitch alerts and OBS browser sources, guaranteeing output files stay strictly under StreamElements' 30MB upload limit without losing alpha transparency or audio quality.
+### 2.7 Alert Studio: Luma Key Video Editor & Transparent Compressor (`core/Media/AlertCompressorService.cs`)
+- **Purpose**: A comprehensive video processing studio providing two dedicated workflows:
+  1. **🎬 Luma Key Video Editor**: Adobe Premiere-grade luminance keying to strip solid black or white backgrounds from alerts, memes, overlays, and VFX, outputting transparent video with full alpha channel.
+  2. **📦 Alert Compressor (<30MB)**: High-performance constrained quality compression keeping large alert animations under StreamElements' 30MB upload limit without losing alpha or audio.
+- **Interactive Real-Time Video Editor (`AlertCompressorView.tsx`)**:
+  - **Live HTML5 Canvas Shader Engine**:
+    - Video frames are drawn to an interactive `<canvas>` element and processed in real time (<1.5ms per frame) during 60 FPS playback.
+    - Computes ITU-R Rec. 601/709 luminance: $Y = (0.299R + 0.587G + 0.114B) / 255.0$.
+    - Applies smooth transparency ramp:
+      $$|Y - \text{threshold}| \le \text{tolerance} \implies \alpha = 0$$
+      $$\text{tolerance} < |Y - \text{threshold}| < \text{tolerance} + \text{softness} \implies \alpha = 255 \times \frac{|Y - \text{threshold}| - \text{tolerance}}{\text{softness}}$$
+    - Sliders react instantaneously during playback and when scrubbing or paused.
+  - **View Modes**:
+    - **Keyed Result**: Full transparency applied with the chosen preview background.
+    - **Before / After Split Screen**: Interactive A/B comparison slider (25%, 50%, 75% presets) showing original untouched source on the left and luma-keyed video on the right.
+    - **Original Video**: Unmodified source footage.
+  - **Transparency Testing Backgrounds**:
+    - Checkerboard grid (transparent indicator).
+    - Green Screen (`#00FF00` chroma green).
+    - Solid Black (`#000000`).
+    - Solid White (`#FFFFFF`).
+    - Custom Color Picker (e.g. game backdrop emulation).
+  - **Playback & Frame Stepping Controls**:
+    - Play / Pause (click canvas or button).
+    - Timeline scrubber slider with millisecond time display.
+    - Precise frame stepping buttons (`-0.1s` and `+0.1s`).
+    - Continuous Loop and Audio Mute toggles.
+  - **Adobe Premiere-Style Keying Controls & Presets**:
+    - **Modes**: Key Out Dark (targets $Y=0.0$), Key Out Bright (targets $Y=1.0$), Custom Luminance Center ($0.0 \dots 1.0$).
+    - **Threshold / Cutoff**: Luminance tolerance range made 100% transparent.
+    - **Feather / Softness**: Edge blend width preventing jagged artifacts.
+    - **Invert Transparency**: Flips keying mask.
+    - **Key Type** (`keyType`): `luma` (brightness) or `color` (chroma, `keyColor` hex, eyedropper-pick from the preview). Color key exports via FFmpeg `colorkey`; Tolerance/Feather sliders drive both types.
+    - **Rotate** (`rotation` 0/90/180/270): Lossless pixel remap (`transpose`/`hflip,vflip` before keying); canvas preview uses a matching transform.
+    - **Bitrate** (`videoBitrateK`, WebM only): Auto = CRF 18; Custom sends `customMaxBitrateK` and the host uses bitrate-targeted VP9 (`-b:v`, `-maxrate 1.5x`, no CRF). ProRes ignores it.
+    - **Checkerboard**: two-tone `repeating-conic-gradient` with selectable square size (8/12/20/32px).
+    - **My Presets**: user-named snapshots of all keying values, rotation, format and bitrate, saved to `localStorage` (`streamerhub.alertStudio.userPresets.v1`); same name overwrites, × deletes.
+    - **Seeking**: `/media` in `ChatOverlayServer.cs` honours HTTP `Range` (206/416) so the preview scrubber can seek; without it Chromium treats the video as non-seekable.
+    - **Choke / Shrink Matte** (`lumaChoke`, 0–0.9): Cuts low-alpha fringe to remove halos.
+    - **Matte Gamma** (`lumaGamma`, 0.3–3): Curve on the alpha edge (<1 fattens glow, >1 tightens).
+    - **Overall Opacity** (`lumaOpacity`, 0–1): Scales final alpha for ghost overlays.
+    - Shaping is applied after invert: $\alpha' = \text{opacity} \cdot \text{clamp}\left(\frac{\alpha - \text{choke}}{1 - \text{choke}}\right)^{\gamma}$. FFmpeg export mirrors the canvas via a single `lut=a=...` filter.
+    - **1-Click Presets**: Clean Black Screen, Aggressive Dark Key, Subtle Fine Edge, Clean White Screen, Reset Defaults.
+- **Custom Save Destination & Native Windows File Dialog**:
+  - **Native SaveFileDialog Integration**: `Channels.DialogSaveFile` supports custom `filter` and `title`, opening Windows File Explorer to pick any destination folder and filename.
+  - Custom file path text input with auto-suggested `{fileName}_lumakey.{ext}` default.
+  - **Dual Export Codecs**:
+    - **WebM (VP9 + yuva420p)**: Optimal for OBS Studio Browser Sources and StreamElements (<30MB, browser-compatible).
+    - **MOV (Apple ProRes 4444 + yuva444p10le)**: 10-bit lossless alpha master for Adobe Premiere, After Effects, and DaVinci Resolve.
+  - **Post-Export Actions**:
+    - **Play Video** (`Channels.AlertsOpenFile`): Launches exported video in default media player.
+    - **Open Folder** (`Channels.AlertsOpenFolder`): Highlights exported file in Windows Explorer.
 - **FFmpeg Lifecycle Management**:
   - Automatically scans for `ffmpeg.exe` across application base directory, `%LocalAppData%/StreamerHub/bin`, and the system `PATH`.
   - Zero-setup background downloader (`DownloadFfmpegAsync`) fetches portable essentials build from Gyan's CDN if missing, broadcasting `alerts/download-progress` events.
-- **Dual-Stream VP9 Alpha Preservation**:
-  - WebM VP9 with alpha requires explicit decoding via `libvpx-vp9` before `-i` to prevent FFmpeg's default native decoder from discarding the alpha layer.
-  - Encodes output using `libvpx-vp9 -pix_fmt yuva420p` with BlockAddition alpha stream tagged as `alpha_mode=1`.
-  - Seamlessly handles QuickTime ProRes 4444 (`.mov`) with alpha from Adobe After Effects / Premiere.
-- **Constrained Quality Optimization**:
+- **Constrained Quality Optimization (Compressor Tab)**:
   - Automatically computes bitrate ceiling and CRF based on duration to guarantee the file stays under budget (default 28MB preset with customizable 10–50MB slider).
   - Uses `-row-mt 1 -threads 16 -cpu-used 3` for multi-threaded speed on high-core CPUs.
-  - Lossless audio copy (`-c:a copy` for Opus; converts uncompressed PCM to 128k Opus for ProRes).
-- **Asynchronous Stderr Progress Parsing**:
-  - Line-buffered reader scans carriage-return delimited stderr output from FFmpeg.
-  - Dispatches `alerts/progress` events with real-time percentage, current FPS, size, encoding speed multiplier, and current seconds.
-- **Safe Process Termination**:
-  - Immediate process tree termination via `CancelActiveProcess()` when cancelled by user, with automatic partial artifact cleanup.
+  - Line-buffered stderr reader dispatches `alerts/progress` events with real-time percentage, current FPS, size, encoding speed multiplier, and current seconds.
+  - Safe process tree cancellation via `CancelActiveProcess()`.
 
 ### 2.8 OBS Image / Picture Action in Sequences (`obs_image`)
 - **Purpose**: Triggers image/GIF popups on OBS Studio directly from sequences (channel points, commands, follows, raids).
 - **OBS Local Streaming Endpoint**:
-  - `ChatOverlayServer.cs` serves local images through `/media?path={encodeURIComponent(path)}` with CORS headers and proper MIME type streaming, avoiding Chromium sandbox restrictions (`file:///` access blocked in HTTP browser sources).
+  - `ChatOverlayServer.cs` serves local images and videos through `/media?path={encodeURIComponent(path)}` with CORS headers and proper MIME type streaming, avoiding Chromium sandbox restrictions (`file:///` access blocked in HTTP browser sources).
 - **Dual Display Modes**:
   - **Auto Overlay Integration**: Automatically renders in existing `/chat-overlay.html` browser sources without requiring new OBS sources.
-  - **Dedicated OBS Browser Source**: Standalone `/image-overlay.html` endpoint.
+  - **Dedicated OBS Browser Source**: Standalone `/image-overlay.html` endpoint with 1-click copy URL button.
   - **Native OBS File Copy**: Optional `obsImageDestinationPath` copies the image directly to a disk path for OBS Image Sources.
 - **Customizable Dynamics**: Screen positioning (`center`, `top-center`, `bottom-center`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `fullscreen`), animations (`bounce`, `fade`, `zoom`, `slide-up`, `slide-down`, `none`), scale slider (0.2x–3.0x), and auto-dismiss duration timer.
 
 ### 2.9 Mini-Game: Timeout Duel Showdown (`duel`)
-- **Purpose**: Interactive Twitch chat mini-game where viewers redeem channel points or use a command (e.g. `!duel @username`) to challenge another viewer. The loser gets timed out for a customizable duration.
+- **Purpose**: Interactive Twitch chat mini-game where viewers challenge other viewers via commands or channel points. The loser gets timed out for a customizable duration.
 - **Two Lose Condition Modes**:
   - **Random (50/50 Coin Flip)**: Instant roulette. Broadcasts challenge in chat, rolls a 50/50 coin flip, announces the winner/loser, and times out the loser.
   - **AI Gaming Trivia**: Groq / OpenRouter AI (with an offline catalog of 50+ bilingual gaming questions) sends a gaming trivia question to chat with a live countdown timer.
@@ -195,6 +237,23 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
   - Normalizes chat messages with bilingual Arabic/English regex (strips diacritics, normalizes alef variants and taa marbuta, removes punctuation, case-insensitive substring tolerance).
   - Anti-spam guard: Rejects concurrent duels until the active showdown concludes.
   - Protection guards: Rejects self-challenges and challenges targeting the broadcaster.
+
+### 2.10 Mini-Game: Streamer 1v1 Showdown Sub-Action (`duel_streamer`)
+- **Purpose**: Dedicated sequence action allowing viewers to challenge the broadcaster directly.
+- **Broadcaster Defaults & Independent Configuration**:
+  - Always defaults the opponent target to the broadcaster (`{broadcaster}`).
+  - Independent win rate slider (0% to 100%, default 50%).
+  - Separate message templates for:
+    - **Streamer Won**: Message broadcast when broadcaster wins the duel.
+    - **Streamer Lost**: Message broadcast when broadcaster loses the duel.
+  - **Focus-Preserving Quick Tokens**: Token chips (`{streamer}`, `{broadcaster}`, `{opponent}`, `{winner}`, `{loser}`, `{points}`) insert placeholders at the cursor position without stealing input focus.
+
+### 2.11 Per-Monitor DPI & User-Configurable UI Scaling
+- **Purpose**: Ensures optimal readability across diverse streamer monitor setups (1080p, 1440p, 4K Ultrawide, secondary vertical monitors).
+- **Architecture**:
+  - Windows Forms shell runs in `PerMonitorV2` High DPI mode.
+  - `settingsStore.ts` persists `uiScale` (default `1.0`, range `0.8` to `1.4`).
+  - App shell applies CSS zoom scaling dynamically on `#root`, maintaining crisp vector typography and responsive fluid layouts.
 
 ---
 
@@ -209,16 +268,19 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 | `twitch/moderation/shoutout` | Frontend -> Host | `{ target: string }` | Sends Twitch shoutout via Helix API |
 | `twitch/chat-message` | Host -> Frontend | `ChatMessage` | Broadcasts incoming (and self-sent) chat messages |
 | `twitch/chat-cleared` | Host -> Frontend | `{ scope: 'message' \| 'user' \| 'all', id?: string }` | Notifies clients to clear or hide messages |
+| `dialog/save-file` | Frontend -> Host | `{ defaultName: string, filter?: string, title?: string }` | Native Windows SaveFileDialog picker |
+| `dialog/open-file` | Frontend -> Host | `{ filter?: string, title?: string }` | Native Windows OpenFileDialog picker |
 | `chat-overlay/get-url` | Frontend -> Host | `{ overlayId?: string }` | Retrieves the loopback URL for an overlay |
 | `obs-chat/get-dock-url` | Frontend -> Host | `void` | Retrieves the loopback URL for the OBS chat dock |
 | `alerts/get-ffmpeg-status` | Frontend -> Host | `void` | Checks availability, path, and version of FFmpeg |
 | `alerts/download-ffmpeg` | Frontend -> Host | `void` | Downloads portable FFmpeg build in background |
 | `alerts/inspect` | Frontend -> Host | `{ inputPath: string }` | Inspects video dimensions, FPS, duration, codecs, and alpha |
-| `alerts/compress` | Frontend -> Host | `CompressAlertPayload` | Starts VP9 alpha constrained quality compression |
-| `alerts/cancel` | Frontend -> Host | `void` | Cancels active FFmpeg compression process |
-| `alerts/open-folder` | Frontend -> Host | `{ path: string }` | Selects compressed video in Windows Explorer |
+| `alerts/compress` | Frontend -> Host | `CompressAlertPayload` | Starts VP9 alpha / ProRes MOV compression or Luma Key export |
+| `alerts/cancel` | Frontend -> Host | `void` | Cancels active FFmpeg encoding process |
+| `alerts/open-folder` | Frontend -> Host | `{ path: string }` | Selects exported video in Windows Explorer |
+| `alerts/open-file` | Frontend -> Host | `{ path: string }` | Launches exported video in default media player |
 | `alerts/progress` | Host -> Frontend | `CompressionProgress` | Real-time compression percentage, FPS, size, and speed |
-| `alerts/completed` | Host -> Frontend | `CompressionResult` | Compression outcome, original vs compressed byte sizes |
+| `alerts/completed` | Host -> Frontend | `CompressionResult` | Outcome, original vs compressed byte sizes |
 | `alerts/download-progress` | Host -> Frontend | `{ percent: number }` | Progress percentage for FFmpeg background download |
 
 ---

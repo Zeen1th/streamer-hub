@@ -77,19 +77,23 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
   - High-contrast dark theme with automatic username luminance protection ($\ge 0.35$).
   - Full bidirectional typography: `Cairo` for Arabic and `Barlow` for Latin/English.
   - Instant cross-client synchronization of deletions, user timeouts, and full room clears.
-- **Alert Studio & Transparent WebM Compressor**:
-  - Dedicated compression workspace tailored for Twitch alerts and OBS media assets.
-  - Enforces dual-stream `yuva420p` pixel format and `alpha_mode=1` with VP9 Constrained Quality encoding to prevent black background flattening.
-  - Live HTML5 video player with toggleable transparency checkerboard pattern for verifying alpha blending before uploading.
-  - 1-Click StreamElements preset (< 30 MB) with smart bitrate ceiling and CRF auto-tuned to video duration.
-  - Custom target size slider (10 MB to 50 MB) for different streaming platforms and overlay hosts.
-  - Background portable FFmpeg auto-detection and zero-setup downloader for non-technical users.
-  - Real-time encoding metrics: progress percentage, FPS, current size, speed multiplier, and elapsed/total duration.
-  - Results card with before/after byte comparison, percentage saved, and 1-click Windows Explorer folder selection.
+- **Alert Studio: Luma Key Video Editor & Transparent WebM Compressor**:
+  - Dedicated video workspace providing both an **Adobe Premiere-Style Luma Key Editor** and an **Alert Compressor (<30MB)**.
+  - **Real-Time HTML5 Canvas Luma Key Engine**: Live sub-millisecond per-frame luminance processing during 60 FPS playback with instant slider reactivity.
+  - **Interactive Preview & Modes**: Keyed Result, Before / After Split Screen with draggable divider line and tags, and Original video mode.
+  - **Background Swatches**: Checkerboard transparency grid, Green Screen (`#00FF00`), Solid Black, Solid White, and Custom Color Picker for testing transparency under any streaming backdrop.
+  - **Adobe Premiere Controls**: Key Out Dark (Black), Key Out Bright (White), Custom Luminance, Threshold/Cutoff, Feather/Softness, Invert Transparency, and 1-click presets.
+  - **Save Anywhere**: Native Windows `SaveFileDialog` with format filter support and custom file path input.
+  - **Dual Codec Export**: WebM (VP9 + `yuva420p` alpha) for OBS & StreamElements, and Apple ProRes 4444 (`.mov` + `yuva444p10le` 10-bit alpha) for Premiere and DaVinci.
+  - **Constrained Quality Compression**: 1-Click StreamElements preset (< 30 MB) and custom target size slider (10 MB to 50 MB) auto-tuned to video duration with zero alpha loss.
+  - **Direct Actions**: Real-time progress, speed, FPS, with 1-click "Play Video" and "Open in Folder" actions.
+- **Sequences & Mini-Games**:
+  - Multi-step macro sequences triggering OBS images, sound effects, Microsoft Edge Online Neural TTS, live chat polls, and OBS source muting.
+  - **Streamer 1v1 Timeout Duel (`duel_streamer`)**: Viewers challenge the streamer directly with independent win rate sliders, custom win/lose messages, and focus-preserving Quick Tokens (`{streamer}`, `{broadcaster}`, `{opponent}`, etc.).
 - **Settings & UI**:
   - Sectioned navigation: General, Twitch Connection, Bot Account, Appearance, and Step-by-Step Setup Guide.
+  - Responsive per-monitor DPI architecture with user-adjustable UI Zoom Scale slider (80% to 140%).
   - High-contrast, unwashed dark themes: Solar Amber, Abyss Sapphire, Midnight Violet, Tokyo Rose, and Crimson Dark.
-  - Generously scaled 116% interface with enlarged typography for optimal legibility during live streaming.
   - Full English and Arabic localization with Cairo typography and stable LTR shell controls.
   - First-run and version upgrade prompt modals (`ReauthPromptModal`) ensuring zero-friction permissions maintenance.
 
