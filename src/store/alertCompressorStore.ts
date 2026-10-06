@@ -38,6 +38,22 @@ export interface UserPresetSettings {
   rotation: Rotation;
   outputFormat: OutputFormat;
   videoBitrateK: number | null;
+  outputHeight?: number | null;
+  editorCompress?: boolean;
+  editorTargetMb?: number;
+}
+
+const STAGED_NAME = /^[0-9a-f]{32}_/i;
+
+const ASK_SAVE_KEY = 'streamerhub.alertStudio.askSaveEachTime.v1';
+
+function loadAskSave(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    return localStorage.getItem(ASK_SAVE_KEY) !== '0';
+  } catch {
+    return true;
+  }
 }
 
 const USER_PRESETS_KEY = 'streamerhub.alertStudio.userPresets.v1';
@@ -91,6 +107,14 @@ interface AlertCompressorState {
   lumaGamma: number;
   lumaOpacity: number;
   userPresets: UserLumaPreset[];
+  askSaveEachTime: boolean;
+  keepTempFiles: boolean;
+  tempDirectory: string | null;
+  effectiveTempDir: string;
+  tempError: string | null;
+  outputHeight: number | null;
+  editorCompress: boolean;
+  editorTargetMb: number;
   outputFormat: OutputFormat;
   rotation: Rotation;
   videoBitrateK: number | null;
@@ -129,13 +153,21 @@ interface AlertCompressorState {
   setLumaOpacity(val: number): void;
   setOutputFormat(format: OutputFormat): void;
   rotateBy(deg: 90 | -90): void;
+  setEditorCompress(on: boolean): void;
+  setAskSaveEachTime(on: boolean): void;
+  loadTempSettings(): Promise<void>;
+  setKeepTempFiles(keep: boolean): Promise<void>;
+  chooseTempDirectory(): Promise<void>;
+  resetTempDirectory(): Promise<void>;
+  setOutputHeight(height: number | null): void;
+  setEditorTargetMb(mb: number): void;
   saveUserPreset(name: string): void;
   applyUserPreset(id: string): void;
   deleteUserPreset(id: string): void;
   setRotation(rotation: Rotation): void;
   setVideoBitrateK(kbps: number | null): void;
   setCustomOutputPath(path: string): void;
-  chooseSavePath(): Promise<void>;
+  chooseSavePath(): Promise<boolean>;
   applyPreset(preset: LumaPreset): void;
   setPreviewBg(bg: PreviewBg): void;
   setPreviewCustomColor(color: string): void;
@@ -151,6 +183,13 @@ interface AlertCompressorState {
   handleCompleted(result: CompressionResult): void;
   handleDownloadProgress(percent: number): void;
   reset(): void;
+}
+
+// Ask the host to delete a staged (dropped) copy; it ignores anything that isn't one of its own
+// temp files and does nothing when the user chose to keep temp files.
+function discardStaged(path: string) {
+  if (!STAGED_NAME.test(path.split(/[\\/]/).pop() ?? '')) return;
+  void rpc.invoke(Channels.AlertsDiscardTemp, { path }).catch(() => undefined);
 }
 
 export const useAlertCompressorStore = create<AlertCompressorState>((set, get) => ({
@@ -181,6 +220,14 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
   rotation: 0,
   videoBitrateK: null,
   userPresets: loadUserPresets(),
+  askSaveEachTime: loadAskSave(),
+  keepTempFiles: false,
+  tempDirectory: null,
+  effectiveTempDir: '',
+  tempError: null,
+  outputHeight: null,
+  editorCompress: false,
+  editorTargetMb: 28,
   customOutputPath: '',
   previewBg: 'checkerboard',
   previewCustomColor: '#1e293b',
@@ -223,6 +270,8 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
 
     set({ inspecting: true, inspectError: null, result: null, progress: null });
     try {
+      const previous = get().selectedFile?.filePath;
+      if (previous && previous !== filePath) discardStaged(previous);
       const res = await rpc.invoke(Channels.AlertsInspect, { inputPath: filePath });
       if (res.ok && res.info) {
         // Auto-generate suggested save path if customOutputPath is empty
@@ -230,9 +279,12 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
         const parts = res.info.filePath.split(/[\\/]/);
         const origName = parts[parts.length - 1];
         const dotIdx = origName.lastIndexOf('.');
-        const baseName = dotIdx > 0 ? origName.slice(0, dotIdx) : origName;
+        const staged = STAGED_NAME.test(origName);
+        const rawBase = dotIdx > 0 ? origName.slice(0, dotIdx) : origName;
+        const baseName = rawBase.replace(STAGED_NAME, '');
         const dir = parts.slice(0, -1).join('\\');
-        const defaultSave = dir ? `${dir}\\${baseName}_lumakey${ext}` : `${baseName}_lumakey${ext}`;
+        // Dropped files live in the temp folder; leave the path empty so the host saves to Videos instead
+        const defaultSave = staged ? '' : dir ? `${dir}\\${baseName}_lumakey${ext}` : `${baseName}_lumakey${ext}`;
 
         set({
           selectedFile: res.info,
@@ -314,6 +366,9 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
       rotation: g.rotation,
       outputFormat: g.outputFormat,
       videoBitrateK: g.videoBitrateK,
+      outputHeight: g.outputHeight,
+      editorCompress: g.editorCompress,
+      editorTargetMb: g.editorTargetMb,
     };
     // Same name overwrites, so saving again updates the preset
     const existing = g.userPresets.find((p) => p.name.toLowerCase() === name.toLowerCase());
@@ -328,7 +383,8 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
     if (!preset) return;
     const { outputFormat, ...rest } = preset.settings;
     // Reuse setOutputFormat so the save path extension stays in sync
-    set(rest);
+    // Presets saved before compression existed lack these keys; don't overwrite with undefined
+    set(Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
     get().setOutputFormat(outputFormat);
   },
   deleteUserPreset: (id) => {
@@ -336,6 +392,77 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
     saveUserPresets(next);
     set({ userPresets: next });
   },
+  setEditorCompress: (editorCompress) => set({ editorCompress }),
+  setOutputHeight: (outputHeight) => set({ outputHeight }),
+
+  // Temp-file settings live on the host (persisted in appdata) so cleanup works even before the UI loads
+  loadTempSettings: async () => {
+    try {
+      const cfg = await rpc.invoke(Channels.AlertsGetTempSettings, undefined);
+      set({
+        keepTempFiles: cfg.keepTempFiles,
+        tempDirectory: cfg.directory,
+        effectiveTempDir: cfg.effectiveDirectory,
+        tempError: null,
+      });
+    } catch {
+      // host unavailable
+    }
+  },
+  setKeepTempFiles: async (keepTempFiles) => {
+    const prev = get().keepTempFiles;
+    set({ keepTempFiles });
+    try {
+      const res = await rpc.invoke(Channels.AlertsSetTempSettings, {
+        keepTempFiles,
+        directory: get().tempDirectory,
+      });
+      if (!res.ok) set({ keepTempFiles: prev, tempError: res.error ?? 'Could not save setting.' });
+      else set({ tempError: null });
+    } catch (err) {
+      set({ keepTempFiles: prev, tempError: String(err) });
+    }
+  },
+  chooseTempDirectory: async () => {
+    try {
+      const picked = await rpc.invoke(Channels.DialogPickFolder, {
+        title: 'Choose where temporary Alert Studio files are stored',
+        initialPath: get().effectiveTempDir || undefined,
+      });
+      if (!picked.path) return;
+      const res = await rpc.invoke(Channels.AlertsSetTempSettings, {
+        keepTempFiles: get().keepTempFiles,
+        directory: picked.path,
+      });
+      if (res.ok) {
+        set({ tempDirectory: res.directory, effectiveTempDir: res.effectiveDirectory, tempError: null });
+      } else {
+        set({ tempError: res.error ?? 'That folder cannot be used.' });
+      }
+    } catch (err) {
+      set({ tempError: String(err) });
+    }
+  },
+  resetTempDirectory: async () => {
+    try {
+      const res = await rpc.invoke(Channels.AlertsSetTempSettings, {
+        keepTempFiles: get().keepTempFiles,
+        directory: null,
+      });
+      if (res.ok) set({ tempDirectory: null, effectiveTempDir: res.effectiveDirectory, tempError: null });
+    } catch (err) {
+      set({ tempError: String(err) });
+    }
+  },
+  setAskSaveEachTime: (askSaveEachTime) => {
+    try {
+      localStorage.setItem(ASK_SAVE_KEY, askSaveEachTime ? '1' : '0');
+    } catch {
+      // storage unavailable
+    }
+    set({ askSaveEachTime });
+  },
+  setEditorTargetMb: (editorTargetMb) => set({ editorTargetMb }),
   rotateBy: (deg) => set((s) => ({ rotation: ((((s.rotation + deg) % 360) + 360) % 360) as Rotation })),
   setRotation: (rotation) => set({ rotation }),
   setVideoBitrateK: (videoBitrateK) => set({ videoBitrateK }),
@@ -365,9 +492,11 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
   setCustomOutputPath: (customOutputPath) => set({ customOutputPath }),
 
   chooseSavePath: async () => {
-    const { selectedFile, outputFormat, customOutputPath } = get();
-    const ext = outputFormat === 'mov' ? '.mov' : '.webm';
-    let defaultFileName = 'video_lumakey' + ext;
+    const { selectedFile, outputFormat, customOutputPath, activeTab } = get();
+    const isEditor = activeTab === 'editor';
+    const suffix = isEditor ? '_lumakey' : '_under30mb';
+    const ext = isEditor && outputFormat === 'mov' ? '.mov' : '.webm';
+    let defaultFileName = `video${suffix}${ext}`;
     if (customOutputPath) {
       const parts = customOutputPath.split(/[\\/]/);
       defaultFileName = parts[parts.length - 1];
@@ -375,12 +504,12 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
       const parts = selectedFile.filePath.split(/[\\/]/);
       const origName = parts[parts.length - 1];
       const dotIdx = origName.lastIndexOf('.');
-      const base = dotIdx > 0 ? origName.slice(0, dotIdx) : origName;
-      defaultFileName = `${base}_lumakey${ext}`;
+      const base = (dotIdx > 0 ? origName.slice(0, dotIdx) : origName).replace(STAGED_NAME, '');
+      defaultFileName = `${base}${suffix}${ext}`;
     }
 
     const filter =
-      outputFormat === 'mov'
+      isEditor && outputFormat === 'mov'
         ? 'QuickTime ProRes MOV (*.mov)|*.mov|All files (*.*)|*.*'
         : 'WebM Video with Alpha (*.webm)|*.webm|All files (*.*)|*.*';
 
@@ -388,14 +517,16 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
       const res = await rpc.invoke(Channels.DialogSaveFile, {
         defaultName: defaultFileName,
         filter,
-        title: 'Choose where to save the luma-keyed video',
+        title: isEditor ? 'Choose where to save the luma-keyed video' : 'Choose where to save the compressed video',
       });
       if (res?.path) {
         set({ customOutputPath: res.path });
+        return true;
       }
     } catch {
       // dialog cancelled or failed
     }
+    return false;
   },
 
   applyPreset: (preset) => {
@@ -476,6 +607,9 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
   setSplitPosition: (splitPosition) => set({ splitPosition }),
 
   startCompression: async () => {
+    // Ask where to save on every export unless the user opted out; cancelling aborts the export
+    if (get().askSaveEachTime && !(await get().chooseSavePath())) return;
+
     const {
       selectedFile,
       activeTab,
@@ -485,6 +619,9 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
       outputFormat,
       rotation,
       videoBitrateK,
+      outputHeight,
+      editorCompress,
+      editorTargetMb,
       keyType,
       keyColor,
       lumaKeyMode,
@@ -500,14 +637,17 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
 
     set({ isCompressing: true, progress: null, result: null });
     const isEditor = activeTab === 'editor';
+    // One-pass size-targeted VP9 (WebM only); ProRes can't be size-constrained
+    const squeeze = isEditor && editorCompress && outputFormat === 'webm';
     try {
       await rpc.invoke(Channels.AlertsCompress, {
         inputPath: selectedFile.filePath,
         outputPath: customOutputPath.trim() || undefined,
-        targetSizeMb: isEditor ? 100 : targetSizeMb,
-        customCrf: isEditor ? 18 : (customCrf ?? undefined),
-        customMaxBitrateK: isEditor ? (videoBitrateK ?? undefined) : undefined,
+        targetSizeMb: isEditor ? (squeeze ? editorTargetMb : 100) : targetSizeMb,
+        customCrf: isEditor ? (squeeze ? undefined : 18) : (customCrf ?? undefined),
+        customMaxBitrateK: isEditor && !squeeze ? (videoBitrateK ?? undefined) : undefined,
         rotation: isEditor ? rotation : undefined,
+        outputHeight: isEditor ? (outputHeight ?? undefined) : undefined,
         lumaKeyEnabled: isEditor,
         keyType: isEditor ? keyType : undefined,
         keyColor: isEditor ? keyColor : undefined,
@@ -568,7 +708,9 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
 
   handleDownloadProgress: (percent) => set({ downloadPercent: percent }),
 
-  reset: () =>
+  reset: () => {
+    const staged = get().selectedFile?.filePath;
+    if (staged) discardStaged(staged);
     set({
       selectedFile: null,
       inspecting: false,
@@ -577,7 +719,8 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
       progress: null,
       result: null,
       customOutputPath: '',
-    }),
+    });
+  },
 }));
 
 rpc.on(Events.AlertsFileDropped, (payload) => {

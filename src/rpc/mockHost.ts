@@ -57,6 +57,7 @@ function migrateLegacyCounters(): Counter[] | null {
 }
 
 export class MockHost {
+  private alertTemp: { keepTempFiles: boolean; directory: string | null } = { keepTempFiles: false, directory: null };
   private counters: Counter[];
   private autoReplies: AutoReply[];
   private autoReplySettings: AutoReplySettings;
@@ -858,6 +859,30 @@ export class MockHost {
       case Channels.AlertsOpenFolder:
       case Channels.AlertsOpenFile:
         this.respond(request, { ok: true });
+        break;
+      case Channels.AlertsGetTempSettings:
+        this.respond(request, {
+          keepTempFiles: this.alertTemp.keepTempFiles,
+          directory: this.alertTemp.directory,
+          effectiveDirectory: this.alertTemp.directory ?? 'C:\\StreamerHub\\TempAlerts',
+        });
+        break;
+      case Channels.AlertsSetTempSettings: {
+        const payload = request.payload as { keepTempFiles: boolean; directory?: string | null };
+        this.alertTemp = { keepTempFiles: !!payload.keepTempFiles, directory: payload.directory?.trim() || null };
+        this.respond(request, {
+          ok: true,
+          keepTempFiles: this.alertTemp.keepTempFiles,
+          directory: this.alertTemp.directory,
+          effectiveDirectory: this.alertTemp.directory ?? 'C:\\StreamerHub\\TempAlerts',
+        });
+        break;
+      }
+      case Channels.AlertsDiscardTemp:
+        this.respond(request, { ok: true, deleted: !this.alertTemp.keepTempFiles });
+        break;
+      case Channels.DialogPickFolder:
+        this.respond(request, { path: 'C:\\StreamerHub\\Temp' });
         break;
       case Channels.AlertsSaveDroppedFile: {
         const payload = request.payload as { fileName?: string; fileBase64?: string } | undefined;

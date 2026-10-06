@@ -271,7 +271,8 @@ public sealed class AlertCompressorService
         string? outputFormat = "webm",
         string? keyType = "luma",
         string? keyColor = "#00ff00",
-        int? rotation = 0)
+        int? rotation = 0,
+        int? outputHeight = null)
     {
         if (!File.Exists(inputPath))
             return new CompressionResult(false, inputPath, outputPath ?? string.Empty, 0, 0, 0, "Input file does not exist.");
@@ -290,7 +291,13 @@ public sealed class AlertCompressorService
         if (string.IsNullOrWhiteSpace(outputPath))
         {
             var dir = Path.GetDirectoryName(inputPath) ?? AppContext.BaseDirectory;
-            var nameWithoutExt = Path.GetFileNameWithoutExtension(inputPath);
+            // Never write results into the staging folder: they would be swept as temp files
+            if (AlertTempStore.IsStagingDirectory(dir))
+            {
+                var videos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+                dir = string.IsNullOrEmpty(videos) ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : videos;
+            }
+            var nameWithoutExt = AlertTempStore.StripPrefix(Path.GetFileNameWithoutExtension(inputPath));
             var suffix = lumaKeyEnabled ? "_lumakey" : "_under30mb";
             outputPath = Path.Combine(dir, $"{nameWithoutExt}{suffix}{formatExt}");
         }
@@ -376,6 +383,14 @@ public sealed class AlertCompressorService
                 case 90: vfFilters.Add("transpose=1"); break;
                 case 180: vfFilters.Add("hflip,vflip"); break;
                 case 270: vfFilters.Add("transpose=2"); break;
+            }
+
+            // Resize before keying so edge colors are not blended with transparent (black) pixels.
+            // Width is derived (-2 keeps it even) so the aspect ratio is preserved.
+            if (outputHeight is > 0)
+            {
+                var h = Math.Clamp(outputHeight.Value, 64, 4320) & ~1;
+                vfFilters.Add($"scale=-2:{h}:flags=lanczos");
             }
 
             vfFilters.Add("format=yuva420p");

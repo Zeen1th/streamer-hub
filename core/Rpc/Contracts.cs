@@ -423,7 +423,8 @@ public sealed record CompressAlertPayload(
     string? OutputFormat = "webm",
     string? KeyType = "luma",
     string? KeyColor = "#00ff00",
-    int? Rotation = 0
+    int? Rotation = 0,
+    int? OutputHeight = null
 );
 
 public sealed record InspectAlertPayload(
@@ -433,6 +434,12 @@ public sealed record InspectAlertPayload(
 public sealed record OpenFolderPayload(
     string Path
 );
+
+public sealed record AlertTempSettingsPayload(bool KeepTempFiles, string? Directory = null);
+
+public sealed record DiscardTempPayload(string Path);
+
+public sealed record PickFolderPayload(string? Title = null, string? InitialPath = null);
 
 public sealed record SaveDroppedFilePayload(
     string? FileName = null,

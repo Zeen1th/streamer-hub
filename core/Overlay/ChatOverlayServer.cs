@@ -963,9 +963,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             }
             fileName = Path.GetFileName(fileName);
 
-            var tempDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StreamerHub", "TempAlerts");
-            Directory.CreateDirectory(tempDir);
-            var targetPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}_{fileName}");
+            var targetPath = StreamerHub.Core.Media.AlertTempStore.NewTempPath(fileName);
 
             using (var fileStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
             {

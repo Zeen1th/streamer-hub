@@ -84,6 +84,22 @@ export function AlertCompressorView() {
   const saveUserPreset = useAlertCompressorStore((s) => s.saveUserPreset);
   const applyUserPreset = useAlertCompressorStore((s) => s.applyUserPreset);
   const deleteUserPreset = useAlertCompressorStore((s) => s.deleteUserPreset);
+  const editorCompress = useAlertCompressorStore((s) => s.editorCompress);
+  const editorTargetMb = useAlertCompressorStore((s) => s.editorTargetMb);
+  const setEditorCompress = useAlertCompressorStore((s) => s.setEditorCompress);
+  const setEditorTargetMb = useAlertCompressorStore((s) => s.setEditorTargetMb);
+  const askSaveEachTime = useAlertCompressorStore((s) => s.askSaveEachTime);
+  const setAskSaveEachTime = useAlertCompressorStore((s) => s.setAskSaveEachTime);
+  const outputHeight = useAlertCompressorStore((s) => s.outputHeight);
+  const setOutputHeight = useAlertCompressorStore((s) => s.setOutputHeight);
+  const keepTempFiles = useAlertCompressorStore((s) => s.keepTempFiles);
+  const tempDirectory = useAlertCompressorStore((s) => s.tempDirectory);
+  const effectiveTempDir = useAlertCompressorStore((s) => s.effectiveTempDir);
+  const tempError = useAlertCompressorStore((s) => s.tempError);
+  const loadTempSettings = useAlertCompressorStore((s) => s.loadTempSettings);
+  const setKeepTempFiles = useAlertCompressorStore((s) => s.setKeepTempFiles);
+  const chooseTempDirectory = useAlertCompressorStore((s) => s.chooseTempDirectory);
+  const resetTempDirectory = useAlertCompressorStore((s) => s.resetTempDirectory);
   const rotation = useAlertCompressorStore((s) => s.rotation);
   const videoBitrateK = useAlertCompressorStore((s) => s.videoBitrateK);
   const keyType = useAlertCompressorStore((s) => s.keyType);
@@ -161,12 +177,14 @@ export function AlertCompressorView() {
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [checkerSize, setCheckerSize] = useState(12);
   const [presetName, setPresetName] = useState('');
+  const [resCustom, setResCustom] = useState(false);
   const [isPickingColor, setIsPickingColor] = useState(false);
 
   // Initialize
   useEffect(() => {
     void checkFfmpeg();
-  }, [checkFfmpeg]);
+    void loadTempSettings();
+  }, [checkFfmpeg, loadTempSettings]);
 
   // Video source with loopback media HTTP server and file:// fallback
   const videoSourceUrl = selectedFile
@@ -1412,9 +1430,113 @@ export function AlertCompressorView() {
                       </div>
                     </div>
 
+                    {/* Output Resolution */}
+                    {(() => {
+                      const swap = rotation === 90 || rotation === 270;
+                      const srcW = swap ? selectedFile.height : selectedFile.width;
+                      const srcH = swap ? selectedFile.width : selectedFile.height;
+                      const outH = outputHeight ? outputHeight & ~1 : srcH;
+                      const outW = srcH > 0 ? Math.max(2, Math.round((srcW * outH) / srcH / 2) * 2) : srcW;
+                      const presets = [2160, 1440, 1080, 720, 540, 480, 360];
+                      const selectValue = resCustom
+                        ? 'custom'
+                        : outputHeight === null
+                          ? 'orig'
+                          : presets.includes(outputHeight)
+                            ? String(outputHeight)
+                            : 'custom';
+                      return (
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-[#868F9D]">{t(lang, 'alerts.resolutionOut')}</span>
+                            <span className="font-mono text-[11px] text-purple-300">
+                              {outW}×{outH}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={selectValue}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v === 'orig') {
+                                  setResCustom(false);
+                                  setOutputHeight(null);
+                                } else if (v === 'custom') {
+                                  setResCustom(true);
+                                  setOutputHeight(outputHeight ?? srcH);
+                                } else {
+                                  setResCustom(false);
+                                  setOutputHeight(Number(v));
+                                }
+                              }}
+                              className="h-9 flex-1 rounded-xl border border-white/[0.1] bg-black/30 px-3 text-xs text-white focus:border-purple-500 focus:outline-none"
+                            >
+                              <option value="orig">{t(lang, 'alerts.resOriginal')} ({srcW}×{srcH})</option>
+                              {presets.map((p) => (
+                                <option key={p} value={p}>
+                                  {p}p
+                                </option>
+                              ))}
+                              <option value="custom">{t(lang, 'alerts.resCustom')}</option>
+                            </select>
+                            {selectValue === 'custom' && (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={64}
+                                  max={4320}
+                                  step={2}
+                                  value={outputHeight ?? srcH}
+                                  onChange={(e) => {
+                                    const v = Math.round(Number(e.target.value));
+                                    if (Number.isFinite(v) && v > 0) setOutputHeight(Math.min(4320, v));
+                                  }}
+                                  className="h-9 w-20 rounded-xl border border-white/[0.1] bg-black/30 px-2 text-end font-mono text-xs text-white focus:border-purple-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-[#868F9D]">px</span>
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-[#868F9D]">{t(lang, 'alerts.resHint')}</span>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Compress while exporting (WebM only) */}
+                    {outputFormat === 'webm' && (
+                      <div className="flex flex-col gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                        <label className="flex cursor-pointer items-center gap-2.5 text-xs text-white">
+                          <input
+                            type="checkbox"
+                            checked={editorCompress}
+                            onChange={(e) => setEditorCompress(e.target.checked)}
+                            className="size-4 rounded border-white/20 bg-black/40 text-purple-600 focus:ring-purple-500"
+                          />
+                          <span className="font-semibold">{t(lang, 'alerts.compressOnExport')}</span>
+                        </label>
+                        {editorCompress && (
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="range"
+                              min={5}
+                              max={50}
+                              step={1}
+                              value={editorTargetMb}
+                              onChange={(e) => setEditorTargetMb(Number(e.target.value))}
+                              className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-white/[0.1] accent-purple-500"
+                            />
+                            <span className="w-14 text-end font-mono text-xs font-bold text-purple-400">
+                              {editorTargetMb} MB
+                            </span>
+                          </div>
+                        )}
+                        <span className="text-[10px] text-[#868F9D]">{t(lang, 'alerts.compressOnExportHint')}</span>
+                      </div>
+                    )}
+
                     {/* Bitrate (WebM only; ProRes is fixed-quality intra-frame) */}
                     {outputFormat === 'webm' ? (
-                      <div className="flex flex-col gap-2">
+                      <div className={cn('flex flex-col gap-2', editorCompress && 'hidden')}>
                         <div className="flex items-center justify-between">
                           <span className="text-[11px] font-semibold text-[#868F9D]">{t(lang, 'alerts.bitrate')}</span>
                           <div className="grid grid-cols-2 gap-1 rounded-lg border border-white/[0.08] bg-black/20 p-0.5">
@@ -1499,11 +1621,21 @@ export function AlertCompressorView() {
                           <span>{t(lang, 'alerts.browseDestination')}</span>
                         </Button>
                       </div>
-                      <span className="text-[10px] text-[#868F9D]">{t(lang, 'alerts.saveAsHint')}</span>
+                      <span className="text-[10px] text-[#868F9D]">{t(lang, askSaveEachTime ? 'alerts.saveAsHintAsk' : 'alerts.saveAsHint')}</span>
                     </div>
 
+                    <label className="flex cursor-pointer items-center gap-2.5 text-xs text-white">
+                      <input
+                        type="checkbox"
+                        checked={askSaveEachTime}
+                        onChange={(e) => setAskSaveEachTime(e.target.checked)}
+                        className="size-4 rounded border-white/20 bg-black/40 text-purple-600 focus:ring-purple-500"
+                      />
+                      <span>{t(lang, 'alerts.askSaveEachTime')}</span>
+                    </label>
+
                     {/* Export Action Button */}
-                    {!isCompressing && !result?.success && (
+                    {!isCompressing && (
                       <Button
                         size="lg"
                         disabled={!ffmpegStatus?.available}
@@ -1701,6 +1833,16 @@ export function AlertCompressorView() {
                       <span className="font-mono text-sm font-bold text-white w-14 text-end">{targetSizeMb} MB</span>
                     </div>
 
+                    <label className="flex cursor-pointer items-center gap-2.5 text-xs text-white">
+                      <input
+                        type="checkbox"
+                        checked={askSaveEachTime}
+                        onChange={(e) => setAskSaveEachTime(e.target.checked)}
+                        className="size-4 rounded border-white/20 bg-black/40 text-purple-600 focus:ring-purple-500"
+                      />
+                      <span>{t(lang, 'alerts.askSaveEachTime')}</span>
+                    </label>
+
                     {/* Action Button */}
                     <Button
                       size="lg"
@@ -1785,6 +1927,15 @@ export function AlertCompressorView() {
                   {result.outputPath}
                 </div>
 
+                {activeTab === 'editor' &&
+                  editorCompress &&
+                  outputFormat === 'webm' &&
+                  result.compressedSizeBytes > editorTargetMb * 1024 * 1024 && (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                      {t(lang, 'alerts.compressOverTarget')}
+                    </div>
+                  )}
+
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 my-4">
                   <div className="rounded-xl border border-white/[0.08] bg-black/20 p-3.5 text-center">
@@ -1842,13 +1993,64 @@ export function AlertCompressorView() {
                     className="gap-2 text-xs text-[#9aa3af] hover:text-white"
                   >
                     <RefreshCw size={14} />
-                    <span>{t(lang, 'alerts.compressAnother')}</span>
+                    <span>{t(lang, activeTab === 'editor' ? 'alerts.newVideo' : 'alerts.compressAnother')}</span>
                   </Button>
                 </div>
               </div>
             )}
           </div>
         )}
+
+        {/* Temporary Files Settings */}
+        <div className="rounded-2xl border border-white/[0.08] bg-[#222A30] p-5 shadow-xl flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <FolderOpen size={16} className="text-purple-400" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-white">{t(lang, 'alerts.tempTitle')}</h3>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2.5 text-xs text-white">
+            <input
+              type="checkbox"
+              checked={keepTempFiles}
+              onChange={(e) => void setKeepTempFiles(e.target.checked)}
+              className="size-4 rounded border-white/20 bg-black/40 text-purple-600 focus:ring-purple-500"
+            />
+            <span className="font-semibold">{t(lang, 'alerts.tempKeep')}</span>
+          </label>
+          <span className="text-[10px] text-[#868F9D]">
+            {t(lang, keepTempFiles ? 'alerts.tempKeepOnHint' : 'alerts.tempKeepOffHint')}
+          </span>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-semibold text-[#868F9D]">{t(lang, 'alerts.tempFolder')}</span>
+            <div className="flex items-center gap-2">
+              <div
+                className="flex h-9 flex-1 items-center truncate rounded-xl border border-white/[0.1] bg-black/30 px-3 font-mono text-xs text-white/90"
+                title={effectiveTempDir}
+              >
+                <span className="truncate">{effectiveTempDir || '…'}</span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void chooseTempDirectory()}
+                className="h-9 shrink-0 gap-1.5 text-xs border-purple-500/40 text-purple-300 hover:bg-purple-500/15"
+              >
+                <FolderOpen size={14} />
+                <span>{t(lang, 'alerts.browseDestination')}</span>
+              </Button>
+              {tempDirectory && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void resetTempDirectory()}
+                  className="h-9 shrink-0 text-xs text-[#9aa3af] hover:text-white"
+                >
+                  {t(lang, 'alerts.tempDefault')}
+                </Button>
+              )}
+            </div>
+          </div>
+          {tempError && <span className="text-[11px] text-red-300">{tempError}</span>}
+        </div>
       </div>
     </div>
   );

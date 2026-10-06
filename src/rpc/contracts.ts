@@ -718,6 +718,10 @@ export const Channels = {
   AlertsOpenFolder: 'alerts/open-folder',
   AlertsOpenFile: 'alerts/open-file',
   AlertsSaveDroppedFile: 'alerts/save-dropped-file',
+  AlertsGetTempSettings: 'alerts/get-temp-settings',
+  AlertsSetTempSettings: 'alerts/set-temp-settings',
+  AlertsDiscardTemp: 'alerts/discard-temp',
+  DialogPickFolder: 'dialog/pick-folder',
   ChatOverlayShowImage: 'chat-overlay/show-image',
   ChatOverlayHideImage: 'chat-overlay/hide-image',
   ChatOverlayGetImageUrl: 'chat-overlay/get-image-url',
@@ -903,6 +907,10 @@ export interface HostApi {
   [Channels.AlertsCancel]: { request: undefined; response: { ok: boolean } };
   [Channels.AlertsOpenFolder]: { request: { path: string }; response: { ok: boolean } };
   [Channels.AlertsOpenFile]: { request: { path: string }; response: { ok: boolean } };
+  [Channels.AlertsGetTempSettings]: { request: undefined; response: AlertTempSettings };
+  [Channels.AlertsSetTempSettings]: { request: { keepTempFiles: boolean; directory?: string | null }; response: AlertTempSettings & { ok: boolean; error?: string } };
+  [Channels.AlertsDiscardTemp]: { request: { path: string }; response: { ok: boolean; deleted: boolean } };
+  [Channels.DialogPickFolder]: { request: { title?: string; initialPath?: string }; response: { path: string | null } };
   [Channels.AlertsSaveDroppedFile]: { request: { fileName: string; fileBase64: string }; response: { ok: boolean; filePath?: string; error?: string } };
   [Channels.ChatOverlayShowImage]: { request: ShowOverlayImagePayload; response: { ok: boolean; error?: string } };
   [Channels.ChatOverlayHideImage]: { request: undefined; response: { ok: boolean } };
@@ -989,6 +997,7 @@ export interface CompressAlertPayload {
   customMaxBitrateK?: number;
   lumaKeyEnabled?: boolean;
   rotation?: 0 | 90 | 180 | 270;
+  outputHeight?: number;
   keyType?: 'luma' | 'color';
   keyColor?: string;
   lumaKeyMode?: 'dark' | 'bright' | 'custom';
@@ -1000,6 +1009,12 @@ export interface CompressAlertPayload {
   lumaGamma?: number;
   lumaOpacity?: number;
   outputFormat?: 'webm' | 'mov';
+}
+
+export interface AlertTempSettings {
+  keepTempFiles: boolean;
+  directory: string | null;
+  effectiveDirectory: string;
 }
 
 export interface EventMap {

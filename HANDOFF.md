@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
  
-**Version:** `v0.4.6`  
+**Version:** `v0.4.7`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -191,6 +191,10 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
     - **Bitrate** (`videoBitrateK`, WebM only): Auto = CRF 18; Custom sends `customMaxBitrateK` and the host uses bitrate-targeted VP9 (`-b:v`, `-maxrate 1.5x`, no CRF). ProRes ignores it.
     - **Checkerboard**: two-tone `repeating-conic-gradient` with selectable square size (8/12/20/32px).
     - **My Presets**: user-named snapshots of all keying values, rotation, format and bitrate, saved to `localStorage` (`streamerhub.alertStudio.userPresets.v1`); same name overwrites, × deletes.
+    - **Compress on export** (`editorCompress`, `editorTargetMb`, WebM only): sends `targetSizeMb` with no CRF so the host computes bitrate/CRF in the same single encode as the key; custom bitrate controls hide while it is on. Export stays available after a successful export so users can tweak and re-export without re-importing; "Edit Another Video" resets.
+    - **Ask where to save every time** (`askSaveEachTime`, default on, persisted in `localStorage`): `startCompression` opens the native save dialog before each export (editor and compressor tabs); cancelling aborts. Unchecking it exports straight to the path field / auto-suggested name.
+    - **Output resolution** (`outputHeight`, null = original): presets 2160p–360p or custom height; width is derived (aspect kept, even). Host applies `scale=-2:H:flags=lanczos` after rotation and before keying.
+    - **Temporary files** (`core/Media/AlertTempStore.cs`): dropped videos are staged as `{guid32}_{name}` in `%LocalAppData%/StreamerHub/TempAlerts` (or a user-chosen folder via `dialog/pick-folder`). Deleted by default (on Edit Another Video / replacing the file via `alerts/discard-temp`, on startup and on exit); "Keep temporary files" disables deletion. Settings persist host-side in `alert-temp.json` (`alerts/get-temp-settings`, `alerts/set-temp-settings`). Only guid-prefixed files are ever deleted, and exports never default into the staging folder (falls back to Videos).
     - **Seeking**: `/media` in `ChatOverlayServer.cs` honours HTTP `Range` (206/416) so the preview scrubber can seek; without it Chromium treats the video as non-seekable.
     - **Choke / Shrink Matte** (`lumaChoke`, 0–0.9): Cuts low-alpha fringe to remove halos.
     - **Matte Gamma** (`lumaGamma`, 0.3–3): Curve on the alpha edge (<1 fattens glow, >1 tightens).

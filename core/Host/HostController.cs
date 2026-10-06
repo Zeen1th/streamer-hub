@@ -321,6 +321,7 @@ public sealed class HostController : IDisposable
         _botTokens = new TokenVault(Path.Combine(appData, "bot-token.bin"));
         _openRouterKey = new SecretVault(Path.Combine(appData, "openrouter-key.bin"));
         _groqKey = new SecretVault(Path.Combine(appData, "groq-key.bin"));
+        AlertTempStore.Initialize(appData);
         _alertCompressor = new AlertCompressorService(appData);
         _ttsService = new WindowsTtsService(_soundPlayer);
         _ttsService.LogMessage += msg => Log("audio", msg);
@@ -1332,7 +1333,8 @@ public sealed class HostController : IDisposable
                     req.OutputFormat,
                     req.KeyType,
                     req.KeyColor,
-                    req.Rotation
+                    req.Rotation,
+                    req.OutputHeight
                 ).ConfigureAwait(false);
 
                 PostEvent(Events.AlertsCompleted, result);
@@ -1383,9 +1385,7 @@ public sealed class HostController : IDisposable
             try
             {
                 var fileName = string.IsNullOrWhiteSpace(req.FileName) ? "dropped_alert.webm" : Path.GetFileName(req.FileName);
-                var tempDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StreamerHub", "TempAlerts");
-                Directory.CreateDirectory(tempDir);
-                var targetPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}_{fileName}");
+                var targetPath = AlertTempStore.NewTempPath(fileName);
 
                 var bytes = Convert.FromBase64String(req.FileBase64);
                 await File.WriteAllBytesAsync(targetPath, bytes, ct).ConfigureAwait(false);
@@ -1395,6 +1395,47 @@ public sealed class HostController : IDisposable
             {
                 return new { ok = false, error = ex.Message };
             }
+        });
+        _dispatcher.Register(Channels.AlertsGetTempSettings, (_, _) =>
+        {
+            var cfg = AlertTempStore.Get();
+            return Task.FromResult<object?>(new
+            {
+                keepTempFiles = cfg.KeepTempFiles,
+                directory = cfg.Directory,
+                effectiveDirectory = AlertTempStore.EffectiveDirectory(),
+            });
+        });
+        _dispatcher.Register(Channels.AlertsSetTempSettings, (payload, _) =>
+        {
+            var req = Json.Deserialize<AlertTempSettingsPayload>(payload ?? default);
+            if (req is null) return Task.FromResult<object?>(new { ok = false, error = "MISSING_PAYLOAD" });
+            try
+            {
+                var cfg = AlertTempStore.Set(req.KeepTempFiles, req.Directory);
+                return Task.FromResult<object?>(new
+                {
+                    ok = true,
+                    keepTempFiles = cfg.KeepTempFiles,
+                    directory = cfg.Directory,
+                    effectiveDirectory = AlertTempStore.EffectiveDirectory(),
+                });
+            }
+            catch (Exception ex)
+            {
+                return Task.FromResult<object?>(new { ok = false, error = ex.Message });
+            }
+        });
+        _dispatcher.Register(Channels.AlertsDiscardTemp, (payload, _) =>
+        {
+            var req = Json.Deserialize<DiscardTempPayload>(payload ?? default);
+            var deleted = !string.IsNullOrWhiteSpace(req?.Path) && AlertTempStore.Discard(req.Path);
+            return Task.FromResult<object?>(new { ok = true, deleted });
+        });
+        _dispatcher.Register(Channels.DialogPickFolder, (payload, _) =>
+        {
+            var req = Json.Deserialize<PickFolderPayload>(payload ?? default);
+            return Task.FromResult<object?>(new { path = ShowFolderDialog(req?.Title, req?.InitialPath) });
         });
         _dispatcher.Register(Channels.ChatOverlayShowImage, async (payload, ct) =>
         {
@@ -2237,6 +2278,24 @@ public sealed class HostController : IDisposable
                 Title = title ?? "Choose file location",
             };
             if (dialog.ShowDialog(_form) == DialogResult.OK) path = dialog.FileName;
+        });
+        return path;
+    }
+
+    private string? ShowFolderDialog(string? title, string? initialPath)
+    {
+        string? path = null;
+        Ui(() =>
+        {
+            using var dialog = new FolderBrowserDialog
+            {
+                Description = title ?? "Choose a folder",
+                UseDescriptionForTitle = true,
+                ShowNewFolderButton = true,
+            };
+            if (!string.IsNullOrWhiteSpace(initialPath) && Directory.Exists(initialPath))
+                dialog.SelectedPath = initialPath;
+            if (dialog.ShowDialog(_form) == DialogResult.OK) path = dialog.SelectedPath;
         });
         return path;
     }
