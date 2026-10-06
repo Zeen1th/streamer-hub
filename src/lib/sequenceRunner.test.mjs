@@ -645,3 +645,132 @@ test('executeSequence executes duel_streamer and replaces broadcaster and stream
 });
 
 
+
+test('replaceSequenceTokens fills {streak} for TTS/chat text', async () => {
+  const { replaceSequenceTokens } = await import('./sequenceRunner.ts');
+  const text = replaceSequenceTokens('{username} is on a {streak} stream streak!', {
+    username: 'LoyalViewer',
+    source: 'watch_streak',
+    streak: 12,
+  });
+  assert.equal(text, 'LoyalViewer is on a 12 stream streak!');
+});
+
+// ---- If / Else steps ----------------------------------------------------
+const chatStep = (id, text) => ({ id, type: 'chat', chatMessage: text });
+const ifSeq = (steps) => ({ id: 'seq-if', enabled: true, name: 'If test', cooldownSeconds: 0, triggers: [], steps });
+const baseCtx = { username: 'Alice', source: 'chat' };
+const duelSink = (outcome) => async () => ({ ok: true, outcome: Promise.resolve(outcome) });
+
+function runIf(steps, sinks) {
+  const sent = [];
+  const logs = [];
+  return executeSequence(ifSeq(steps), baseCtx, {
+    sendChatMessage: async (m) => { sent.push(m); return true; },
+    log: (_k, m) => logs.push(m),
+    ...sinks,
+  }).then((result) => ({ result, sent, logs }));
+}
+
+test('If runs the Then branch when the streamer won a streamer duel', async () => {
+  const { result, sent } = await runIf(
+    [
+      { id: 'd', type: 'duel_streamer', duelMode: 'random' },
+      { id: 'i', type: 'if', ifCondition: 'duel_opponent_won', ifThen: [chatStep('t', 'streamer won')], ifElse: [chatStep('e', 'viewer won')] },
+      chatStep('after', 'done'),
+    ],
+    { executeDuel: duelSink({ kind: 'win', winner: 'streamer', loser: 'Alice', challengerWon: false }) },
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(sent, ['streamer won', 'done']);
+});
+
+test('If runs the Else branch when the condition is false', async () => {
+  const { sent } = await runIf(
+    [
+      { id: 'd', type: 'duel', duelMode: 'random' },
+      { id: 'i', type: 'if', ifCondition: 'duel_challenger_won', ifThen: [chatStep('t', 'challenger')], ifElse: [chatStep('e', 'opponent')] },
+    ],
+    { executeDuel: duelSink({ kind: 'win', winner: 'Bob', loser: 'Alice', challengerWon: false }) },
+  );
+  assert.deepEqual(sent, ['opponent']);
+});
+
+test('If handles a duel nobody answered', async () => {
+  const { sent } = await runIf(
+    [
+      { id: 'd', type: 'duel', duelMode: 'ai_trivia' },
+      { id: 'i', type: 'if', ifCondition: 'duel_no_winner', ifThen: [chatStep('t', 'nobody')], ifElse: [chatStep('e', 'somebody')] },
+    ],
+    { executeDuel: duelSink({ kind: 'no_winner' }) },
+  );
+  assert.deepEqual(sent, ['nobody']);
+});
+
+test('If is skipped (neither branch) with no earlier game, a cancelled game, or a mismatched condition', async () => {
+  const noGame = await runIf([{ id: 'i', type: 'if', ifCondition: 'duel_no_winner', ifThen: [chatStep('t', 'T')], ifElse: [chatStep('e', 'E')] }], {});
+  assert.deepEqual(noGame.sent, []);
+
+  const cancelled = await runIf(
+    [
+      { id: 'd', type: 'duel', duelMode: 'ai_trivia' },
+      { id: 'i', type: 'if', ifCondition: 'duel_no_winner', ifThen: [chatStep('t', 'T')], ifElse: [chatStep('e', 'E')] },
+    ],
+    { executeDuel: async () => ({ ok: true, outcome: Promise.resolve(null) }) },
+  );
+  assert.deepEqual(cancelled.sent, []);
+
+  const mismatched = await runIf(
+    [
+      { id: 'p', type: 'poll', pollAction: 'start' },
+      { id: 'i', type: 'if', ifCondition: 'duel_no_winner', ifThen: [chatStep('t', 'T')], ifElse: [chatStep('e', 'E')] },
+    ],
+    { executePollAction: async () => true, getPollOutcome: async () => ({ kind: 'none' }) },
+  );
+  assert.deepEqual(mismatched.sent, []);
+});
+
+test('If checks the poll winner by option label and waits only while the poll runs', async () => {
+  const waits = [];
+  const steps = (action) => [
+    { id: 'p', type: 'poll', pollAction: action },
+    { id: 'i', type: 'if', ifCondition: 'poll_winner_is', ifOption: ' pizza ', ifThen: [chatStep('t', 'pizza!')], ifElse: [chatStep('e', 'not pizza')] },
+  ];
+  const sinks = {
+    executePollAction: async () => true,
+    getPollOutcome: async (wait) => { waits.push(wait); return { kind: 'winner', label: 'Pizza', index: 0 }; },
+  };
+  const started = await runIf(steps('start'), sinks);
+  assert.deepEqual(started.sent, ['pizza!']);
+  const ended = await runIf(steps('end'), sinks);
+  assert.deepEqual(ended.sent, ['pizza!']);
+  assert.deepEqual(waits, [true, false]);
+
+  const tie = await runIf(
+    [
+      { id: 'p', type: 'poll', pollAction: 'end' },
+      { id: 'i', type: 'if', ifCondition: 'poll_tie', ifThen: [chatStep('t', 'tie')], ifElse: [chatStep('e', 'no tie')] },
+    ],
+    { executePollAction: async () => true, getPollOutcome: async () => ({ kind: 'tie', labels: ['A', 'B'] }) },
+  );
+  assert.deepEqual(tie.sent, ['tie']);
+});
+
+test('a failing step inside a branch stops the sequence', async () => {
+  const { result, sent } = await runIf(
+    [
+      { id: 'd', type: 'duel', duelMode: 'random' },
+      {
+        id: 'i', type: 'if', ifCondition: 'duel_challenger_won',
+        ifThen: [{ id: 'm', type: 'moderation', moderationAction: 'timeout', targetUser: 'bob' }, chatStep('t', 'never')],
+      },
+      chatStep('after', 'never either'),
+    ],
+    {
+      executeDuel: duelSink({ kind: 'win', winner: 'Alice', loser: 'Bob', challengerWon: true }),
+      executeModerationAction: async () => ({ ok: false, error: 'nope' }),
+    },
+  );
+  assert.equal(result.ok, false);
+  assert.deepEqual(sent, []);
+});

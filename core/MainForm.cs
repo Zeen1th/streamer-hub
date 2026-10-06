@@ -304,15 +304,40 @@ public sealed class MainForm : Form
     private void ApplyWindowSettings()
     {
         var window = _settings!.Window;
-        if (window.X == int.MinValue || window.Y == int.MinValue) return;
+        if (window.X == int.MinValue || window.Y == int.MinValue)
+        {
+            // First launch: open large enough that the UI isn't lost on a big monitor
+            var (w, h) = DefaultWindowSize(Screen.PrimaryScreen ?? Screen.AllScreens[0]);
+            ClientSize = new Size(w, h);
+            return;
+        }
         var probe = new Point(window.X + Math.Max(40, window.Width / 2), window.Y + 24);
         if (!Screen.AllScreens.Any(s => s.Bounds.Contains(probe))) return;
         StartPosition = FormStartPosition.Manual;
-        Bounds = new Rectangle(
-            window.X, window.Y,
-            Math.Max(MinimumSize.Width, window.Width),
-            Math.Max(MinimumSize.Height, window.Height));
+        var width = Math.Max(MinimumSize.Width, window.Width);
+        var height = Math.Max(MinimumSize.Height, window.Height);
+        var x = window.X;
+        var y = window.Y;
+        if (!window.SizeUpgraded && window.Width == 1280 && window.Height == 800)
+        {
+            // Never resized from the old default: move to the new default once, keeping the same screen
+            var screen = Screen.FromPoint(probe);
+            (width, height) = DefaultWindowSize(screen);
+            var area = screen.WorkingArea;
+            x = area.X + (area.Width - width) / 2;
+            y = area.Y + (area.Height - height) / 2;
+        }
+        Bounds = new Rectangle(x, y, width, height);
         if (window.Maximized) WindowState = FormWindowState.Maximized;
+    }
+
+    /// <summary>~75% of the usable area, never smaller than the old default and never bigger than the screen.</summary>
+    private static (int Width, int Height) DefaultWindowSize(Screen screen)
+    {
+        var area = screen.WorkingArea;
+        var width = Math.Min(area.Width, Math.Clamp((int)(area.Width * 0.75), 1280, 2200));
+        var height = Math.Min(area.Height, Math.Clamp((int)(area.Height * 0.75), 800, 1300));
+        return (width, height);
     }
 
     private void SaveWindowSettings()
@@ -327,6 +352,7 @@ public sealed class MainForm : Form
             Width = bounds.Width,
             Height = bounds.Height,
             Maximized = maximized,
+            SizeUpgraded = true,
         });
     }
 

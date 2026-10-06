@@ -182,7 +182,9 @@ public sealed record SequenceStep
     public string? DuelMessageWin { get; init; }
     public string? DuelMessageTimeout { get; init; }
     public int? DuelChallengerWinChance { get; init; }
-    public bool? DuelAllowBroadcaster { get; init; }
+    public List<string>? DuelProtectedUsers { get; init; }
+    public List<string>? DuelProtectedRoles { get; init; } // "moderator" | "vip" | "subscriber"
+    public string? DuelProtectedMessage { get; init; }
     public string? DuelBroadcasterMuteSource { get; init; }
     public string? DuelStreamerWinMessage { get; init; }
     public string? DuelStreamerLoseMessage { get; init; }
@@ -196,6 +198,12 @@ public sealed record SequenceStep
     // Mute Mic / OBS Source Mute
     public int? MicMuteDurationSeconds { get; init; }
     public string? MicMuteSourceName { get; init; }
+
+    // If / Else: branch on the latest mini game or poll result
+    public string? IfCondition { get; init; } // "duel_challenger_won" | "duel_opponent_won" | "duel_no_winner" | "poll_winner_is" | "poll_tie" | "poll_no_votes"
+    public string? IfOption { get; init; }
+    public List<SequenceStep>? IfThen { get; init; }
+    public List<SequenceStep>? IfElse { get; init; }
 }
 
 public sealed record ModerationTargetPayload(string? Target);

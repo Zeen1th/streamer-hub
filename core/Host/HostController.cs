@@ -136,7 +136,7 @@ public sealed class HostController : IDisposable
     private sealed record DeleteCounterPayload(string CounterId);
     private sealed record SaveKeybindsPayload(List<ActionKeybind>? Bindings);
     private sealed record ObsWritePayload(string FilePath, string Content);
-    private sealed record SaveFilePayload(string DefaultName, string? Filter = null, string? Title = null);
+    private sealed record SaveFilePayload(string DefaultName, string? Filter = null, string? Title = null, string? InitialDirectory = null);
     private sealed record SaveSettingsPayload(TwitchSettings? Twitch, string? Language, bool? BotAccountEnabled = null, string? PreferredChatSender = null, bool? StartupEnabled = null, bool? CloseToTray = null);
     private sealed record SaveAutoReplyPayload(AutoReply? Rule);
     private sealed record SaveAutoReplySettingsPayload(AutoReplySettings? Settings);
@@ -489,7 +489,7 @@ public sealed class HostController : IDisposable
         _dispatcher.Register(Channels.DialogSaveFile, (payload, _) =>
         {
             var request = Json.Deserialize<SaveFilePayload>(payload ?? default);
-            return Task.FromResult<object?>(new { path = ShowSaveDialog(request?.DefaultName ?? "deaths.txt", request?.Filter, request?.Title) });
+            return Task.FromResult<object?>(new { path = ShowSaveDialog(request?.DefaultName ?? "deaths.txt", request?.Filter, request?.Title, request?.InitialDirectory) });
         });
         _dispatcher.Register(Channels.DialogOpenFile, (payload, _) =>
         {
@@ -2266,7 +2266,7 @@ public sealed class HostController : IDisposable
         await ConnectWithTokensAsync(tokens, TwitchConstants.ClientId).ConfigureAwait(false);
     }
 
-    private string? ShowSaveDialog(string defaultName, string? filter = null, string? title = null)
+    private string? ShowSaveDialog(string defaultName, string? filter = null, string? title = null, string? initialDirectory = null)
     {
         string? path = null;
         Ui(() =>
@@ -2276,7 +2276,10 @@ public sealed class HostController : IDisposable
                 FileName = defaultName,
                 Filter = filter ?? "Text files (*.txt)|*.txt|All files (*.*)|*.*",
                 Title = title ?? "Choose file location",
+                OverwritePrompt = true,
             };
+            if (!string.IsNullOrWhiteSpace(initialDirectory) && Directory.Exists(initialDirectory))
+                dialog.InitialDirectory = initialDirectory;
             if (dialog.ShowDialog(_form) == DialogResult.OK) path = dialog.FileName;
         });
         return path;

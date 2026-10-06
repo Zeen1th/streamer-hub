@@ -611,3 +611,97 @@ test('streamer 1v1 duel triggers dedicated streamer win/lose outcomes and custom
   duelGameManager.reset();
 });
 
+
+test('random duel reports its outcome for If steps', async () => {
+  duelGameManager.reset();
+  const res = await duelGameManager.startDuel({
+    challenger: 'Alice',
+    opponentRaw: '@Bob',
+    mode: 'random',
+    challengerWinChance: 99,
+    sinks: {
+      sendChatMessage: async () => true,
+      smartModTimeout: async () => ({ ok: true }),
+      delay: async () => {},
+    },
+  });
+  const outcome = await res.outcome;
+  assert.equal(outcome.kind, 'win');
+  assert.equal(outcome.winner === 'Alice', outcome.challengerWon);
+  assert.equal(outcome.loser === 'Bob', outcome.challengerWon);
+});
+
+test('trivia duel outcome resolves on a correct answer and on time-out', async () => {
+  duelGameManager.reset();
+  const sinks = {
+    sendChatMessage: async () => true,
+    smartModTimeout: async () => ({ ok: true }),
+    generateTrivia: async () => ({ ok: true, question: 'q?', answer: 'Luigi', acceptableAnswers: ['luigi'] }),
+    delay: async () => {},
+  };
+
+  const started = await duelGameManager.startDuel({ challenger: 'Alice', opponentRaw: '@Bob', mode: 'ai_trivia', sinks });
+  await duelGameManager.handleChatMessage({ username: 'Bob', message: 'Luigi' });
+  assert.deepEqual(await started.outcome, { kind: 'win', winner: 'Bob', loser: 'Alice', challengerWon: false });
+
+  duelGameManager.reset();
+  const second = await duelGameManager.startDuel({ challenger: 'Alice', opponentRaw: '@Bob', mode: 'ai_trivia', sinks });
+  duelGameManager.reset(); // cancelled before anyone answered
+  assert.equal(await second.outcome, null);
+});
+
+test('viewer duel does not start against a protected opponent and replies to the challenger', async () => {
+  duelGameManager.reset();
+  const sent = [];
+  const timeouts = [];
+  const sinks = {
+    sendChatMessage: async (msg) => { sent.push(msg); return true; },
+    smartModTimeout: async (target) => { timeouts.push(target); return { ok: true }; },
+    delay: async () => {},
+  };
+  const res = await duelGameManager.startDuel({
+    challenger: 'Alice',
+    opponentRaw: '@Bob',
+    mode: 'random',
+    isProtected: (user) => user.toLowerCase() === 'bob',
+    protectedMessage: '@{challenger} you cannot duel @{opponent}!',
+    sinks,
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'OPPONENT_PROTECTED');
+  assert.deepEqual(sent, ['@Alice you cannot duel @Bob!']);
+  assert.deepEqual(timeouts, []);
+  assert.equal(duelGameManager.getActiveDuel(), null);
+
+  // Not protected: the duel runs normally
+  const ok = await duelGameManager.startDuel({
+    challenger: 'Alice',
+    opponentRaw: '@Carol',
+    mode: 'random',
+    isProtected: (user) => user.toLowerCase() === 'bob',
+    sinks,
+  });
+  assert.equal(ok.ok, true);
+});
+
+test('streamer duel blocks protected challengers with the default reply', async () => {
+  duelGameManager.reset();
+  const sent = [];
+  const res = await duelGameManager.startDuel({
+    challenger: 'Mallory',
+    opponentRaw: '',
+    mode: 'random',
+    isStreamerDuel: true,
+    broadcasterName: 'Streamer',
+    isProtected: (user) => user === 'Mallory',
+    sinks: {
+      sendChatMessage: async (msg) => { sent.push(msg); return true; },
+      smartModTimeout: async () => ({ ok: true }),
+      delay: async () => {},
+    },
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'CHALLENGER_PROTECTED');
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].includes('@Mallory') && sent[0].includes("can't challenge the streamer"));
+});

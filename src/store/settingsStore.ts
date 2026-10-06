@@ -3,6 +3,7 @@ import type { Language } from '../i18n/translations';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 import type { ChatSenderRole } from '../rpc/contracts';
+import { autoScaleFor, DEFAULT_UI_SCALE } from '../lib/uiScale';
 import type { DarkThemeVariant, ThemePreference } from '../lib/theme';
 import { isDarkTheme } from '../lib/theme';
 
@@ -13,10 +14,7 @@ export function calculateAutoScale(): number {
   if (typeof window === 'undefined') return 1.0;
   const w = window.screen?.width ?? window.innerWidth ?? 1920;
   const h = window.screen?.height ?? window.innerHeight ?? 1080;
-  if (w >= 3400 || h >= 2000) return 1.35;
-  if (w >= 2400 || h >= 1350) return 1.15;
-  if (w < 1600 || h < 900) return 0.90;
-  return 1.0;
+  return autoScaleFor(w, h, window.innerWidth || w);
 }
 
 interface SettingsState {
@@ -83,18 +81,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loaded: false,
   openRouterConfigured: false,
   groqConfigured: false,
-  uiScaleMode: ((localStorage.getItem('streamer-hub-ui-scale-mode') as UiScaleMode | null) ?? 'auto'),
+  uiScaleMode: ((localStorage.getItem('streamer-hub-ui-scale-mode') as UiScaleMode | null) ?? 'custom'),
   uiCustomScale: (() => {
     const raw = localStorage.getItem('streamer-hub-ui-scale-custom');
-    const val = raw ? parseFloat(raw) : 1.0;
-    return isNaN(val) ? 1.0 : Math.max(0.75, Math.min(1.75, val));
+    const val = raw ? parseFloat(raw) : DEFAULT_UI_SCALE;
+    return isNaN(val) ? DEFAULT_UI_SCALE : Math.max(0.75, Math.min(1.75, val));
   })(),
   effectiveScale: (() => {
-    const mode = (localStorage.getItem('streamer-hub-ui-scale-mode') as UiScaleMode | null) ?? 'auto';
+    const mode = (localStorage.getItem('streamer-hub-ui-scale-mode') as UiScaleMode | null) ?? 'custom';
     if (mode === 'auto') return calculateAutoScale();
     const raw = localStorage.getItem('streamer-hub-ui-scale-custom');
-    const val = raw ? parseFloat(raw) : 1.0;
-    return isNaN(val) ? 1.0 : Math.max(0.75, Math.min(1.75, val));
+    const val = raw ? parseFloat(raw) : DEFAULT_UI_SCALE;
+    return isNaN(val) ? DEFAULT_UI_SCALE : Math.max(0.75, Math.min(1.75, val));
   })(),
   hydrate: (clientId, clientSecret, language, botAccountEnabled, preferredChatSender, startupEnabled, closeToTray) =>
     set({
@@ -178,9 +176,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ uiScaleMode: 'custom', uiCustomScale: next, effectiveScale: next });
   },
   resetScale: () => {
-    localStorage.setItem('streamer-hub-ui-scale-mode', 'auto');
-    const effective = calculateAutoScale();
-    set({ uiScaleMode: 'auto', effectiveScale: effective });
+    localStorage.setItem('streamer-hub-ui-scale-mode', 'custom');
+    localStorage.setItem('streamer-hub-ui-scale-custom', String(DEFAULT_UI_SCALE));
+    set({ uiScaleMode: 'custom', uiCustomScale: DEFAULT_UI_SCALE, effectiveScale: DEFAULT_UI_SCALE });
   },
   refreshAutoScale: () => {
     if (get().uiScaleMode === 'auto') {

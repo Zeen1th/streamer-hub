@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
  
-**Version:** `v0.4.7`  
+**Version:** `v0.4.8`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -154,6 +154,25 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - **Loop Prevention**:
   - Only synthetic messages generated locally by the app (`PublishSelfChatMessage`, `id: self-*`, `isSelf: true`) and messages originating from the connected bot account are ignored, preventing echo loops while leaving human chatters and the broadcaster fully operational.
 
+### 2.6c Sequence If / Else Steps
+- New step type `if` (`SequenceStep.ifCondition/ifOption/ifThen/ifElse`, mirrored in `core/Rpc/Contracts.cs`). It checks the result of the nearest earlier duel / streamer-duel / poll step and runs the Then (true) or Else (false) list; branches can hold any step except another If.
+- The runner (`executeSequence` -> inner `runSteps`) **waits** for the game to finish (cap `IF_WAIT_CAP_MS` = 15 min). Duel outcomes come from `duelGameManager.startDuel().outcome` (win/loser/challengerWon, `no_winner`, or `null` when cancelled); polls use `waitForPollOutcome` + `evaluatePollOutcome` (winner / tie / none). No usable result (no earlier game, cancelled, mismatched condition) skips the If and logs why.
+- Conditions: `duel_challenger_won`, `duel_opponent_won` (= streamer won in a streamer duel), `duel_no_winner`, `poll_winner_is` (+`ifOption`), `poll_tie`, `poll_no_votes`.
+- UI: `SequenceStudioView.tsx` `EditSubActionModal` (If section + `IfBranchEditor`); Done is disabled until a game step exists above. In the sub-action list the If row shows its Then / Else steps as bullet points underneath (double-click edits). If is also in the Add dropdown and right-click menu. An If directly under a mini game / poll is *attached*: it is indented under it, a newly added If snaps in right under the nearest game, and moving or dragging the game carries its attached Ifs (`src/lib/stepGroups.ts`).
+
+### 2.6d Duel Protected Viewers
+- Timeout Duel and Streamer 1v1 steps have a "Protected viewers" editor (roles + named viewers + custom reply): `duelProtectedUsers`, `duelProtectedRoles`, `duelProtectedMessage`. Viewer duel: the *opponent* can't be challenged; Streamer 1v1: protected viewers can't challenge the streamer. The duel does not start and the challenger gets the reply (`DEFAULT_PROTECTED_MESSAGES`, tokens `{challenger}` `{opponent}`). Roles come from the last chat message seen per chatter (`chatterStore`), names match case-insensitively (`src/lib/shield.ts`).
+- Viewer duels can no longer target the broadcaster (use the Streamer 1v1 step); the old "Allow challenging broadcaster" option is gone. There is no global shield, Settings card or Timeout/Ban shield.
+
+### 2.6e Commands Table & Inspector
+- Table columns: Command (the item's name; counters add their `!command` underneath; reply rows use their trigger word), Type (badge, count / studio button, and trigger icons for sequences: 🪙 channel points, 💬 chat, 🔥 raid, ❤️ follow, ⚡ watch streak, ⚠ no trigger), Who, CD. Writes/Last columns were removed.
+- Inspectors show only main controls: Reply = enable, studio launcher, triggers, who can use, cooldown (response type, who replies, per-user cooldown, AI limits and chatter overrides live in the studios). Counter = name, live count, actions launcher and the two output switches; file path, title template/apply/detach and keybind sit under a collapsed `MoreSettings`. Sequence = studio launcher + test run, trigger summary, cooldown (legacy trigger fields under `MoreSettings` only for sequences without a trigger list).
+
+### 2.6b UI Scale & Default Window Size
+- Default UI size is 110% (`DEFAULT_UI_SCALE`, custom mode) for anyone without a stored choice; "Reset" returns to 110%. The titlebar no longer shows the scale %, the theme toggle, and the action bar no longer has the Connected pill (the sidebar shows the account).
+- `src/lib/uiScale.ts`: Auto scale is monitor-height based (>=2000px: 1.35x, >=1350px: 1.25x, <900px or <1600 wide: 0.9x, else 1.0x) and capped so the window keeps >=1100 CSS px of layout width (0.05 steps, never below 1.0 on large monitors).
+- `MainForm.cs`: first launch opens at ~75% of the screen working area (1280x800 .. 2200x1300). Users whose saved size is still exactly 1280x800 are moved to that default once (`WindowSettings.SizeUpgraded`).
+
 ### 2.7 Alert Studio: Luma Key Video Editor & Transparent Compressor (`core/Media/AlertCompressorService.cs`)
 - **Purpose**: A comprehensive video processing studio providing two dedicated workflows:
   1. **🎬 Luma Key Video Editor**: Adobe Premiere-grade luminance keying to strip solid black or white backgrounds from alerts, memes, overlays, and VFX, outputting transparent video with full alpha channel.
@@ -192,7 +211,7 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
     - **Checkerboard**: two-tone `repeating-conic-gradient` with selectable square size (8/12/20/32px).
     - **My Presets**: user-named snapshots of all keying values, rotation, format and bitrate, saved to `localStorage` (`streamerhub.alertStudio.userPresets.v1`); same name overwrites, × deletes.
     - **Compress on export** (`editorCompress`, `editorTargetMb`, WebM only): sends `targetSizeMb` with no CRF so the host computes bitrate/CRF in the same single encode as the key; custom bitrate controls hide while it is on. Export stays available after a successful export so users can tweak and re-export without re-importing; "Edit Another Video" resets.
-    - **Ask where to save every time** (`askSaveEachTime`, default on, persisted in `localStorage`): `startCompression` opens the native save dialog before each export (editor and compressor tabs); cancelling aborts. Unchecking it exports straight to the path field / auto-suggested name.
+    - **Save prompt**: every export (editor and compressor tabs) opens the native Save dialog first so the user picks the folder and can rename the file; it opens in the last used folder (`initialDirectory`) and cancelling aborts. There is no path field or opt-out.
     - **Output resolution** (`outputHeight`, null = original): presets 2160p–360p or custom height; width is derived (aspect kept, even). Host applies `scale=-2:H:flags=lanczos` after rotation and before keying.
     - **Temporary files** (`core/Media/AlertTempStore.cs`): dropped videos are staged as `{guid32}_{name}` in `%LocalAppData%/StreamerHub/TempAlerts` (or a user-chosen folder via `dialog/pick-folder`). Deleted by default (on Edit Another Video / replacing the file via `alerts/discard-temp`, on startup and on exit); "Keep temporary files" disables deletion. Settings persist host-side in `alert-temp.json` (`alerts/get-temp-settings`, `alerts/set-temp-settings`). Only guid-prefixed files are ever deleted, and exports never default into the staging folder (falls back to Videos).
     - **Seeking**: `/media` in `ChatOverlayServer.cs` honours HTTP `Range` (206/416) so the preview scrubber can seek; without it Chromium treats the video as non-seekable.

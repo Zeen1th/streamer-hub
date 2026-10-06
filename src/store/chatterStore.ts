@@ -10,6 +10,10 @@ export interface KnownChatter {
   displayName: string;
   avatarUrl?: string;
   lastSeen?: number;
+  /** Roles from the last chat message we saw (used by the viewer shield). */
+  isMod?: boolean;
+  isVip?: boolean;
+  isSubscriber?: boolean;
 }
 
 interface ChatterState {
@@ -20,6 +24,9 @@ interface ChatterState {
     displayName?: string | null;
     username?: string | null;
     avatarUrl?: string | null;
+    isMod?: boolean;
+    isVip?: boolean;
+    isSubscriber?: boolean;
   }) => KnownChatter | null;
   findKnownChatter: (query: string) => KnownChatter | undefined;
   resolveChatter: (query: string) => Promise<KnownChatter | null>;
@@ -67,6 +74,9 @@ export const useChatterStore = create<ChatterState>((set, get) => ({
       displayName: rawDisplayName || existing?.displayName || rawLogin,
       avatarUrl: info.avatarUrl || existing?.avatarUrl,
       lastSeen: Date.now(),
+      isMod: info.isMod ?? existing?.isMod,
+      isVip: info.isVip ?? existing?.isVip,
+      isSubscriber: info.isSubscriber ?? existing?.isSubscriber,
     };
 
     set((state) => {

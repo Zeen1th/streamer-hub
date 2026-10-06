@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Check, ChevronRight, Copy, FolderOpen, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Trash2, TriangleAlert, Tv, X } from 'lucide-react';
+import { Check, ChevronRight, Copy, FolderOpen, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Trash2, TriangleAlert, Tv, X } from 'lucide-react';
 import type { CounterAction, PermissionLevel } from '../../rpc/contracts';
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
@@ -27,7 +27,6 @@ import { useToolStore } from '../../store/toolStore';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
-import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
 import { DurationPicker } from '../ui/DurationPicker';
 import { FeatureKeybindEditor } from '../tools/settings/FeatureKeybindEditor';
@@ -628,12 +627,10 @@ function CommandTable({
       <table className="w-full table-fixed border-collapse text-start text-[12px]">
         <thead className="sticky top-0 z-10 h-[34px] border-b border-white/[0.15] bg-[#262C33] text-[#9AA3AF] text-[10px] uppercase font-bold tracking-[0.09em]">
           <tr>
-            <th className="w-[22%] px-2 text-start font-semibold">{t(lang, 'workspace.columnCommand')}</th>
-            <th className="px-2 text-start font-semibold">{t(lang, 'workspace.columnWhat')}</th>
-            <th className="w-[15%] px-2 text-start font-semibold">{t(lang, 'workspace.columnWho')}</th>
-            <th className="w-[9%] px-2 text-start font-semibold max-[960px]:hidden">{t(lang, 'workspace.columnCooldown')}</th>
-            <th className="w-[17%] px-2 text-start font-semibold max-[1060px]:hidden">{t(lang, 'workspace.columnWrites')}</th>
-            <th className="w-[11%] px-2 text-start font-semibold max-[1180px]:hidden">{t(lang, 'workspace.columnLast')}</th>
+            <th className="w-[34%] px-2.5 text-start font-semibold">{t(lang, 'workspace.columnCommand')}</th>
+            <th className="px-2 text-start font-semibold">{t(lang, 'workspace.columnType')}</th>
+            <th className="w-[13%] px-2 text-start font-semibold max-[960px]:hidden">{t(lang, 'workspace.columnWho')}</th>
+            <th className="w-[10%] px-2 text-start font-semibold">{t(lang, 'workspace.columnCooldown')}</th>
           </tr>
         </thead>
         <tbody>
@@ -706,7 +703,6 @@ function FragmentRow({
 }) {
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
-  const prefix = row.sourceKind === 'counter' ? '!' : '';
   const isCounter = row.sourceKind === 'counter';
   const isAi = row.group === 'ai';
   const isSequence = row.sourceKind === 'sequence';
@@ -719,31 +715,50 @@ function FragmentRow({
         onClick={onClick}
         onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
-        className={`relative h-[38px] cursor-pointer border-b border-white/[0.06] transition-colors ${active ? 'bg-[#6366f1]/15 text-white border-s-2 border-[#6366f1]' : 'hover:bg-white/[0.045]'}`}
+        className={`relative h-[44px] cursor-pointer border-b border-white/[0.06] transition-colors ${active ? 'bg-[#6366f1]/15 text-white border-s-2 border-[#6366f1]' : 'hover:bg-white/[0.045]'}`}
       >
-        <td className="truncate px-2.5"><span dir="auto" className={`font-sans text-[13px] font-bold ${row.enabled ? 'text-[#a5b4fc]' : 'text-muted line-through'}`}>{prefix}{row.command}</span></td>
+        <td className="px-2.5">
+          <div className="flex min-w-0 flex-col justify-center leading-tight">
+            <span dir="auto" className={`truncate font-sans text-[13.5px] font-bold ${row.enabled ? 'text-[#e8ecff]' : 'text-muted line-through'}`}>
+              {(isAi || row.sourceKind === 'reply' ? prefixed(row.name, '!') : row.name) || t(lang, 'workspace.untitled')}
+            </span>
+            {isCounter && row.command && (
+              <span dir="ltr" className="truncate font-mono text-[10.5px] text-muted">!{row.command}</span>
+            )}
+          </div>
+        </td>
         <td className="truncate px-2 text-ink">
-          {isCounter ? (
-            <div className="flex items-center gap-1.5">
-              <span dir="auto" className="font-sans font-bold text-[#f0f3fa] truncate">{row.description}</span>
-              <span dir="ltr" className="rounded-[3px] border border-[#38424d] bg-[#242b32] px-1.5 py-0.5 font-mono text-[10.5px] font-bold text-accent-text shrink-0 shadow-xs">
-                {String(row.count ?? 0).padStart(3, '0')}
+          <div className="flex items-center gap-1.5">
+            <span className={`shrink-0 rounded-[3px] border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${isAi || isSequence ? 'border-purple-500/30 bg-purple-500/15 text-[#d8b4fe]' : 'border-[#38424d] bg-[#242b32] text-[#cbd3e6]'}`}>
+              {t(lang, `workspace.type.${isCounter ? 'counter' : isAi ? 'ai' : isSequence ? 'sequence' : 'reply'}`)}
+            </span>
+            {isSequence && (row.triggerKinds?.length ?? 0) === 0 && (
+              <span title={t(lang, 'workspace.noTrigger')} className="text-[12px] text-amber-400">⚠</span>
+            )}
+            {isSequence && row.triggerKinds?.map((kind) => (
+              <span key={kind} title={t(lang, `workspace.trigger.${kind}`)} className="text-[13px] leading-none">
+                {TRIGGER_GLYPH[kind]}
               </span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onConfigureActions?.(row.sourceId);
-                }}
-                className="rounded-[3px] border border-[#2e3740] bg-[#22282f] hover:border-[#3d4856] hover:bg-[#283038] hover:text-white px-2 py-0.5 text-[10px] font-mono text-[#cbd3e6] shrink-0 transition-colors shadow-xs"
-                title={t(lang, 'workspace.openActionsView')}
-              >
-                {t(lang, 'workspace.actionsPill')} ↗
-              </button>
-            </div>
-          ) : isAi ? (
-            <div className="flex items-center gap-1.5">
-              <span dir="auto" className={`truncate ${row.enabled ? 'font-bold text-[#f0f3fa]' : 'text-muted'}`}>{row.description}</span>
+            ))}
+            {isCounter && (
+              <>
+                <span dir="ltr" className="rounded-[3px] border border-[#38424d] bg-[#242b32] px-1.5 py-0.5 font-mono text-[10.5px] font-bold text-accent-text shrink-0 shadow-xs">
+                  {String(row.count ?? 0).padStart(3, '0')}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onConfigureActions?.(row.sourceId);
+                  }}
+                  className="rounded-[3px] border border-[#2e3740] bg-[#22282f] hover:border-[#3d4856] hover:bg-[#283038] hover:text-white px-2 py-0.5 text-[10px] font-mono text-[#cbd3e6] shrink-0 transition-colors shadow-xs"
+                  title={t(lang, 'workspace.openActionsView')}
+                >
+                  {t(lang, 'workspace.actionsPill')} ↗
+                </button>
+              </>
+            )}
+            {isAi && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -755,11 +770,8 @@ function FragmentRow({
               >
                 {t(lang, 'aiStudio.openStudio')} ↗
               </button>
-              {!row.enabled && <span className="ms-1 rounded-[3px] border border-[#2a323a] bg-[#1c2228] px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wider text-[#737e8c] shrink-0">{t(lang, 'workspace.disabledTag')}</span>}
-            </div>
-          ) : isSequence ? (
-            <div className="flex items-center gap-1.5">
-              <span dir="auto" className={`truncate ${row.enabled ? 'font-bold text-[#f0f3fa]' : 'text-muted'}`}>{row.description}</span>
+            )}
+            {isSequence && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -771,11 +783,8 @@ function FragmentRow({
               >
                 {t(lang, 'workspace.stepsCount', { n: row.sequenceStepCount ?? 0 })} ↗
               </button>
-              {!row.enabled && <span className="ms-1 rounded-[3px] border border-[#2a323a] bg-[#1c2228] px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wider text-[#737e8c] shrink-0">{t(lang, 'workspace.disabledTag')}</span>}
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <span dir="auto" className={`truncate ${row.enabled ? 'text-[#f0f3fa]' : 'text-muted'}`}>{row.description}</span>
+            )}
+            {!isCounter && !isAi && !isSequence && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -787,18 +796,30 @@ function FragmentRow({
               >
                 {t(lang, 'workspace.replyPill')} ↗
               </button>
-              {!row.enabled && <span className="ms-1 rounded-[3px] border border-[#2a323a] bg-[#1c2228] px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wider text-[#737e8c] shrink-0">{t(lang, 'workspace.disabledTag')}</span>}
-            </div>
-          )}
+            )}
+            {!row.enabled && <span className="ms-1 rounded-[3px] border border-[#2a323a] bg-[#1c2228] px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wider text-[#737e8c] shrink-0">{t(lang, 'workspace.disabledTag')}</span>}
+          </div>
         </td>
-        <td className="truncate px-2 text-muted">{t(lang, `ranks.${row.permission}`)}</td>
-        <td className="px-2 font-mono text-[11px] text-muted max-[960px]:hidden">{row.cooldownSeconds > 0 ? `${row.cooldownSeconds}s` : t(lang, 'workspace.off')}</td>
-        <td className={`truncate px-2 text-[11px] max-[1060px]:hidden ${row.error ? 'text-accent-text' : 'text-muted'}`}>{row.writes.length ? row.writes.map((sink) => t(lang, `workspace.sink.${sink}`)).join(' · ') : '—'}</td>
-        <td className="truncate px-2 font-mono text-[10px] text-muted max-[1180px]:hidden">{row.lastTriggeredAt ? formatTime(new Date(row.lastTriggeredAt).toISOString()) : '—'}</td>
+        <td className="truncate px-2 text-muted max-[960px]:hidden">{t(lang, `ranks.${row.permission}`)}</td>
+        <td className="px-2 font-mono text-[11px] text-muted">{row.cooldownSeconds > 0 ? `${row.cooldownSeconds}s` : t(lang, 'workspace.off')}</td>
       </tr>
-      {row.error && <tr className="h-[28px] border-b border-rule/50 bg-danger/5"><td colSpan={6} className="border-s-2 border-danger px-2.5 text-[11px] text-danger font-medium"><TriangleAlert size={11} className="me-1.5 inline" />{row.error}</td></tr>}
+      {row.error && <tr className="h-[28px] border-b border-rule/50 bg-danger/5"><td colSpan={4} className="border-s-2 border-danger px-2.5 text-[11px] text-danger font-medium"><TriangleAlert size={11} className="me-1.5 inline" />{row.error}</td></tr>}
     </>
   );
+}
+
+const TRIGGER_GLYPH: Record<NonNullable<CommandRow['triggerKinds']>[number], string> = {
+  channel_points: '🪙',
+  chat: '💬',
+  raid: '🔥',
+  follow: '❤️',
+  watch_streak: '⚡',
+};
+
+/** Reply rows are titled by their trigger word; make sure it reads as a command. */
+function prefixed(name: string, prefix: string): string {
+  if (!name) return name;
+  return name.startsWith('!') || !prefix ? name : `${prefix}${name}`;
 }
 
 function EmptyCommands({ onNewCommand }: { onNewCommand?: () => void }) {
@@ -1200,47 +1221,51 @@ function SequenceInspector({
           </div>
         </div>
 
-        {/* Trigger Summary */}
+        {/* Trigger summary (edited in the studio) */}
         <div className="space-y-2 border-t border-hair pt-2">
           <InspectorField label={t(lang, 'sequence.triggerType')}>
-            <div className="font-mono text-[11px] text-ink bg-surface-2 p-2 border border-rule">
-              {sequence.triggerType === 'channel_points'
-                ? t(lang, 'sequence.channelPoints')
-                : sequence.triggerType === 'chat'
-                ? t(lang, 'sequence.chatCommand')
-                : t(lang, 'sequence.bothTriggers')}
+            <div className="flex flex-wrap gap-1">
+              {row.command.split(', ').filter(Boolean).map((label, idx) => (
+                <span key={idx} dir="auto" className="rounded border border-hair bg-surface-2 px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-ink">
+                  {label}
+                </span>
+              ))}
             </div>
           </InspectorField>
-
-          {(sequence.triggerType === 'channel_points' || sequence.triggerType === 'both') && (
-            <InspectorField label={t(lang, 'sequence.rewardTitle')}>
-              <Input
-                dir="auto"
-                className="font-mono text-[11px] h-8"
-                value={sequence.rewardTitle || ''}
-                onChange={(e) => update(sequence.id, { rewardTitle: e.target.value })}
-                placeholder={t(lang, 'sequence.rewardSelectPlaceholder')}
-              />
-            </InspectorField>
-          )}
-
-          {(sequence.triggerType === 'chat' || sequence.triggerType === 'both') && (
-            <InspectorField label={t(lang, 'sequence.chatTrigger')}>
-              <Input
-                dir="auto"
-                className="font-mono text-[11px] h-8"
-                value={sequence.chatTrigger || ''}
-                onChange={(e) => update(sequence.id, { chatTrigger: e.target.value })}
-                placeholder="!hydrate"
-              />
-            </InspectorField>
-          )}
 
           <CooldownField
             value={sequence.cooldownSeconds}
             onChange={(cooldownSeconds) => update(sequence.id, { cooldownSeconds })}
           />
         </div>
+
+        {/* Older sequences created before the trigger list existed keep their simple trigger fields here */}
+        {!Array.isArray(sequence.triggers) && (
+          <MoreSettings label={t(lang, 'workspace.moreSettings')}>
+            {(sequence.triggerType === 'channel_points' || sequence.triggerType === 'both') && (
+              <InspectorField label={t(lang, 'sequence.rewardTitle')}>
+                <Input
+                  dir="auto"
+                  className="font-mono text-[11px] h-8"
+                  value={sequence.rewardTitle || ''}
+                  onChange={(e) => update(sequence.id, { rewardTitle: e.target.value })}
+                  placeholder={t(lang, 'sequence.rewardSelectPlaceholder')}
+                />
+              </InspectorField>
+            )}
+            {(sequence.triggerType === 'chat' || sequence.triggerType === 'both') && (
+              <InspectorField label={t(lang, 'sequence.chatTrigger')}>
+                <Input
+                  dir="auto"
+                  className="font-mono text-[11px] h-8"
+                  value={sequence.chatTrigger || ''}
+                  onChange={(e) => update(sequence.id, { chatTrigger: e.target.value })}
+                  placeholder="!hydrate"
+                />
+              </InspectorField>
+            )}
+          </MoreSettings>
+        )}
       </div>
       <InspectorFooter
         outputs={sequence.steps.map((s, idx) => {
@@ -1249,6 +1274,11 @@ function SequenceInspector({
           else if (s.type === 'chat') detail = s.chatMessage ?? '';
           else if (s.type === 'counter') detail = `${s.counterAction ?? 'increase'} counter`;
           else if (s.type === 'command') detail = s.commandTrigger ?? '';
+          else if (s.type === 'tts') detail = s.ttsText ?? '';
+          else if (s.type === 'moderation') detail = `${s.moderationAction ?? 'smart_timeout'} ${s.targetUser ?? ''}`.trim();
+          else if (s.type === 'duel' || s.type === 'duel_streamer') detail = s.duelMode === 'random' ? 'random' : 'AI trivia';
+          else if (s.type === 'poll') detail = `${s.pollAction ?? 'start'} ${s.pollQuestion ?? ''}`.trim();
+          else if (s.type === 'if') detail = `${s.ifThen?.length ?? 0} then / ${s.ifElse?.length ?? 0} else`;
           return `${idx + 1}. [${s.type.toUpperCase()}] ${detail}`;
         })}
         savedAt={null}
@@ -1402,7 +1432,7 @@ function CounterInspector({
           </div>
         </div>
 
-        {/* Outputs / Sinks */}
+        {/* Outputs: on/off at a glance, details tucked away */}
         <div className="border-t-2 border-rule pt-3">
           <div className="ui-label mb-2">{t(lang, 'workspace.writesTo')}</div>
           <SinkRow
@@ -1411,30 +1441,6 @@ function CounterInspector({
             checked={counter.obs.enabled}
             onChange={(enabled) => updateObs(counter.id, { enabled })}
           />
-          {counter.obs.enabled && (
-            <div className="mt-2 flex gap-1">
-              <Input
-                dir="ltr"
-                className="font-mono text-[10px]"
-                value={counter.obs.filePath}
-                onChange={(event) => updateObs(counter.id, { filePath: event.target.value })}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                aria-label={t(lang, 'workspace.browse')}
-                onClick={async () => {
-                  const result = await rpc.invoke(Channels.DialogSaveFile, {
-                    defaultName: `${counter.name.toLowerCase().replace(/\s+/g, '-')}.txt`,
-                  });
-                  if (result.path) updateObs(counter.id, { filePath: result.path });
-                }}
-              >
-                <FolderOpen size={12} />
-              </Button>
-            </div>
-          )}
-
           <SinkRow
             label={t(lang, 'workspace.streamTitle')}
             detail={counter.titleTemplate || t(lang, 'workspace.notSet')}
@@ -1446,8 +1452,39 @@ function CounterInspector({
               })
             }
           />
+        </div>
+
+        <MoreSettings label={t(lang, 'workspace.moreSettings')}>
+          {counter.obs.enabled && (
+            <div className="space-y-1.5">
+              <div className="ui-label">{t(lang, 'workspace.obsTextFile')}</div>
+              <div className="flex gap-1">
+                <Input
+                  dir="ltr"
+                  className="font-mono text-[10px]"
+                  value={counter.obs.filePath}
+                  onChange={(event) => updateObs(counter.id, { filePath: event.target.value })}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label={t(lang, 'workspace.browse')}
+                  onClick={async () => {
+                    const result = await rpc.invoke(Channels.DialogSaveFile, {
+                      defaultName: `${counter.name.toLowerCase().replace(/\s+/g, '-')}.txt`,
+                    });
+                    if (result.path) updateObs(counter.id, { filePath: result.path });
+                  }}
+                >
+                  <FolderOpen size={12} />
+                </Button>
+              </div>
+            </div>
+          )}
+
           {counter.titleEnabled && (
-            <div className="mt-2 space-y-1.5">
+            <div className="space-y-1.5">
+              <div className="ui-label">{t(lang, 'workspace.streamTitle')}</div>
               <div className="flex gap-1">
                 <Input
                   dir="auto"
@@ -1489,13 +1526,13 @@ function CounterInspector({
               )}
             </div>
           )}
-        </div>
 
-        {/* Global Keybinds */}
-        <div className="border-t-2 border-rule pt-3">
-          <div className="ui-label mb-2">{t(lang, 'workspace.keybind')}</div>
-          <FeatureKeybindEditor lang={lang} targetType="counter" targetId={counter.id} />
-        </div>
+          {/* Global Keybinds */}
+          <div className="space-y-1.5">
+            <div className="ui-label">{t(lang, 'workspace.keybind')}</div>
+            <FeatureKeybindEditor lang={lang} targetType="counter" targetId={counter.id} />
+          </div>
+        </MoreSettings>
       </div>
 
       <InspectorFooter
@@ -1520,12 +1557,6 @@ function ReplyInspector({
 }) {
   const rule = useAutoReplyStore((s) => s.rules.find((item) => item.id === row.sourceId));
   const update = useAutoReplyStore((s) => s.update);
-  const globalSettings = useAutoReplyStore((s) => s.globalSettings);
-  const updateGlobalSettings = useAutoReplyStore((s) => s.updateGlobalSettings);
-  const twitchChannel = useConnectionStore((s) => s.twitchChannel);
-  const botConnected = useConnectionStore((s) => s.botConnected);
-  const botLogin = useConnectionStore((s) => s.botLogin);
-  const activeChatSender = useConnectionStore((s) => s.activeChatSender);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
 
@@ -1543,8 +1574,6 @@ function ReplyInspector({
   const preview = isAi
     ? (rule.aiFallback || rule.aiInstructions || t(lang, 'workspace.aiGenerated'))
     : rule.response.replaceAll('{mention}', '@viewer').replaceAll('{username}', 'viewer').replaceAll('{message}', t(lang, 'workspace.sampleMessage'));
-
-  const activeOverridesCount = rule.aiConditions?.length ?? 0;
 
   return (
     <>
@@ -1599,66 +1628,6 @@ function ReplyInspector({
             <ChevronRight size={13} className="text-muted" />
           </Button>
 
-          {/* Quick Mode Switch */}
-          <div className="space-y-1 pt-1 border-t border-hair">
-            <div className="ui-label text-[10px] text-muted">{t(lang, 'workspace.responseType')}</div>
-            <SegmentedControl
-              value={rule.responseMode ?? 'static'}
-              options={[
-                { value: 'static', label: t(lang, 'workspace.prepared') },
-                { value: 'ai', label: t(lang, 'workspace.ai') },
-              ]}
-              onChange={(responseMode) => {
-                if (responseMode === 'ai' && !rule.aiInstructions?.trim()) {
-                  const isAr = lang === 'ar';
-                  update(rule.id, {
-                    responseMode,
-                    agentName: rule.agentName?.trim() ? rule.agentName : (isAr ? 'أروديس' : 'Arrodes'),
-                    agentRole: rule.agentRole?.trim() ? rule.agentRole : (isAr ? 'مرآة سحرية فضية عليمة بالأسرار من LOTM تملك بحراً من المعلومات وتجيب بذكاء وغموض' : 'All-knowing magic silver mirror from LOTM that holds endless secrets and answers questions with mysterious wit'),
-                    agentContext: rule.agentContext?.trim() ? rule.agentContext : (isAr ? 'الهوية: مرآة أروديس السحرية الفضية من رواية سيد الغموض (LOTM). تملك علماً واسعاً بالأسرار والمعلومات، ومخلصة تماماً لسيدها العظيم (الستريمر).' : 'Identity: Arrodes, the mysterious magic silver mirror from Lord of the Mysteries (LOTM). It possesses immense knowledge of the universe, secrets, and stream facts. It is completely devoted to the Supreme Master (the streamer).'),
-                    aiInstructions: isAr ? 'أنت أروديس (المرآة السحرية العليمة من LOTM). قدّم إجابات دقيقة وغنية بالمعلومات لـ {username} في أقل من 25 كلمة بنبرة مرآة غامضة ومخلصة للستريمر.' : 'You are Arrodes, the omniscient magic mirror. Answer {username} accurately with insightful knowledge in under 25 words. Maintain a respectful, devoted tone to the streamer and a mysterious mirror vibe.',
-                  });
-                } else {
-                  update(rule.id, { responseMode });
-                }
-              }}
-            />
-          </div>
-
-          {/* Who Responds Switcher */}
-          <div className="space-y-1 pt-2 border-t border-hair">
-            <div className="flex items-center justify-between">
-              <span className="ui-label text-[10px] text-muted">{t(lang, 'autoReplies.whoResponds')}</span>
-              {rule.senderRole === 'bot' && !botConnected && (
-                <span className="text-[9.5px] text-amber-400 font-mono flex items-center gap-0.5">
-                  <AlertCircle size={10} />
-                  {t(lang, 'autoReplies.senderBotOfflineShort')}
-                </span>
-              )}
-            </div>
-            <SegmentedControl
-              name={`inspector-sender-${rule.id}`}
-              value={rule.senderRole ?? 'default'}
-              options={[
-                {
-                  value: 'default',
-                  label: t(lang, 'autoReplies.senderDefault', {
-                    sender: activeChatSender === 'bot' ? (botLogin || 'Bot') : (twitchChannel || 'Streamer'),
-                  }),
-                },
-                {
-                  value: 'broadcaster',
-                  label: `👑 ${t(lang, 'autoReplies.senderBroadcaster')}`,
-                },
-                {
-                  value: 'bot',
-                  label: `🤖 ${t(lang, 'autoReplies.senderBot')}`,
-                },
-              ]}
-              onChange={(senderRole) => update(rule.id, { senderRole: senderRole as 'default' | 'bot' | 'broadcaster' })}
-            />
-          </div>
-
           {/* Read-only Triggers Summary */}
           <div className="space-y-1.5 pt-1 border-t border-hair">
             <div className="flex items-center justify-between">
@@ -1684,134 +1653,43 @@ function ReplyInspector({
           </div>
         </div>
 
-        {/* AI Global Protection Limits (When isAi is true) */}
-        {isAi && (
-          <div className="rounded-[5px] border border-purple-500/35 bg-purple-500/10 p-3 space-y-3 shadow-xs">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 font-bold text-[11px] text-purple-200">
-                <Sparkles size={13} className="text-purple-400" />
-                <span>{t(lang, 'aiStudio.globalLimitsTitle')}</span>
-              </div>
-              <span className="rounded-[3px] border border-purple-500/30 bg-purple-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-purple-300">
-                {t(lang, 'aiStudio.globalLimitsBadge')}
-              </span>
-            </div>
-
-            {/* Global AI Cooldown */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="font-medium text-foreground">{t(lang, 'aiStudio.globalAiCooldownShort')}</span>
-                <div className="flex items-center gap-1">
-                  <Input
-                    dir="ltr"
-                    type="number"
-                    min={0}
-                    max={3600}
-                    value={globalSettings.globalAiCooldownSeconds || 0}
-                    onChange={(e) =>
-                      updateGlobalSettings({
-                        globalAiCooldownSeconds: Math.max(0, Math.min(3600, Number(e.target.value) || 0)),
-                      })
-                    }
-                    className="h-6 w-16 text-center font-mono text-[11px]"
-                  />
-                  <span className="font-mono text-muted text-[10px]">s</span>
-                </div>
-              </div>
-              <Slider
-                value={globalSettings.globalAiCooldownSeconds || 0}
-                min={0}
-                max={180}
-                step={5}
-                onChange={(val) => updateGlobalSettings({ globalAiCooldownSeconds: val })}
-                ariaLabel={t(lang, 'aiStudio.globalAiCooldownShort')}
-              />
-            </div>
-
-            {/* Global AI User Cooldown */}
-            <div className="space-y-1 pt-2 border-t border-purple-500/20">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="font-medium text-foreground">{t(lang, 'aiStudio.globalAiUserCooldownShort')}</span>
-                <div className="flex items-center gap-1">
-                  <Input
-                    dir="ltr"
-                    type="number"
-                    min={0}
-                    max={3600}
-                    value={globalSettings.globalAiUserCooldownSeconds ?? 60}
-                    onChange={(e) =>
-                      updateGlobalSettings({
-                        globalAiUserCooldownSeconds: Math.max(0, Math.min(3600, Number(e.target.value) || 0)),
-                      })
-                    }
-                    className="h-6 w-16 text-center font-mono text-[11px]"
-                  />
-                  <span className="font-mono text-muted text-[10px]">s</span>
-                </div>
-              </div>
-              <Slider
-                value={globalSettings.globalAiUserCooldownSeconds ?? 60}
-                min={0}
-                max={300}
-                step={5}
-                onChange={(val) => updateGlobalSettings({ globalAiUserCooldownSeconds: val })}
-                ariaLabel={t(lang, 'aiStudio.globalAiUserCooldownShort')}
-              />
-            </div>
-          </div>
-        )}
-
         {/* Permissions */}
         <PermissionField
           value={rule.minimumRank ?? 'everyone'}
           onChange={(minimumRank) => update(rule.id, { minimumRank })}
         />
 
-        {/* Command Specific Cooldown */}
-        <div className="space-y-2 pt-1 border-t border-hair">
-          {isAi && (
-            <div className="ui-label text-[10px] text-muted font-bold uppercase tracking-wider">
-              {t(lang, 'aiStudio.ruleCooldownTitle')}
-            </div>
-          )}
-          <CooldownField
-            value={rule.cooldownSeconds}
-            onChange={(cooldownSeconds) => update(rule.id, { cooldownSeconds })}
-          />
+        {/* Cooldown */}
+        <CooldownField
+          value={rule.cooldownSeconds}
+          onChange={(cooldownSeconds) => update(rule.id, { cooldownSeconds })}
+        />
 
-          <InspectorField label={t(lang, 'autoReplies.userCooldown')}>
-            <Input
-              dir="ltr"
-              type="number"
-              min={0}
-              max={3600}
-              value={rule.userCooldownSeconds ?? 0}
-              onChange={(event) =>
-                update(rule.id, {
-                  userCooldownSeconds: Math.max(0, Math.min(3600, Number(event.target.value) || 0)),
-                })
-              }
-            />
-          </InspectorField>
-        </div>
-
-        {/* Quick Chatter Overrides Indicator */}
-        {activeOverridesCount > 0 && (
-          <div className="rounded border border-amber-500/25 bg-amber-500/10 p-2 text-[11px] text-amber-200">
-            <div className="font-semibold flex items-center justify-between">
-              <span>Chatter Overrides</span>
-              <span className="font-mono text-[10px] bg-amber-500/20 px-1 rounded">
-                {activeOverridesCount} active
-              </span>
-            </div>
-            <div className="text-[10.5px] text-amber-300/80 mt-0.5">
-              Specific viewers have custom override responses configured in Studio.
-            </div>
-          </div>
-        )}
+        <p className="font-sans text-[10.5px] leading-snug text-muted">
+          {t(lang, 'workspace.inspectorMoreInStudio')}
+        </p>
       </div>
       <InspectorFooter outputs={[preview].filter(Boolean)} savedAt={null} onDelete={() => useAutoReplyStore.getState().remove(rule.id)} />
     </>
+  );
+}
+
+/** Collapsed-by-default section for settings that are not needed day to day. */
+function MoreSettings({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t-2 border-rule pt-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between py-1 text-start"
+      >
+        <span className="ui-label">{label}</span>
+        <ChevronRight size={12} className={`text-muted transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open && <div className="mt-2 space-y-3">{children}</div>}
+    </div>
   );
 }
 

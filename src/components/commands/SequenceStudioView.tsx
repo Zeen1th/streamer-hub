@@ -1,3 +1,6 @@
+import { DEFAULT_PROTECTED_MESSAGES } from '../../lib/duelGameManager';
+import { replaceSequenceTokens } from '../../lib/sequenceRunner';
+import { attachedGameIndex } from '../../lib/stepGroups';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -36,6 +39,7 @@ import {
   Sliders,
   Sparkles,
   Swords,
+  GitBranch,
   Terminal,
   Trash2,
   Volume2,
@@ -49,13 +53,14 @@ import type {
   CommandSequence,
   CounterAction,
   ModerationAction,
+  SequenceIfCondition,
   SequenceStep,
   SequenceStepType,
   SequenceWaitUnit,
 } from '../../rpc/contracts';
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
-import { normalizeTriggers, useSequenceStore } from '../../store/sequenceStore';
+import { defaultStepForType, normalizeTriggers, useSequenceStore } from '../../store/sequenceStore';
 import { useCounterStore } from '../../store/counterStore';
 import { useConnectionStore } from '../../store/connectionStore';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -511,18 +516,218 @@ function QuickTokenInput({
 }
 
 // ---------------------------------------------------------------------------
+// If / Else helpers
+// ---------------------------------------------------------------------------
+const BRANCH_STEP_TYPES: Array<{
+  key: string;
+  type: SequenceStepType;
+  en: string;
+  ar: string;
+  options?: Partial<SequenceStep>;
+}> = [
+  { key: 'chat', type: 'chat', en: 'Send chat message', ar: 'إرسال رسالة في الشات' },
+  { key: 'tts', type: 'tts', en: 'Text-to-speech', ar: 'قراءة نص صوتياً' },
+  { key: 'sound', type: 'sound', en: 'Play sound effect', ar: 'تشغيل مؤثر صوتي' },
+  {
+    key: 'timeout',
+    type: 'moderation',
+    en: 'Timeout the viewer',
+    ar: 'إسكات المشاهد',
+    options: { moderationAction: 'smart_timeout', targetUser: '{username}', durationSeconds: 60 },
+  },
+  { key: 'counter', type: 'counter', en: 'Change a counter', ar: 'تعديل عدّاد' },
+  { key: 'obs_image', type: 'obs_image', en: 'Show picture / GIF', ar: 'عرض صورة أو GIF' },
+  { key: 'obs_text', type: 'obs_text', en: 'Write OBS text file', ar: 'كتابة ملف نص OBS' },
+  { key: 'mic_mute', type: 'mic_mute', en: 'Mute streamer mic', ar: 'كتم مايك الستريمر' },
+  { key: 'wait', type: 'wait', en: 'Wait', ar: 'انتظار' },
+  { key: 'command', type: 'command', en: 'Run a command', ar: 'تشغيل أمر' },
+  { key: 'comment', type: 'comment', en: 'Comment / note', ar: 'تعليق / ملاحظة' },
+];
+
+function branchStepLabel(step: SequenceStep, lang: 'en' | 'ar'): string {
+  if (step.type === 'moderation') {
+    return lang === 'ar' ? 'إشراف' : 'Moderation';
+  }
+  const found = BRANCH_STEP_TYPES.find((b) => b.type === step.type);
+  return found ? (lang === 'ar' ? found.ar : found.en) : step.type;
+}
+
+function branchStepDetail(step: SequenceStep): string {
+  switch (step.type) {
+    case 'chat': return step.chatMessage ?? '';
+    case 'tts': return step.ttsText ?? '';
+    case 'sound': return (step.soundPath ?? '').split(/[/\\]/).pop() ?? '';
+    case 'moderation': return `${step.moderationAction ?? 'smart_timeout'} ${step.targetUser ?? ''} ${step.durationSeconds ?? 60}s`.trim();
+    case 'counter': return `${step.counterAction ?? 'increase'}`;
+    case 'obs_image': return (step.imagePath ?? '').split(/[/\\]/).pop() ?? '';
+    case 'obs_text': return (step.filePath ?? '').split(/[/\\]/).pop() ?? '';
+    case 'mic_mute': return `${step.micMuteDurationSeconds ?? 5}s`;
+    case 'wait': return `${step.waitDuration ?? 2}${step.waitUnit === 'minutes' ? 'm' : 's'}`;
+    case 'command': return step.commandTrigger ?? '';
+    case 'comment': return step.commentText ?? '';
+    default: return '';
+  }
+}
+
+const IF_CONDITION_SHORT: Record<string, { en: string; ar: string }> = {
+  duel_challenger_won: { en: 'challenger won', ar: 'المتحدّي فاز' },
+  duel_opponent_won: { en: 'opponent won', ar: 'الخصم فاز' },
+  duel_no_winner: { en: 'nobody answered', ar: 'لا أحد أجاب' },
+  poll_winner_is: { en: 'winner is', ar: 'الفائز هو' },
+  poll_tie: { en: 'poll tie', ar: 'تعادل' },
+  poll_no_votes: { en: 'no votes', ar: 'لا أصوات' },
+};
+
+/** The nearest earlier mini game / poll step: this is the result an If step checks at run time. */
+function findIfGame(previousSteps: SequenceStep[]) {
+  for (let k = previousSteps.length - 1; k >= 0; k--) {
+    const s = previousSteps[k];
+    if (s.type === 'duel' || s.type === 'duel_streamer') {
+      return { kind: 'duel' as const, streamer: s.type === 'duel_streamer', index: k, step: s };
+    }
+    if (s.type === 'poll') {
+      return s.pollAction === 'reset' ? null : { kind: 'poll' as const, streamer: false, index: k, step: s };
+    }
+  }
+  return null;
+}
+
+function moveInList<T>(list: T[], index: number, direction: 'up' | 'down'): T[] {
+  const target = direction === 'up' ? index - 1 : index + 1;
+  if (target < 0 || target >= list.length) return list;
+  const next = [...list];
+  const [moved] = next.splice(index, 1);
+  next.splice(target, 0, moved);
+  return next;
+}
+
+function IfBranchEditor({
+  title,
+  hint,
+  tone,
+  steps,
+  lang,
+  onAdd,
+  onEdit,
+  onRemove,
+  onMove,
+}: {
+  title: string;
+  hint: string;
+  tone: 'then' | 'else';
+  steps: SequenceStep[];
+  lang: 'en' | 'ar';
+  onAdd: (key: string) => void;
+  onEdit: (id: string) => void;
+  onRemove: (id: string) => void;
+  onMove: (index: number, direction: 'up' | 'down') => void;
+}) {
+  const toneClass = tone === 'then'
+    ? 'border-emerald-500/30 bg-emerald-500/[0.06]'
+    : 'border-rose-500/30 bg-rose-500/[0.06]';
+  const titleClass = tone === 'then' ? 'text-emerald-300' : 'text-rose-300';
+  return (
+    <div className={`flex flex-col gap-2 rounded-md border p-3 ${toneClass}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className={`font-sans text-[12px] font-bold uppercase tracking-wide ${titleClass}`}>{title}</span>
+        <span className="text-[10.5px] text-muted">{hint}</span>
+      </div>
+
+      {steps.length === 0 ? (
+        <div className="rounded border border-dashed border-white/10 px-3 py-2 text-[11px] text-muted">
+          {lang === 'ar' ? 'لا توجد خطوات. أضف خطوة بالأسفل.' : 'No steps yet. Add one below.'}
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {steps.map((st, idx) => (
+            <li key={st.id} className="flex items-center gap-2 rounded border border-white/10 bg-[#11131a] px-2.5 py-1.5">
+              <span className="font-mono text-[10.5px] text-muted">{idx + 1}</span>
+              <span className="shrink-0 text-[11.5px] font-semibold text-white">{branchStepLabel(st, lang)}</span>
+              <span dir="auto" className="min-w-0 flex-1 truncate text-[11px] text-muted">{branchStepDetail(st)}</span>
+              <button type="button" onClick={() => onMove(idx, 'up')} disabled={idx === 0} className="p-1 text-muted hover:text-white disabled:opacity-30" title={lang === 'ar' ? 'أعلى' : 'Move up'}>
+                <ChevronUp size={12} />
+              </button>
+              <button type="button" onClick={() => onMove(idx, 'down')} disabled={idx === steps.length - 1} className="p-1 text-muted hover:text-white disabled:opacity-30" title={lang === 'ar' ? 'أسفل' : 'Move down'}>
+                <ChevronDown size={12} />
+              </button>
+              <button type="button" onClick={() => onEdit(st.id)} className="p-1 text-muted hover:text-white" title={lang === 'ar' ? 'تعديل' : 'Edit'}>
+                <Edit3 size={12} />
+              </button>
+              <button type="button" onClick={() => onRemove(st.id)} className="p-1 text-muted hover:text-rose-400" title={lang === 'ar' ? 'حذف' : 'Delete'}>
+                <Trash2 size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <select
+        value=""
+        onChange={(e) => {
+          if (e.target.value) onAdd(e.target.value);
+        }}
+        className="h-8 rounded-md border border-white/15 bg-[#11131a] px-2.5 font-sans text-[12px] text-zinc-300 focus:border-accent focus:outline-none"
+      >
+        <option value="">{lang === 'ar' ? '+ إضافة خطوة…' : '+ Add a step…'}</option>
+        {BRANCH_STEP_TYPES.map((b) => (
+          <option key={b.key} value={b.key}>
+            {lang === 'ar' ? b.ar : b.en}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Sub-Action Edit Modal
 // ---------------------------------------------------------------------------
 interface EditSubActionModalProps {
   step: SequenceStep;
   index: number;
+  /** Steps above this one in the sequence (used by If to find the mini game / poll it checks). */
+  previousSteps: SequenceStep[];
   counters: Array<{ id: string; name: string }>;
   lang: 'en' | 'ar';
   onSave: (patch: Partial<SequenceStep>) => void;
   onClose: () => void;
 }
 
-function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: EditSubActionModalProps) {
+function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave, onClose }: EditSubActionModalProps) {
+  // If / Else state
+  const ifGame = step.type === 'if' ? findIfGame(previousSteps) : null;
+  const ifConditionOptions: Array<[string, string]> = !ifGame
+    ? []
+    : ifGame.kind === 'duel'
+      ? [
+          ['duel_challenger_won', ifGame.streamer ? (lang === 'ar' ? 'المشاهد فاز' : 'The viewer won') : (lang === 'ar' ? 'المتحدّي فاز' : 'The challenger won')],
+          ['duel_opponent_won', ifGame.streamer ? (lang === 'ar' ? 'الستريمر فاز' : 'The streamer won') : (lang === 'ar' ? 'الخصم فاز' : 'The opponent won')],
+          ['duel_no_winner', lang === 'ar' ? 'لا أحد أجاب (انتهى الوقت)' : 'Nobody answered (time ran out)'],
+        ]
+      : [
+          ['poll_winner_is', lang === 'ar' ? 'الخيار الفائز هو…' : 'The winning option is…'],
+          ['poll_tie', lang === 'ar' ? 'تعادل' : 'It is a tie'],
+          ['poll_no_votes', lang === 'ar' ? 'لا أحد صوّت' : 'Nobody voted'],
+        ];
+  const [ifCondition, setIfCondition] = useState<SequenceIfCondition>(
+    (ifConditionOptions.some(([k]) => k === step.ifCondition) ? step.ifCondition : ifConditionOptions[0]?.[0]) as SequenceIfCondition ?? 'duel_challenger_won',
+  );
+  const [ifOption, setIfOption] = useState(step.ifOption || (ifGame?.kind === 'poll' ? ifGame.step.pollOptions?.[0] ?? '' : ''));
+  const [protectedUsers, setProtectedUsers] = useState<string[]>(step.duelProtectedUsers ?? []);
+  const [protectedRoles, setProtectedRoles] = useState<Array<'moderator' | 'vip' | 'subscriber'>>(step.duelProtectedRoles ?? []);
+  const [protectedMessage, setProtectedMessage] = useState(step.duelProtectedMessage ?? '');
+  const [protectedDraft, setProtectedDraft] = useState('');
+  const addProtectedUser = () => {
+    const name = protectedDraft.trim().replace(/^@+/, '').slice(0, 60);
+    if (name && !protectedUsers.some((n) => n.toLowerCase() === name.toLowerCase())) {
+      setProtectedUsers((prev) => [...prev, name]);
+    }
+    setProtectedDraft('');
+  };
+  const [ifThen, setIfThen] = useState<SequenceStep[]>(step.ifThen ?? []);
+  const [ifElse, setIfElse] = useState<SequenceStep[]>(step.ifElse ?? []);
+  const [editingBranch, setEditingBranch] = useState<{ branch: 'then' | 'else'; id: string } | null>(null);
+
   // Comment state
   const [commentText, setCommentText] = useState(step.commentText ?? '** This is a comment! **');
 
@@ -606,7 +811,6 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   const [duelLanguage, setDuelLanguage] = useState<'auto' | 'en' | 'ar'>(step.duelLanguage ?? 'auto');
   const [duelCategory, setDuelCategory] = useState<string>(step.duelCategory ?? 'general');
   const [duelChallengerWinChance, setDuelChallengerWinChance] = useState<number>(step.duelChallengerWinChance ?? 50);
-  const [duelAllowBroadcaster, setDuelAllowBroadcaster] = useState<boolean>(step.duelAllowBroadcaster ?? true);
   const [duelBroadcasterMuteSource, setDuelBroadcasterMuteSource] = useState<string>(step.duelBroadcasterMuteSource ?? '');
   const defaultDuelInstructions = lang === 'ar'
     ? 'اجعل السؤال بسيطاً ومتنوعاً عن ألعاب مشهورة (مثل ألعاب السولز، زيلدا، مونستر هنتر، ماريو، جود أوف وار، ويتشر، كود، ماينكرافت، إلخ). نوّع الأسئلة ولا تكرر نفس اللعبة في كل مرة. يجب أن تكون الإجابة واضحة ومعروفة ومن كلمة إلى 3 كلمات.'
@@ -642,11 +846,15 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   };
 
   const handleTestTts = async () => {
-    const raw = ttsText
-      .replace(/\{username\}/gi, 'Viewer')
-      .replace(/\{user\}/gi, 'Viewer')
-      .replace(/\{input\}/gi, 'hello')
-      .trim();
+    // Same substitution the runner uses, with sample values so every token is audible in the test
+    const raw = replaceSequenceTokens(ttsText, {
+      username: 'Viewer',
+      source: 'test',
+      userInput: 'hello',
+      raider: 'RaiderName',
+      viewers: 25,
+      streak: 7,
+    }).trim();
     if (!raw) return;
 
     setIsSpeakingTts(true);
@@ -758,24 +966,35 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
   };
 
   const handleApply = () => {
+    const saveWithShield = (patch: Partial<SequenceStep>) =>
+      onSave(
+        step.type === 'duel' || step.type === 'duel_streamer'
+          ? {
+              ...patch,
+              duelProtectedUsers: protectedUsers,
+              duelProtectedRoles: protectedRoles,
+              duelProtectedMessage: protectedMessage.trim() || undefined,
+            }
+          : patch,
+      );
     switch (step.type) {
       case 'comment':
-        onSave({ commentText: commentText.trim() });
+        saveWithShield({ commentText: commentText.trim() });
         break;
       case 'chat':
-        onSave({ chatMessage: chatMessage.trim() });
+        saveWithShield({ chatMessage: chatMessage.trim() });
         break;
       case 'wait':
-        onSave({ waitDuration: Math.max(0.1, Number(waitDuration) || 1), waitUnit });
+        saveWithShield({ waitDuration: Math.max(0.1, Number(waitDuration) || 1), waitUnit });
         break;
       case 'counter':
-        onSave({ counterId, counterAction });
+        saveWithShield({ counterId, counterAction });
         break;
       case 'command':
-        onSave({ commandTrigger: commandTrigger.trim() });
+        saveWithShield({ commandTrigger: commandTrigger.trim() });
         break;
       case 'moderation':
-        onSave({
+        saveWithShield({
           moderationAction,
           targetUser: targetUser.trim(),
           durationSeconds: Math.max(1, Number(durationSeconds) || 60),
@@ -783,10 +1002,10 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
         });
         break;
       case 'sound':
-        onSave({ soundPath: soundPath.trim(), soundVolume });
+        saveWithShield({ soundPath: soundPath.trim(), soundVolume });
         break;
       case 'tts':
-        onSave({
+        saveWithShield({
           ttsText: ttsText.trim(),
           ttsVoice: ttsVoice || undefined,
           ttsRate,
@@ -795,10 +1014,10 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
         });
         break;
       case 'obs_text':
-        onSave({ filePath: filePath.trim(), fileContent });
+        saveWithShield({ filePath: filePath.trim(), fileContent });
         break;
       case 'obs_image':
-        onSave({
+        saveWithShield({
           imagePath: imagePath.trim(),
           imageDurationSeconds: Math.max(1, Number(imageDurationSeconds) || 5),
           imagePosition,
@@ -807,7 +1026,7 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
         });
         break;
       case 'duel':
-        onSave({
+        saveWithShield({
           duelMode,
           duelOpponent: duelOpponent.trim(),
           duelTimeoutDuration: Math.max(5, Number(duelTimeoutDuration) || 60),
@@ -819,12 +1038,11 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
           duelMessageWin: duelMessageWin.trim() || undefined,
           duelMessageTimeout: duelMessageTimeout.trim() || undefined,
           duelChallengerWinChance: Math.max(1, Math.min(99, Number(duelChallengerWinChance) || 50)),
-          duelAllowBroadcaster,
           duelBroadcasterMuteSource: duelBroadcasterMuteSource.trim() || undefined,
         });
         break;
       case 'duel_streamer':
-        onSave({
+        saveWithShield({
           duelMode,
           duelOpponent: '{broadcaster}',
           duelTimeoutDuration: Math.max(5, Number(duelTimeoutDuration) || 60),
@@ -841,15 +1059,18 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
         });
         break;
       case 'poll':
-        onSave({
+        saveWithShield({
           pollAction,
           pollQuestion: pollQuestion.trim(),
           pollOptions: pollOptionsText.split(',').map((o) => o.trim()).filter(Boolean),
           pollDurationSeconds,
         });
         break;
+      case 'if':
+        saveWithShield({ ifCondition, ifOption: ifCondition === 'poll_winner_is' ? ifOption : undefined, ifThen, ifElse });
+        break;
       case 'mic_mute':
-        onSave({
+        saveWithShield({
           micMuteDurationSeconds: Math.max(1, Number(micMuteDurationSeconds) || 5),
           micMuteSourceName: micMuteSourceName.trim() || undefined,
         });
@@ -907,6 +1128,8 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                   ? (lang === 'ar' ? 'التفاعل > استطلاع وتصويت مباشر' : 'Interactivity > Live Poll')
                   : step.type === 'mic_mute'
                   ? (lang === 'ar' ? 'الصوت > كتم مايك الستريمر' : 'Audio > Mute Streamer Mic')
+                  : step.type === 'if'
+                  ? (lang === 'ar' ? 'المنطق > إذا / وإلا' : 'Logic > If / Else')
                   : step.type === 'wait'
                   ? (lang === 'ar' ? 'النظام > انتظار وتأخير' : 'Core > Delay / Wait')
                   : step.type === 'counter'
@@ -959,7 +1182,7 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
               />
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="font-mono text-[10.5px] text-muted">Tokens:</span>
-                {['{raider}', '{viewers}', '{username}', '{mention}', '{target}', '{input}'].map((tok) => (
+                {['{raider}', '{viewers}', '{streak}', '{username}', '{mention}', '{target}', '{input}'].map((tok) => (
                   <button
                     key={tok}
                     type="button"
@@ -1227,7 +1450,7 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                 />
                 <div className="flex flex-wrap items-center gap-1.5 mt-1">
                   <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
-                  {['{username}', '{mention}', '{input}', '{raider}', '{viewers}'].map((tok) => (
+                  {['{username}', '{mention}', '{streak}', '{input}', '{raider}', '{viewers}'].map((tok) => (
                     <button
                       key={tok}
                       type="button"
@@ -1363,7 +1586,7 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                 />
                 <div className="flex flex-wrap items-center gap-1.5 mt-1">
                   <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
-                  {['{username}', '{mention}', '{input}', '{raider}', '{viewers}'].map((tok) => (
+                  {['{username}', '{mention}', '{streak}', '{input}', '{raider}', '{viewers}'].map((tok) => (
                     <button
                       key={tok}
                       type="button"
@@ -1438,6 +1661,191 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
           )}
 
           {/* MIC MUTE / OBS AUDIO SOURCE MUTE */}
+          {(step.type === 'duel' || step.type === 'duel_streamer') && (
+            <div className="flex flex-col gap-2.5 rounded-md border border-sky-500/25 bg-sky-500/[0.07] p-3">
+              <div>
+                <div className="font-sans text-[12px] font-semibold text-white">
+                  🛡️ {step.type === 'duel_streamer'
+                    ? (lang === 'ar' ? 'مشاهدون لا يمكنهم تحدي الستريمر' : "Viewers who can't challenge the streamer")
+                    : (lang === 'ar' ? 'مشاهدون محميون من التحدي' : 'Protected viewers (cannot be challenged)')}
+                </div>
+                <p className="text-[10.5px] text-muted">
+                  {lang === 'ar'
+                    ? 'عند المحاولة لا يبدأ التحدي ويصل المتحدّي الرد أدناه.'
+                    : 'If someone tries, the duel does not start and they get the reply below.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                {([
+                  ['moderator', lang === 'ar' ? 'المشرفون' : 'Moderators'],
+                  ['vip', 'VIP'],
+                  ['subscriber', lang === 'ar' ? 'المشتركون' : 'Subscribers'],
+                ] as const).map(([role, label]) => (
+                  <label key={role} className="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={protectedRoles.includes(role)}
+                      onChange={(e) =>
+                        setProtectedRoles((prev) => (e.target.checked ? [...prev, role] : prev.filter((r) => r !== role)))
+                      }
+                      className="size-3.5 rounded border-white/20 bg-black/40 text-sky-500"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Input
+                  value={protectedDraft}
+                  onChange={(e) => setProtectedDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addProtectedUser();
+                    }
+                  }}
+                  placeholder={lang === 'ar' ? 'اسم مستخدم (مثال: loyal_viewer)' : 'Username (e.g. loyal_viewer)'}
+                  className="h-8 flex-1 text-[12px]"
+                />
+                <Button type="button" size="sm" variant="outline" onClick={addProtectedUser} disabled={!protectedDraft.trim()} className="h-8 text-[11.5px]">
+                  {lang === 'ar' ? 'إضافة' : 'Add'}
+                </Button>
+              </div>
+              {protectedUsers.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {protectedUsers.map((name) => (
+                    <span key={name} className="flex items-center gap-1 rounded border border-white/15 bg-white/[0.05] px-2 py-0.5 text-[11.5px] text-zinc-100">
+                      @{name}
+                      <button type="button" onClick={() => setProtectedUsers((prev) => prev.filter((n) => n !== name))} className="text-muted hover:text-rose-400" title={lang === 'ar' ? 'إزالة' : 'Remove'}>
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-1">
+                <label className="font-sans text-[11.5px] font-medium text-zinc-300">
+                  {lang === 'ar' ? 'الرد على المتحدّي' : 'Reply to the challenger'}
+                </label>
+                <textarea
+                  value={protectedMessage}
+                  onChange={(e) => setProtectedMessage(e.target.value)}
+                  rows={2}
+                  placeholder={
+                    step.type === 'duel_streamer'
+                      ? (lang === 'ar' ? DEFAULT_PROTECTED_MESSAGES.streamerAr : DEFAULT_PROTECTED_MESSAGES.streamerEn)
+                      : (lang === 'ar' ? DEFAULT_PROTECTED_MESSAGES.viewerAr : DEFAULT_PROTECTED_MESSAGES.viewerEn)
+                  }
+                  className="w-full rounded-md border border-white/15 bg-[#11131a] p-2.5 font-mono text-[12px] text-foreground focus:border-accent focus:outline-none resize-y"
+                />
+                <p className="text-[10px] text-muted">
+                  {lang === 'ar' ? 'المتغيرات:' : 'Tokens:'} {'{challenger}'} {'{opponent}'} · {lang === 'ar' ? 'اتركه فارغاً للرد الافتراضي' : 'leave empty for the default reply'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {step.type === 'if' && (
+            <div className="flex flex-col gap-3.5">
+              {!ifGame ? (
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-[11.5px] text-amber-200">
+                  <Info size={14} className="mt-0.5 shrink-0 text-amber-400" />
+                  <span>
+                    {lang === 'ar'
+                      ? 'أضف خطوة تحدي تايم آوت أو تحدي الستريمر أو استطلاع فوق هذه الخطوة أولاً، ثم ارجع هنا.'
+                      : 'Add a Timeout Duel, Streamer Duel or Poll step above this one first, then come back.'}
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-[11.5px] text-zinc-300">
+                    {lang === 'ar' ? 'يفحص نتيجة:' : 'Checks the result of:'}{' '}
+                    <span className="font-semibold text-white">
+                      #{ifGame.index + 1}{' '}
+                      {ifGame.kind === 'poll'
+                        ? (lang === 'ar' ? 'الاستطلاع' : 'Live Poll')
+                        : ifGame.streamer
+                          ? (lang === 'ar' ? 'تحدي الستريمر 1v1' : 'Streamer 1v1 Duel')
+                          : (lang === 'ar' ? 'تحدي التايم آوت' : 'Timeout Duel')}
+                    </span>
+                    <div className="mt-1 text-[10.5px] text-muted">
+                      {lang === 'ar'
+                        ? 'تتوقف السلسلة هنا حتى تنتهي اللعبة أو الاستطلاع ثم تكمل.'
+                        : 'The sequence pauses here until the game or poll finishes, then continues.'}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-sans text-[12px] font-medium text-zinc-300">
+                      {lang === 'ar' ? 'إذا كانت النتيجة' : 'If the result is'}
+                    </label>
+                    <select
+                      value={ifCondition}
+                      onChange={(e) => setIfCondition(e.target.value as SequenceIfCondition)}
+                      className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
+                    >
+                      {ifConditionOptions.map(([key, label]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+                    {ifCondition === 'poll_winner_is' && (
+                      (ifGame.step.pollOptions?.length ?? 0) > 0 ? (
+                        <select
+                          value={ifOption}
+                          onChange={(e) => setIfOption(e.target.value)}
+                          className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
+                        >
+                          {ifGame.step.pollOptions?.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <Input
+                          value={ifOption}
+                          onChange={(e) => setIfOption(e.target.value)}
+                          placeholder={lang === 'ar' ? 'اسم الخيار' : 'Option name'}
+                          className="h-9 text-[12.5px]"
+                        />
+                      )
+                    )}
+                  </div>
+
+                  <IfBranchEditor
+                    title={lang === 'ar' ? '✓ إذا صحّ (Then)' : '✓ Then (true)'}
+                    hint={lang === 'ar' ? 'تعمل عندما يتحقق الشرط' : 'Runs when the condition is true'}
+                    tone="then"
+                    steps={ifThen}
+                    lang={lang}
+                    onAdd={(key) => {
+                      const def = BRANCH_STEP_TYPES.find((b) => b.key === key);
+                      if (def) setIfThen((prev) => [...prev, defaultStepForType(def.type, def.options)]);
+                    }}
+                    onEdit={(id) => setEditingBranch({ branch: 'then', id })}
+                    onRemove={(id) => setIfThen((prev) => prev.filter((x) => x.id !== id))}
+                    onMove={(i, dir) => setIfThen((prev) => moveInList(prev, i, dir))}
+                  />
+                  <IfBranchEditor
+                    title={lang === 'ar' ? '✗ وإلا (Else)' : '✗ Else (false)'}
+                    hint={lang === 'ar' ? 'تعمل عندما لا يتحقق الشرط' : 'Runs when it is not'}
+                    tone="else"
+                    steps={ifElse}
+                    lang={lang}
+                    onAdd={(key) => {
+                      const def = BRANCH_STEP_TYPES.find((b) => b.key === key);
+                      if (def) setIfElse((prev) => [...prev, defaultStepForType(def.type, def.options)]);
+                    }}
+                    onEdit={(id) => setEditingBranch({ branch: 'else', id })}
+                    onRemove={(id) => setIfElse((prev) => prev.filter((x) => x.id !== id))}
+                    onMove={(i, dir) => setIfElse((prev) => moveInList(prev, i, dir))}
+                  />
+                </>
+              )}
+            </div>
+          )}
+
           {step.type === 'mic_mute' && (
             <div className="flex flex-col gap-3.5">
               <DurationPicker
@@ -1845,112 +2253,6 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
                     </button>
                   ))}
                 </div>
-              </div>
-
-              {/* Broadcaster Duel & Streamer Mute Option */}
-              <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
-                <div className="flex items-center justify-between">
-                  <div className="pe-3">
-                    <span className="font-sans text-[12.5px] font-medium text-zinc-200">
-                      {t(lang, 'sequence.duelAllowBroadcaster')}
-                    </span>
-                    <p className="text-[10.5px] text-muted mt-0.5">
-                      {t(lang, 'sequence.duelAllowBroadcasterHint')}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={duelAllowBroadcaster}
-                    onChange={setDuelAllowBroadcaster}
-                    label={t(lang, 'sequence.duelAllowBroadcaster')}
-                  />
-                </div>
-
-                {duelAllowBroadcaster && (
-                  <div className="mt-2 flex flex-col gap-2.5 border-t border-white/[0.06] pt-2.5">
-                    {!obsConnected ? (
-                      <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
-                        <div className="flex items-start gap-2">
-                          <Info size={13} className="mt-0.5 shrink-0 text-amber-400" />
-                          <span>{t(lang, 'sequence.obsDisconnectedNotice')}</span>
-                        </div>
-                        <div className="flex items-center gap-2 pt-1 border-t border-amber-500/20">
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => void handleQuickConnectObs()}
-                            disabled={isConnectingObs}
-                            className="h-6 gap-1.5 px-2 text-[10.5px] font-medium bg-amber-500 hover:bg-amber-400 text-black border-none"
-                          >
-                            {isConnectingObs ? (
-                              <RefreshCw size={10} className="animate-spin" />
-                            ) : (
-                              <Zap size={10} />
-                            )}
-                            <span>{t(lang, 'sequence.autoDetectAndConnect')}</span>
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={handleOpenObsSettings}
-                            className="h-6 gap-1 px-1.5 text-[10.5px] text-amber-300 hover:text-white hover:bg-amber-500/20"
-                          >
-                            <Sliders size={10} />
-                            <span>{t(lang, 'sequence.openObsSettings')}</span>
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10.5px] text-emerald-300">
-                        <div className="flex items-center gap-1.5">
-                          <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                          <span>{t(lang, 'sequence.obsConnectedStatus', { n: availableObsAudioSources.length })}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleOpenObsSettings}
-                          className="text-[10px] text-emerald-400 hover:underline cursor-pointer"
-                        >
-                          {t(lang, 'sequence.openObsSettings')}
-                        </button>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between">
-                      <label className="font-sans text-[11.5px] font-medium text-zinc-300">
-                        {t(lang, 'sequence.duelBroadcasterMuteSource')}
-                      </label>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => void fetchObsAudioSources()}
-                        disabled={isLoadingObsSources}
-                        className="h-5 gap-1 px-1.5 text-[10.5px] text-zinc-300 hover:text-white"
-                        title={t(lang, 'sequence.refreshSources')}
-                      >
-                        <RefreshCw size={10} className={isLoadingObsSources ? 'animate-spin' : ''} />
-                        <span>{t(lang, 'sequence.refreshSources')}</span>
-                      </Button>
-                    </div>
-
-                    <select
-                      value={duelBroadcasterMuteSource}
-                      onChange={(e) => setDuelBroadcasterMuteSource(e.target.value)}
-                      className="h-8.5 rounded-md border border-white/15 bg-[#0e1017] px-2.5 font-sans text-[12px] text-foreground focus:border-accent focus:outline-none"
-                    >
-                      <option value="">{t(lang, 'sequence.obsDefaultMic')}</option>
-                      {availableObsAudioSources.map((source) => (
-                        <option key={source.name} value={source.name}>
-                          {source.name} ({source.kind}) {source.muted ? '🔇' : '🔊'}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] text-muted">
-                      {t(lang, 'sequence.duelBroadcasterMuteSourceHint')}
-                    </p>
-                  </div>
-                )}
               </div>
 
               {/* Timeout Duration */}
@@ -2577,12 +2879,30 @@ function EditSubActionModal({ step, index, counters, lang, onSave, onClose }: Ed
         </div>
 
         <footer className="flex items-center justify-end border-t border-white/[0.08] bg-[#12141c] px-5 py-3">
-          <Button size="sm" onClick={handleApply} className="bg-accent text-white hover:bg-accent-hover font-semibold">
+          <Button size="sm" onClick={handleApply} disabled={step.type === 'if' && !ifGame} className="bg-accent text-white hover:bg-accent-hover font-semibold">
             <Check size={13} className="me-1.5" />
             <span>{t(lang, 'autoReplies.done')}</span>
           </Button>
         </footer>
       </section>
+
+      {step.type === 'if' && editingBranch && (() => {
+        const list = editingBranch.branch === 'then' ? ifThen : ifElse;
+        const setList = editingBranch.branch === 'then' ? setIfThen : setIfElse;
+        const idx = list.findIndex((x) => x.id === editingBranch.id);
+        if (idx === -1) return null;
+        return (
+          <EditSubActionModal
+            step={list[idx]}
+            index={idx}
+            previousSteps={[]}
+            counters={counters}
+            lang={lang}
+            onSave={(patch) => setList((prev) => prev.map((x) => (x.id === editingBranch.id ? { ...x, ...patch } : x)))}
+            onClose={() => setEditingBranch(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -2928,6 +3248,12 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
           : st.pollAction === 'end'
           ? (lang === 'ar' ? 'استطلاع: إنهاء الاستطلاع النشط' : 'Poll: End Active Poll')
           : (lang === 'ar' ? 'استطلاع: تصفير الاستطلاع' : 'Poll: Reset Poll');
+      case 'if': {
+        const short = st.ifCondition ? IF_CONDITION_SHORT[st.ifCondition] : undefined;
+        const cond = short ? (lang === 'ar' ? short.ar : short.en) : '?';
+        const opt = st.ifCondition === 'poll_winner_is' && st.ifOption ? ` "${st.ifOption}"` : '';
+        return lang === 'ar' ? `إذا ${cond}${opt}` : `If ${cond}${opt}`;
+      }
       case 'mic_mute':
         return `${lang === 'ar' ? 'الصوت: كتم مايك الستريمر' : 'Audio: Mute Streamer Mic'} (${st.micMuteDurationSeconds ?? 5}s)`;
       case 'wait':
@@ -3058,6 +3384,14 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       desc: lang === 'ar' ? 'بدء، إنهاء، أو تصفير استطلاع وتصويت مباشر على الشاشة' : 'Start, end, or reset a live stream vote/poll',
       icon: BarChart3,
       color: 'text-violet-400',
+    },
+    {
+      id: 'if',
+      type: 'if' as SequenceStepType,
+      title: lang === 'ar' ? 'المنطق: إذا / وإلا (نتيجة اللعبة أو الاستطلاع)' : 'Logic: If / Else (mini game or poll result)',
+      desc: lang === 'ar' ? 'نفّذ خطوات مختلفة حسب من فاز في التحدي أو ما هي نتيجة الاستطلاع' : 'Run different steps depending on who won the mini game or what the poll result was',
+      icon: GitBranch,
+      color: 'text-cyan-400',
     },
     {
       id: 'mic_mute',
@@ -4095,6 +4429,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                         <BarChart3 size={13} />
                         <span>{t(lang, 'sequence.stepPoll')}</span>
                       </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-cyan-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'if');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <GitBranch size={13} />
+                        <span>{t(lang, 'sequence.stepIf')}</span>
+                      </button>
 
                       <div className="my-1 h-px bg-white/[0.08]" />
                       <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
@@ -4154,12 +4500,14 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   sequence.steps.map((st, idx) => {
                     const isStepRunning = isExecuting && activeRunningStepIndex === idx;
                     const isComment = st.type === 'comment';
+                    // An If directly under a mini game / poll is shown inside it
+                    const isAttachedIf = attachedGameIndex(sequence.steps, idx) >= 0;
                     const isDraggingThis = draggedStepIndex === idx;
                     const isDragOverThis = dragOverStepIndex === idx && draggedStepIndex !== null && draggedStepIndex !== idx;
 
                     return (
+                      <React.Fragment key={st.id}>
                       <div
-                        key={st.id}
                         draggable={!isExecuting}
                         onDragStart={(e) => {
                           e.dataTransfer.setData('text/plain', String(idx));
@@ -4195,6 +4543,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                         onDoubleClick={() => setEditingStepId(st.id)}
                         onContextMenu={(e) => openContextMenu(e, 'action_row', st.id, idx)}
                         className={`group relative flex items-center justify-between rounded px-2 py-1.5 border transition-all cursor-pointer select-none ${
+                          isAttachedIf ? 'ms-7 border-s-2 !border-s-cyan-500/50 rounded-s-none ' : ''
+                        }${
                           isStepRunning
                             ? 'border-accent bg-accent/15 ring-2 ring-accent text-white animate-pulse'
                             : isDraggingThis
@@ -4250,6 +4600,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                 <BarChart3 size={13} className="text-violet-400 shrink-0" />
                               ) : st.type === 'mic_mute' ? (
                                 <MicOff size={13} className="text-rose-400 shrink-0" />
+                              ) : st.type === 'if' ? (
+                                <GitBranch size={13} className="text-cyan-400 shrink-0" />
                               ) : st.type === 'wait' ? (
                                 <Clock size={13} className="text-amber-400 shrink-0" />
                               ) : st.type === 'counter' ? (
@@ -4314,6 +4666,39 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           </button>
                         </div>
                       </div>
+
+                      {/* If / Else: show what runs in each branch, as bullet points */}
+                      {st.type === 'if' && (
+                        <div className={`mb-1 mt-0.5 flex flex-col gap-1.5 border-s-2 border-cyan-500/30 ps-3 ${isAttachedIf ? 'ms-[70px]' : 'ms-[42px]'}`}>
+                          {([
+                            ['then', st.ifThen ?? [], '✓', 'text-emerald-400', lang === 'ar' ? 'إذا صحّ' : 'Then'],
+                            ['else', st.ifElse ?? [], '✗', 'text-rose-400', lang === 'ar' ? 'وإلا' : 'Else'],
+                          ] as const).map(([key, list, icon, color, label]) => (
+                            <div key={key} onDoubleClick={() => setEditingStepId(st.id)} className="cursor-pointer text-[11.5px]">
+                              <div className={`font-semibold ${color}`}>
+                                {icon} {label}
+                              </div>
+                              {list.length === 0 ? (
+                                <div className="ps-5 text-[11px] italic text-zinc-600">
+                                  {lang === 'ar' ? 'لا شيء' : 'nothing'}
+                                </div>
+                              ) : (
+                                <ul className="list-disc space-y-0.5 ps-6 marker:text-zinc-500">
+                                  {list.map((b) => (
+                                    <li key={b.id} className="text-zinc-300">
+                                      <span className="font-medium text-zinc-100">{branchStepLabel(b, lang)}</span>
+                                      {branchStepDetail(b) && (
+                                        <span dir="auto" className="text-zinc-500"> — {branchStepDetail(b).slice(0, 70)}</span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -4628,6 +5013,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               </button>
               <button
                 type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-cyan-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'if');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <GitBranch size={14} />
+                <span>{t(lang, 'sequence.stepIf')}</span>
+              </button>
+              <button
+                type="button"
                 className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-orange-400"
                 onClick={() => {
                   const ns = addStep(sequence.id, 'moderation', { moderationAction: 'shoutout', targetUser: '{raider}' });
@@ -4728,6 +5125,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
           <EditSubActionModal
             step={step}
             index={stepIdx}
+            previousSteps={sequence.steps.slice(0, stepIdx)}
             counters={counters}
             lang={lang}
             onSave={(patch) => updateStep(sequence.id, step.id, patch)}

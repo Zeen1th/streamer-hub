@@ -11,6 +11,10 @@ export interface CommandRow {
   group: Exclude<CommandGroup, 'all' | 'disabled'>;
   action?: CounterAction;
   command: string;
+  /** What the list shows as the row title: counter / sequence name, or the reply's trigger word. */
+  name: string;
+  /** Sequence trigger kinds, shown as small icons instead of text. */
+  triggerKinds?: Array<'channel_points' | 'chat' | 'raid' | 'follow' | 'watch_streak'>;
   description: string;
   permission: PermissionLevel;
   cooldownSeconds: number;
@@ -62,6 +66,7 @@ export function projectCommands({
       group: 'counters' as const,
       action: 'increase',
       command: primary.commandName,
+      name: counter.name,
       description: counter.name,
       permission: primary.permission,
       cooldownSeconds: primary.cooldownSeconds,
@@ -95,6 +100,7 @@ export function projectCommands({
       sourceKind: 'reply',
       group: isAi ? 'ai' : 'replies',
       command: reply.triggers[0] ?? '',
+      name: reply.triggers[0] ?? '',
       description: isAi ? 'AI reply' : 'Prepared reply',
       permission: reply.minimumRank ?? 'everyone',
       cooldownSeconds: reply.cooldownSeconds,
@@ -136,6 +142,8 @@ export function projectCommands({
       sourceKind: 'sequence' as const,
       group: 'sequences' as const,
       command: triggerLabel,
+      name: seq.name,
+      triggerKinds: sequenceTriggerKinds(seq),
       description: seq.name,
       permission: 'everyone',
       cooldownSeconds: seq.cooldownSeconds,
@@ -149,6 +157,27 @@ export function projectCommands({
   return [...counterRows, ...replyRows, ...sequenceRows];
 }
 
+function sequenceTriggerKinds(seq: CommandSequence): NonNullable<CommandRow['triggerKinds']> {
+  const kinds: NonNullable<CommandRow['triggerKinds']> = [];
+  const add = (kind: NonNullable<CommandRow['triggerKinds']>[number]) => {
+    if (!kinds.includes(kind)) kinds.push(kind);
+  };
+  if (Array.isArray(seq.triggers)) {
+    for (const trigger of seq.triggers) {
+      if (trigger.enabled === false) continue;
+      if (trigger.type === 'twitch_channel_points') add('channel_points');
+      else if (trigger.type === 'twitch_chat') add('chat');
+      else if (trigger.type === 'twitch_raid') add('raid');
+      else if (trigger.type === 'twitch_follow') add('follow');
+      else if (trigger.type === 'twitch_watch_streak') add('watch_streak');
+    }
+  } else {
+    if (seq.triggerType === 'channel_points' || seq.triggerType === 'both') add('channel_points');
+    if (seq.triggerType === 'chat' || seq.triggerType === 'both') add('chat');
+  }
+  return kinds;
+}
+
 export function filterCommands(rows: CommandRow[], group: CommandGroup, query: string): CommandRow[] {
   const normalized = query.trim().toLocaleLowerCase();
   return rows.filter((row) => {
@@ -156,7 +185,7 @@ export function filterCommands(rows: CommandRow[], group: CommandGroup, query: s
     if (!inGroup) return false;
     if (!normalized) return true;
     const sub = row.subCommands ? ` ${row.subCommands.join(' ')}` : '';
-    return `${row.command} ${row.description}${sub}`.toLocaleLowerCase().includes(normalized);
+    return `${row.command} ${row.name} ${row.description}${sub}`.toLocaleLowerCase().includes(normalized);
   });
 }
 

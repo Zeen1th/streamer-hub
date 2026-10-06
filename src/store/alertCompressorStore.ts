@@ -45,17 +45,6 @@ export interface UserPresetSettings {
 
 const STAGED_NAME = /^[0-9a-f]{32}_/i;
 
-const ASK_SAVE_KEY = 'streamerhub.alertStudio.askSaveEachTime.v1';
-
-function loadAskSave(): boolean {
-  try {
-    if (typeof localStorage === 'undefined') return true;
-    return localStorage.getItem(ASK_SAVE_KEY) !== '0';
-  } catch {
-    return true;
-  }
-}
-
 const USER_PRESETS_KEY = 'streamerhub.alertStudio.userPresets.v1';
 
 function loadUserPresets(): UserLumaPreset[] {
@@ -107,7 +96,6 @@ interface AlertCompressorState {
   lumaGamma: number;
   lumaOpacity: number;
   userPresets: UserLumaPreset[];
-  askSaveEachTime: boolean;
   keepTempFiles: boolean;
   tempDirectory: string | null;
   effectiveTempDir: string;
@@ -154,7 +142,6 @@ interface AlertCompressorState {
   setOutputFormat(format: OutputFormat): void;
   rotateBy(deg: 90 | -90): void;
   setEditorCompress(on: boolean): void;
-  setAskSaveEachTime(on: boolean): void;
   loadTempSettings(): Promise<void>;
   setKeepTempFiles(keep: boolean): Promise<void>;
   chooseTempDirectory(): Promise<void>;
@@ -220,7 +207,6 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
   rotation: 0,
   videoBitrateK: null,
   userPresets: loadUserPresets(),
-  askSaveEachTime: loadAskSave(),
   keepTempFiles: false,
   tempDirectory: null,
   effectiveTempDir: '',
@@ -454,14 +440,6 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
       set({ tempError: String(err) });
     }
   },
-  setAskSaveEachTime: (askSaveEachTime) => {
-    try {
-      localStorage.setItem(ASK_SAVE_KEY, askSaveEachTime ? '1' : '0');
-    } catch {
-      // storage unavailable
-    }
-    set({ askSaveEachTime });
-  },
   setEditorTargetMb: (editorTargetMb) => set({ editorTargetMb }),
   rotateBy: (deg) => set((s) => ({ rotation: ((((s.rotation + deg) % 360) + 360) % 360) as Rotation })),
   setRotation: (rotation) => set({ rotation }),
@@ -516,6 +494,7 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
     try {
       const res = await rpc.invoke(Channels.DialogSaveFile, {
         defaultName: defaultFileName,
+        initialDirectory: customOutputPath ? customOutputPath.replace(/[\\/][^\\/]*$/, '') || undefined : undefined,
         filter,
         title: isEditor ? 'Choose where to save the luma-keyed video' : 'Choose where to save the compressed video',
       });
@@ -607,8 +586,8 @@ export const useAlertCompressorStore = create<AlertCompressorState>((set, get) =
   setSplitPosition: (splitPosition) => set({ splitPosition }),
 
   startCompression: async () => {
-    // Ask where to save on every export unless the user opted out; cancelling aborts the export
-    if (get().askSaveEachTime && !(await get().chooseSavePath())) return;
+    // Always ask where to save (and let the user rename the file); cancelling aborts the export
+    if (!(await get().chooseSavePath())) return;
 
     const {
       selectedFile,

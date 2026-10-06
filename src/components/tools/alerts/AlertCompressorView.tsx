@@ -88,8 +88,6 @@ export function AlertCompressorView() {
   const editorTargetMb = useAlertCompressorStore((s) => s.editorTargetMb);
   const setEditorCompress = useAlertCompressorStore((s) => s.setEditorCompress);
   const setEditorTargetMb = useAlertCompressorStore((s) => s.setEditorTargetMb);
-  const askSaveEachTime = useAlertCompressorStore((s) => s.askSaveEachTime);
-  const setAskSaveEachTime = useAlertCompressorStore((s) => s.setAskSaveEachTime);
   const outputHeight = useAlertCompressorStore((s) => s.outputHeight);
   const setOutputHeight = useAlertCompressorStore((s) => s.setOutputHeight);
   const keepTempFiles = useAlertCompressorStore((s) => s.keepTempFiles);
@@ -113,7 +111,6 @@ export function AlertCompressorView() {
   const lumaGamma = useAlertCompressorStore((s) => s.lumaGamma);
   const lumaOpacity = useAlertCompressorStore((s) => s.lumaOpacity);
   const outputFormat = useAlertCompressorStore((s) => s.outputFormat);
-  const customOutputPath = useAlertCompressorStore((s) => s.customOutputPath);
   const previewBg = useAlertCompressorStore((s) => s.previewBg);
   const previewCustomColor = useAlertCompressorStore((s) => s.previewCustomColor);
   const previewViewMode = useAlertCompressorStore((s) => s.previewViewMode);
@@ -147,8 +144,6 @@ export function AlertCompressorView() {
   const setLumaGamma = useAlertCompressorStore((s) => s.setLumaGamma);
   const setLumaOpacity = useAlertCompressorStore((s) => s.setLumaOpacity);
   const setOutputFormat = useAlertCompressorStore((s) => s.setOutputFormat);
-  const setCustomOutputPath = useAlertCompressorStore((s) => s.setCustomOutputPath);
-  const chooseSavePath = useAlertCompressorStore((s) => s.chooseSavePath);
   const applyPreset = useAlertCompressorStore((s) => s.applyPreset);
   const setPreviewBg = useAlertCompressorStore((s) => s.setPreviewBg);
   const setPreviewCustomColor = useAlertCompressorStore((s) => s.setPreviewCustomColor);
@@ -1601,38 +1596,7 @@ export function AlertCompressorView() {
                       <span className="text-[10px] text-[#868F9D]">{t(lang, 'alerts.bitrateProresNote')}</span>
                     )}
 
-                    {/* Path Picker */}
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={customOutputPath}
-                          onChange={(e) => setCustomOutputPath(e.target.value)}
-                          placeholder="C:\Videos\alert_lumakey.webm"
-                          className="h-9 flex-1 rounded-xl border border-white/[0.1] bg-black/30 px-3 text-xs text-white placeholder:text-[#555f6d] focus:border-purple-500 focus:outline-none"
-                        />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void chooseSavePath()}
-                          className="h-9 gap-1.5 text-xs border-purple-500/40 text-purple-300 hover:bg-purple-500/15 shrink-0"
-                        >
-                          <FolderOpen size={14} />
-                          <span>{t(lang, 'alerts.browseDestination')}</span>
-                        </Button>
-                      </div>
-                      <span className="text-[10px] text-[#868F9D]">{t(lang, askSaveEachTime ? 'alerts.saveAsHintAsk' : 'alerts.saveAsHint')}</span>
-                    </div>
-
-                    <label className="flex cursor-pointer items-center gap-2.5 text-xs text-white">
-                      <input
-                        type="checkbox"
-                        checked={askSaveEachTime}
-                        onChange={(e) => setAskSaveEachTime(e.target.checked)}
-                        className="size-4 rounded border-white/20 bg-black/40 text-purple-600 focus:ring-purple-500"
-                      />
-                      <span>{t(lang, 'alerts.askSaveEachTime')}</span>
-                    </label>
+                    <p className="text-[10.5px] text-[#868F9D]">{t(lang, 'alerts.saveAsHintAsk')}</p>
 
                     {/* Export Action Button */}
                     {!isCompressing && (
@@ -1833,15 +1797,7 @@ export function AlertCompressorView() {
                       <span className="font-mono text-sm font-bold text-white w-14 text-end">{targetSizeMb} MB</span>
                     </div>
 
-                    <label className="flex cursor-pointer items-center gap-2.5 text-xs text-white">
-                      <input
-                        type="checkbox"
-                        checked={askSaveEachTime}
-                        onChange={(e) => setAskSaveEachTime(e.target.checked)}
-                        className="size-4 rounded border-white/20 bg-black/40 text-purple-600 focus:ring-purple-500"
-                      />
-                      <span>{t(lang, 'alerts.askSaveEachTime')}</span>
-                    </label>
+                    <p className="text-[10.5px] text-[#868F9D]">{t(lang, 'alerts.saveAsHintAsk')}</p>
 
                     {/* Action Button */}
                     <Button

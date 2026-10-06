@@ -1,9 +1,8 @@
-import { Download, Moon, Sun, Sparkles, Wrench, X, Loader2 } from 'lucide-react';
+import { Download, Sparkles, Wrench, X, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { t } from '../../i18n/translations';
 import { rpc } from '../../rpc';
 import { Channels } from '../../rpc/contracts';
-import { resolveTheme } from '../../lib/theme';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useUpdateStore } from '../../store/updateStore';
 import { parseReleaseNotes } from '../../lib/releaseNotes';
@@ -12,14 +11,7 @@ import { WindowControls } from './WindowControls';
 export function Titlebar() {
   const language = useSettingsStore((s) => s.language);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
-  const theme = useSettingsStore((s) => s.theme);
-  const setTheme = useSettingsStore((s) => s.setTheme);
-  const lastDarkTheme = useSettingsStore((s) => s.lastDarkTheme);
-  const effectiveScale = useSettingsStore((s) => s.effectiveScale);
-  const resetScale = useSettingsStore((s) => s.resetScale);
   const lang = language === 'ar' ? 'ar' : 'en';
-  const systemIsDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
-  const resolvedTheme = resolveTheme(theme, systemIsDark);
   const updateAvailable = useUpdateStore((s) => s.updateAvailable);
   const currentVersion = useUpdateStore((s) => s.currentVersion);
   const latestVersion = useUpdateStore((s) => s.latestVersion);
@@ -33,7 +25,7 @@ export function Titlebar() {
   const [message, setMessage] = useState<string | null>(null);
 
   const parsedNotes = parseReleaseNotes(releaseNotes, lang);
-  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.7';
+  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.8';
 
   useEffect(() => {
     if (!debugPromptRequested) return;
@@ -76,23 +68,13 @@ export function Titlebar() {
           <circle cx="32" cy="32" r="2.8" fill="#FFFFFF" />
         </svg>
         <span className="font-sans text-[12.5px] font-bold tracking-tight text-ink">Streamer Hub</span>
-        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.4.7</span>
+        <span className="font-mono text-[10.5px] text-[#9AA3AF]">v0.4.8</span>
       </div>
       <div data-drag-exclude className="flex h-full items-center gap-1 pe-1">
         {message && <span role="status" className="px-2 font-mono text-[10px] text-muted">{message}</span>}
         {updateAvailable && (
           <button type="button" className="flex h-[24px] items-center gap-1 rounded-[4px] border border-accent/40 bg-accent-soft px-2 font-sans text-[10px] font-semibold text-accent-text hover:bg-accent/20" onClick={() => setShowUpdate((value) => !value)}>
             <Download size={12} aria-hidden /> {t(lang, 'updates.available')} · v{latestVersion}
-          </button>
-        )}
-        {Math.abs(effectiveScale - 1) > 0.02 && (
-          <button
-            type="button"
-            className="flex h-[24px] items-center rounded-[4px] px-1.5 font-mono text-[10.5px] font-semibold text-accent hover:bg-white/[0.08] transition-colors"
-            title={`${t(lang, 'settings.uiScaleActive')}: ${Math.round(effectiveScale * 100)}% (${t(lang, 'settings.uiScaleReset')})`}
-            onClick={() => resetScale()}
-          >
-            <span>{Math.round(effectiveScale * 100)}%</span>
           </button>
         )}
         <button
@@ -102,15 +84,6 @@ export function Titlebar() {
           onClick={() => setLanguage(lang === 'ar' ? 'en' : 'ar')}
         >
           <span dir="ltr">{lang === 'ar' ? 'EN' : 'عربي'}</span>
-        </button>
-        <button
-          type="button"
-          className="grid h-[24px] w-7 place-items-center rounded-[4px] text-muted hover:bg-white/[0.06] hover:text-ink transition-colors"
-          title={t(lang, 'titlebar.appearance')}
-          aria-label={t(lang, 'titlebar.appearance')}
-          onClick={() => setTheme(resolvedTheme === 'light' ? (lastDarkTheme || 'dark') : 'light')}
-        >
-          {resolvedTheme === 'light' ? <Moon size={13} /> : <Sun size={13} />}
         </button>
         {!updateAvailable && (
           <button

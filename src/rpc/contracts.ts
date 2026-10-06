@@ -169,7 +169,16 @@ export type SequenceStepType =
   | 'duel'
   | 'duel_streamer'
   | 'poll'
-  | 'mic_mute';
+  | 'mic_mute'
+  | 'if';
+/** What an If step checks. Duel conditions use the nearest earlier duel step, poll conditions the nearest earlier poll. */
+export type SequenceIfCondition =
+  | 'duel_challenger_won'
+  | 'duel_opponent_won'
+  | 'duel_no_winner'
+  | 'poll_winner_is'
+  | 'poll_tie'
+  | 'poll_no_votes';
 export type SequenceWaitUnit = 'seconds' | 'minutes';
 export type SequenceTriggerType = 'channel_points' | 'chat' | 'both';
 
@@ -294,7 +303,10 @@ export interface SequenceStep {
   duelMessageWin?: string;
   duelMessageTimeout?: string;
   duelChallengerWinChance?: number;
-  duelAllowBroadcaster?: boolean;
+  /** Viewers (and roles) who are off-limits for this duel; challengers get `duelProtectedMessage`. */
+  duelProtectedUsers?: string[];
+  duelProtectedRoles?: Array<'moderator' | 'vip' | 'subscriber'>;
+  duelProtectedMessage?: string;
   duelBroadcasterMuteSource?: string;
   duelStreamerWinMessage?: string;
   duelStreamerLoseMessage?: string;
@@ -304,6 +316,12 @@ export interface SequenceStep {
   pollQuestion?: string;
   pollOptions?: string[];
   pollDurationSeconds?: number;
+
+  // If / Else (true-false branch on the latest mini game or poll result)
+  ifCondition?: SequenceIfCondition;
+  ifOption?: string;
+  ifThen?: SequenceStep[];
+  ifElse?: SequenceStep[];
 
   // Mute Mic / OBS Source Mute
   micMuteDurationSeconds?: number;
@@ -780,7 +798,7 @@ export interface HostApi {
     request: { filePath: string; content: string };
     response: { ok: boolean; error?: string };
   };
-  [Channels.DialogSaveFile]: { request: { defaultName: string; filter?: string; title?: string }; response: { path: string | null } };
+  [Channels.DialogSaveFile]: { request: { defaultName: string; filter?: string; title?: string; initialDirectory?: string }; response: { path: string | null } };
   [Channels.LogAppend]: { request: LogPayload; response: { ok: boolean } };
   [Channels.TwitchAuthorize]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchForget]: { request: undefined; response: { ok: boolean } };

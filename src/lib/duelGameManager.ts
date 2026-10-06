@@ -10,6 +10,18 @@ export interface DuelExecutionSinks {
   delay?: (ms: number) => Promise<void>;
 }
 
+/** How a duel ended. `challengerWon` is false when the opponent (e.g. the streamer) won. */
+export type DuelOutcome =
+  | { kind: 'win'; winner: string; loser: string; challengerWon: boolean }
+  | { kind: 'no_winner' };
+
+export interface StartDuelResult {
+  ok: boolean;
+  error?: string;
+  /** Resolves when the duel is fully finished (null if it was cancelled). Absent when the duel never started. */
+  outcome?: Promise<DuelOutcome | null>;
+}
+
 export interface StartDuelOptions {
   challenger: string;
   opponentRaw: string;
@@ -29,6 +41,10 @@ export interface StartDuelOptions {
   isStreamerDuel?: boolean;
   streamerWinMessage?: string;
   streamerLoseMessage?: string;
+  /** Off-limits check: the opponent in a viewer duel, the challenger in a streamer duel. */
+  isProtected?: (username: string) => boolean;
+  /** Reply sent to the challenger instead of starting the duel. Tokens: {challenger} {opponent} {target}. */
+  protectedMessage?: string;
   sinks: DuelExecutionSinks;
 }
 
@@ -51,7 +67,15 @@ export interface ActiveTriviaDuel {
   messageTimeout?: string;
   sinks: DuelExecutionSinks;
   timerHandle: ReturnType<typeof setTimeout> | null;
+  resolveOutcome?: (outcome: DuelOutcome | null) => void;
 }
+
+export const DEFAULT_PROTECTED_MESSAGES = {
+  viewerEn: "⛔ @{challenger}, you can't duel @{opponent} — they're off-limits for duels.",
+  viewerAr: '⛔ @{challenger}، لا يمكنك تحدي @{opponent} — هذا المشاهد غير متاح للتحديات.',
+  streamerEn: "⛔ @{challenger}, you can't challenge the streamer.",
+  streamerAr: '⛔ @{challenger}، لا يمكنك تحدي الستريمر.',
+};
 
 export const DEFAULT_DUEL_MESSAGES = {
   randomStart: '⚔️ [Timeout Duel] @{challenger} has challenged @{opponent} to a 50/50 timeout duel!',
@@ -341,12 +365,13 @@ class DuelGameManager {
     if (this.activeDuel?.timerHandle) {
       clearTimeout(this.activeDuel.timerHandle);
     }
+    this.activeDuel?.resolveOutcome?.(null);
     this.activeDuel = null;
     this.isStarting = false;
     this.lastDuelFinishedAt = 0;
   }
 
-  public async startDuel(options: StartDuelOptions): Promise<{ ok: boolean; error?: string }> {
+  public async startDuel(options: StartDuelOptions): Promise<StartDuelResult> {
     const { challenger, opponentRaw, mode, sinks } = options;
     const timeoutDuration = Math.max(5, options.timeoutDuration ?? 60);
     const timerSeconds = Math.max(10, options.timerSeconds ?? 30);
@@ -379,6 +404,20 @@ class DuelGameManager {
     if (!options.isStreamerDuel && isOpponentBroadcaster && !allowBroadcaster) {
       await sinks.sendChatMessage(`⚠️ [Duel] Cannot challenge the channel broadcaster!`);
       return { ok: false, error: 'CANNOT_CHALLENGE_BROADCASTER' };
+    }
+
+    const protectedUser = options.isStreamerDuel ? cleanChallenger : cleanOpponent;
+    if (options.isProtected?.(protectedUser)) {
+      const ar = options.language === 'ar';
+      const fallback = options.isStreamerDuel
+        ? (ar ? DEFAULT_PROTECTED_MESSAGES.streamerAr : DEFAULT_PROTECTED_MESSAGES.streamerEn)
+        : (ar ? DEFAULT_PROTECTED_MESSAGES.viewerAr : DEFAULT_PROTECTED_MESSAGES.viewerEn);
+      const template = options.protectedMessage?.trim() || fallback;
+      log('trigger', `[Duel] Blocked: @${protectedUser} is protected from this duel.`);
+      await sinks.sendChatMessage(
+        renderDuelMessage(template, { challenger: cleanChallenger, opponent: cleanOpponent, target: cleanOpponent }),
+      );
+      return { ok: false, error: options.isStreamerDuel ? 'CHALLENGER_PROTECTED' : 'OPPONENT_PROTECTED' };
     }
 
     if (this.isStarting || this.activeDuel) {
@@ -470,7 +509,7 @@ class DuelGameManager {
         }
 
         this.lastDuelFinishedAt = Date.now();
-        return { ok: true };
+        return { ok: true, outcome: Promise.resolve<DuelOutcome>({ kind: 'win', winner, loser, challengerWon: challengerWins }) };
       }
 
       // --- Choice 2: AI Gaming Trivia Duel ---
@@ -499,6 +538,10 @@ class DuelGameManager {
 
       const duelId = crypto.randomUUID();
       const expiresAt = Date.now() + timerSeconds * 1000;
+      let resolveOutcome: (outcome: DuelOutcome | null) => void = () => {};
+      const outcome = new Promise<DuelOutcome | null>((resolve) => {
+        resolveOutcome = resolve;
+      });
 
       const timerHandle = setTimeout(async () => {
         await this.handleTimeoutExpiration(duelId);
@@ -523,6 +566,7 @@ class DuelGameManager {
         messageTimeout: options.messageTimeout,
         sinks,
         timerHandle,
+        resolveOutcome,
       };
 
       const startTpl = options.messageStart?.trim() ||
@@ -535,7 +579,7 @@ class DuelGameManager {
         })),
       );
 
-      return { ok: true };
+      return { ok: true, outcome };
     } finally {
       this.isStarting = false;
     }
@@ -641,6 +685,7 @@ class DuelGameManager {
       }
     }
 
+    duel.resolveOutcome?.({ kind: 'win', winner, loser, challengerWon: isChallenger });
     return true;
   }
 
@@ -713,6 +758,8 @@ class DuelGameManager {
         );
       }
     }
+
+    duel.resolveOutcome?.({ kind: 'no_winner' });
   }
 }
 

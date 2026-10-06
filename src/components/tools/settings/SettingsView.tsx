@@ -285,6 +285,7 @@ export function SettingsView() {
                 <span>{t(lang, 'settings.uiScaleHotkeysHint')}</span>
               </div>
             </Card>
+
           </div>
         </section>
       )}

@@ -132,6 +132,9 @@ export default function App() {
         displayName: message.displayName || message.username,
         username: message.username,
         avatarUrl: message.avatarUrl,
+        isMod: message.isMod || !!message.isLeadMod,
+        isVip: message.isVip,
+        isSubscriber: message.isSubscriber,
       });
       useLogStore.getState().addLocal({ kind: 'chat', message: message.message, username: message.username });
       useCounterStore.getState().handleChatMessage(message);

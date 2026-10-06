@@ -30,8 +30,12 @@ import { useConnectionStore } from './connectionStore';
 import { useLogStore } from './logStore';
 import { useVoteStore } from './voteStore';
 import { useSettingsStore } from './settingsStore';
+import { isShielded } from '../lib/shield';
+import { insertIndexForIf, moveStepBlock, reorderStepBlock } from '../lib/stepGroups';
+import { useChatterStore } from './chatterStore';
 import { duelGameManager } from '../lib/duelGameManager';
 import { DEFAULT_OPTION_COLORS } from '../lib/voteRules';
+import { evaluatePollOutcome, type PollOutcome } from '../lib/pollOutcome';
 import { MessageDeduplicator } from '../lib/autoReplyRules';
 
 interface SequenceState {
@@ -161,7 +165,32 @@ export const normalizeTriggers = (seq: CommandSequence): ActionTrigger[] => {
   return result;
 };
 
-const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceStep>): SequenceStep => {
+/**
+ * Result of the current poll. With `wait`, resolves when a running poll closes (null if it is
+ * reset/stopped without closing); otherwise reads the poll as it stands.
+ */
+const waitForPollOutcome = (wait: boolean): Promise<PollOutcome | null> => {
+  const read = () => {
+    const poll = useVoteStore.getState().poll;
+    return evaluatePollOutcome(poll.options.map((o) => ({ label: o.label, votes: o.votes })));
+  };
+  const current = useVoteStore.getState().poll;
+  if (!wait || current.isEnded) return Promise.resolve(read());
+  if (!current.isActive) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const unsubscribe = useVoteStore.subscribe((state) => {
+      if (state.poll.isEnded) {
+        unsubscribe();
+        resolve(read());
+      } else if (!state.poll.isActive) {
+        unsubscribe();
+        resolve(null);
+      }
+    });
+  });
+};
+
+export const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceStep>): SequenceStep => {
   const id = crypto.randomUUID();
   switch (type) {
     case 'comment':
@@ -231,7 +260,6 @@ const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceSt
         duelTimeoutDuration: options?.duelTimeoutDuration ?? 60,
         duelTimerSeconds: options?.duelTimerSeconds ?? 30,
         duelChallengerWinChance: options?.duelChallengerWinChance ?? 50,
-        duelAllowBroadcaster: options?.duelAllowBroadcaster ?? true,
         duelBroadcasterMuteSource: options?.duelBroadcasterMuteSource ?? '',
         ...options,
       };
@@ -244,7 +272,6 @@ const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceSt
         duelTimeoutDuration: options?.duelTimeoutDuration ?? 60,
         duelTimerSeconds: options?.duelTimerSeconds ?? 30,
         duelChallengerWinChance: options?.duelChallengerWinChance ?? 50,
-        duelAllowBroadcaster: true,
         duelBroadcasterMuteSource: options?.duelBroadcasterMuteSource ?? '',
         duelLanguage: options?.duelLanguage ?? 'auto',
         duelCategory: options?.duelCategory ?? 'general',
@@ -263,6 +290,16 @@ const defaultStepForType = (type: SequenceStepType, options?: Partial<SequenceSt
         pollQuestion: options?.pollQuestion ?? 'What game should we play next?',
         pollOptions: options?.pollOptions ?? ['Option A', 'Option B'],
         pollDurationSeconds: options?.pollDurationSeconds ?? 60,
+        ...options,
+      };
+    case 'if':
+      return {
+        id,
+        type: 'if',
+        ifCondition: options?.ifCondition ?? 'duel_challenger_won',
+        ifOption: options?.ifOption ?? '',
+        ifThen: options?.ifThen ?? [],
+        ifElse: options?.ifElse ?? [],
         ...options,
       };
     case 'mic_mute':
@@ -650,7 +687,10 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     set((state) => {
       const next = state.sequences.map((s) => {
         if (s.id !== sequenceId) return s;
-        const updated = { ...s, steps: [...s.steps, step] };
+        // An If snaps in right under the mini game / poll it checks
+        const at = step.type === 'if' ? insertIndexForIf(s.steps) : s.steps.length;
+        const steps = [...s.steps.slice(0, at), step, ...s.steps.slice(at)];
+        const updated = { ...s, steps };
         persist(updated);
         return updated;
       });
@@ -690,12 +730,8 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
       const seq = state.sequences.find((s) => s.id === sequenceId);
       if (!seq) return state;
 
-      const targetIndex = direction === 'up' ? stepIndex - 1 : stepIndex + 1;
-      if (targetIndex < 0 || targetIndex >= seq.steps.length) return state;
-
-      const nextSteps = [...seq.steps];
-      const [moved] = nextSteps.splice(stepIndex, 1);
-      nextSteps.splice(targetIndex, 0, moved);
+      const nextSteps = moveStepBlock(seq.steps, stepIndex, direction);
+      if (nextSteps === seq.steps) return state;
 
       const updated = { ...seq, steps: nextSteps };
       persist(updated);
@@ -710,12 +746,8 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     set((state) => {
       const seq = state.sequences.find((s) => s.id === sequenceId);
       if (!seq) return state;
-      if (fromIndex < 0 || fromIndex >= seq.steps.length || toIndex < 0 || toIndex >= seq.steps.length) return state;
-      if (fromIndex === toIndex) return state;
-
-      const nextSteps = [...seq.steps];
-      const [moved] = nextSteps.splice(fromIndex, 1);
-      nextSteps.splice(toIndex, 0, moved);
+      const nextSteps = reorderStepBlock(seq.steps, fromIndex, toIndex);
+      if (nextSteps === seq.steps) return state;
 
       const updated = { ...seq, steps: nextSteps };
       persist(updated);
@@ -890,7 +922,22 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
             opponentRaw: step.duelOpponent || defaultOpponent,
             mode: step.duelMode || 'random',
             challengerWinChance: step.duelChallengerWinChance ?? 50,
-            allowBroadcaster: isStreamerDuel || (step.duelAllowBroadcaster ?? true),
+            // Challenging the streamer is what the Streamer 1v1 step is for; viewer duels never include them
+            allowBroadcaster: isStreamerDuel,
+            isProtected: (user) =>
+              isShielded(
+                user,
+                {
+                  roles: {
+                    moderator: !!step.duelProtectedRoles?.includes('moderator'),
+                    vip: !!step.duelProtectedRoles?.includes('vip'),
+                    subscriber: !!step.duelProtectedRoles?.includes('subscriber'),
+                  },
+                  names: step.duelProtectedUsers ?? [],
+                },
+                useChatterStore.getState().findKnownChatter(user),
+              ),
+            protectedMessage: step.duelProtectedMessage,
             broadcasterMuteSource: step.duelBroadcasterMuteSource || '',
             timeoutDuration: step.duelTimeoutDuration ?? 60,
             timerSeconds: step.duelTimerSeconds ?? 30,
@@ -931,8 +978,9 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
               },
             },
           });
-          return res.ok;
+          return { ok: res.ok, outcome: res.outcome };
         },
+        getPollOutcome: (wait) => waitForPollOutcome(wait),
         executePollAction: async (action, question, options, durationSeconds) => {
           const voteStore = useVoteStore.getState();
           if (action === 'start') {

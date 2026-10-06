@@ -1,4 +1,6 @@
-import type { CommandSequence, CounterAction, LogKind, ModerationAction, SequenceStep } from '../rpc/contracts';
+import type { DuelOutcome } from './duelGameManager.ts';
+import type { PollOutcome } from './pollOutcome.ts';
+import type { CommandSequence, CounterAction, LogKind, ModerationAction, SequenceIfCondition, SequenceStep } from '../rpc/contracts';
 
 export interface SequenceExecutionContext {
   username: string;
@@ -32,7 +34,12 @@ export interface SequenceExecutionSinks {
   ) => Promise<boolean>;
   writeObsText?: (filePath: string, content: string) => Promise<boolean>;
   showObsImage?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<boolean>;
-  executeDuel?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<boolean>;
+  executeDuel?: (
+    step: SequenceStep,
+    ctx: SequenceExecutionContext,
+  ) => Promise<boolean | { ok: boolean; outcome?: Promise<DuelOutcome | null> }>;
+  /** Result of the most recent poll. `wait` = the poll is still running, resolve once it closes. */
+  getPollOutcome?: (wait: boolean) => Promise<PollOutcome | null>;
   executePollAction?: (
     action: 'start' | 'end' | 'reset',
     question?: string,
@@ -214,6 +221,70 @@ export function matchesSequenceTrigger(sequence: CommandSequence, query: Sequenc
   return false;
 }
 
+/** The longest an If step waits for a mini game / poll to finish before it gives up and is skipped. */
+export const IF_WAIT_CAP_MS = 15 * 60 * 1000;
+
+export type IfResult =
+  | { kind: 'duel'; outcome: DuelOutcome }
+  | { kind: 'poll'; outcome: PollOutcome };
+
+/**
+ * true / false = which branch to run; null = no usable result (skip the If step).
+ * A condition that doesn't match the kind of game that ran is also "no usable result".
+ */
+export function evaluateIfCondition(
+  condition: SequenceIfCondition,
+  option: string | undefined,
+  result: IfResult | null,
+): boolean | null {
+  if (!result) return null;
+  if (result.kind === 'duel') {
+    const { outcome } = result;
+    switch (condition) {
+      case 'duel_challenger_won':
+        return outcome.kind === 'win' && outcome.challengerWon;
+      case 'duel_opponent_won':
+        return outcome.kind === 'win' && !outcome.challengerWon;
+      case 'duel_no_winner':
+        return outcome.kind === 'no_winner';
+      default:
+        return null;
+    }
+  }
+  const { outcome } = result;
+  switch (condition) {
+    case 'poll_winner_is':
+      return (
+        outcome.kind === 'winner' &&
+        outcome.label.trim().toLowerCase() === (option ?? '').trim().toLowerCase()
+      );
+    case 'poll_tie':
+      return outcome.kind === 'tie';
+    case 'poll_no_votes':
+      return outcome.kind === 'none';
+    default:
+      return null;
+  }
+}
+
+async function withCap<T>(promise: Promise<T>, capMs: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), capMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+type LastGame =
+  | { kind: 'duel'; outcome: Promise<DuelOutcome | null> | null }
+  | { kind: 'poll'; waitForEnd: boolean };
+
 const defaultDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export async function executeSequence(
@@ -227,10 +298,12 @@ export async function executeSequence(
   log('trigger', `Starting Sequence [${sequence.name}] triggered by ${ctx.username} (${ctx.source})`);
 
   let executedCount = 0;
+  let lastGame: LastGame | null = null;
 
-  for (let i = 0; i < sequence.steps.length; i++) {
-    const step = sequence.steps[i];
-    sinks.onStepStart?.(i, step);
+  const runSteps = async (steps: SequenceStep[], topLevel: boolean): Promise<SequenceExecutionResult | null> => {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (topLevel) sinks.onStepStart?.(i, step);
 
     try {
       switch (step.type) {
@@ -288,7 +361,7 @@ export async function executeSequence(
           if (action !== 'clear_chat' && !cleanTarget) {
             const errMsg = `Moderation action "${action}" skipped — empty target username. (Usage: ${sequence.chatTrigger || sequence.name} @username)`;
             log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: ${errMsg}`);
-            sinks.onStepComplete?.(i, step);
+            if (topLevel) sinks.onStepComplete?.(i, step);
             return { ok: false, executedSteps: executedCount, error: errMsg };
           }
 
@@ -308,7 +381,7 @@ export async function executeSequence(
                 userFriendlyMsg = `Twitch permission denied (${rawErr}). Ensure you have moderator privileges and re-authenticate Twitch if scopes were updated.`;
               }
               log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1} moderation failed: ${userFriendlyMsg}`);
-              sinks.onStepComplete?.(i, step);
+              if (topLevel) sinks.onStepComplete?.(i, step);
               return { ok: false, executedSteps: executedCount, error: userFriendlyMsg };
             } else if (res.wasMod) {
               log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Note: ${cleanTarget} is a mod — temporarily unmodded, timed out for ${duration}s, and will be re-modded automatically.`);
@@ -393,14 +466,16 @@ export async function executeSequence(
           const resolvedOpponent = replaceSequenceTokens(rawOpponent, ctx).trim();
           const cleanOpponent = extractTargetUsername(resolvedOpponent) || resolvedOpponent.replace(/^@+/, '');
           log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Timeout Duel (${mode}) against "${cleanOpponent}"`);
+          lastGame = { kind: 'duel', outcome: null };
           if (sinks.executeDuel) {
-            await sinks.executeDuel(
+            const res = await sinks.executeDuel(
               {
                 ...step,
                 duelOpponent: cleanOpponent,
               },
               ctx,
             );
+            lastGame = { kind: 'duel', outcome: typeof res === 'object' && res ? res.outcome ?? null : null };
           }
           break;
         }
@@ -411,8 +486,9 @@ export async function executeSequence(
           const rawOpponent = step.duelOpponent ? replaceSequenceTokens(step.duelOpponent, ctx).trim() : streamerTarget;
           const cleanOpponent = extractTargetUsername(rawOpponent) || rawOpponent.replace(/^@+/, '') || streamerTarget;
           log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Challenge Streamer (${mode}) against "${cleanOpponent}"`);
+          lastGame = { kind: 'duel', outcome: null };
           if (sinks.executeDuel) {
-            await sinks.executeDuel(
+            const res = await sinks.executeDuel(
               {
                 ...step,
                 type: 'duel_streamer',
@@ -420,6 +496,7 @@ export async function executeSequence(
               },
               ctx,
             );
+            lastGame = { kind: 'duel', outcome: typeof res === 'object' && res ? res.outcome ?? null : null };
           }
           break;
         }
@@ -435,6 +512,42 @@ export async function executeSequence(
               step.pollDurationSeconds,
             );
           }
+          // 'start' leaves the poll running (If waits for it to close); 'end' has a final result already
+          lastGame = action === 'reset' ? null : { kind: 'poll', waitForEnd: action === 'start' };
+          break;
+        }
+
+        case 'if': {
+          const condition = step.ifCondition;
+          if (!condition) {
+            log('system', `[Sequence ${sequence.name}] Step ${i + 1}: If skipped — no condition selected.`);
+            break;
+          }
+          if (!lastGame) {
+            log('system', `[Sequence ${sequence.name}] Step ${i + 1}: If skipped — no mini game or poll ran before it.`);
+            break;
+          }
+
+          log('system', `[Sequence ${sequence.name}] Step ${i + 1}: If — waiting for the ${lastGame.kind === 'duel' ? 'mini game' : 'poll'} result...`);
+          let result: IfResult | null = null;
+          if (lastGame.kind === 'duel') {
+            const outcome = lastGame.outcome ? await withCap(lastGame.outcome, IF_WAIT_CAP_MS) : null;
+            if (outcome) result = { kind: 'duel', outcome };
+          } else if (sinks.getPollOutcome) {
+            const outcome = await withCap(sinks.getPollOutcome(lastGame.waitForEnd), IF_WAIT_CAP_MS);
+            if (outcome) result = { kind: 'poll', outcome };
+          }
+
+          const verdict = evaluateIfCondition(condition, step.ifOption, result);
+          if (verdict === null) {
+            log('system', `[Sequence ${sequence.name}] Step ${i + 1}: If skipped — no usable result (game did not finish, was cancelled, or does not match this condition).`);
+            break;
+          }
+
+          const branch = (verdict ? step.ifThen : step.ifElse) ?? [];
+          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: If is ${verdict ? 'TRUE' : 'FALSE'} — running ${branch.length} ${verdict ? 'Then' : 'Else'} step(s).`);
+          const branchFailure = await runSteps(branch, false);
+          if (branchFailure) return branchFailure;
           break;
         }
 
@@ -451,14 +564,19 @@ export async function executeSequence(
       }
 
       executedCount++;
-      sinks.onStepComplete?.(i, step);
+      if (topLevel) sinks.onStepComplete?.(i, step);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1} failed: ${errorMsg}`);
-      sinks.onStepComplete?.(i, step);
+      if (topLevel) sinks.onStepComplete?.(i, step);
       return { ok: false, executedSteps: executedCount, error: errorMsg };
     }
   }
+  return null;
+  };
+
+  const failure = await runSteps(sequence.steps, true);
+  if (failure) return failure;
 
   log('trigger', `Sequence [${sequence.name}] completed (${executedCount} steps).`);
   return { ok: true, executedSteps: executedCount };

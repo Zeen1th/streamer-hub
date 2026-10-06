@@ -10,6 +10,8 @@ public sealed record WindowSettings
     public int Width { get; init; } = 1280;
     public int Height { get; init; } = 800;
     public bool Maximized { get; init; }
+    /// <summary>Set once the one-time move off the old 1280x800 default has been considered.</summary>
+    public bool SizeUpgraded { get; init; }
 }
 
 public sealed record ObsSettings
