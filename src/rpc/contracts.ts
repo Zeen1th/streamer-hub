@@ -170,7 +170,8 @@ export type SequenceStepType =
   | 'duel_streamer'
   | 'poll'
   | 'mic_mute'
-  | 'if';
+  | 'if'
+  | 'run_sequence';
 /** What an If step checks. Duel conditions use the nearest earlier duel step, poll conditions the nearest earlier poll. */
 export type SequenceIfCondition =
   | 'duel_challenger_won'
@@ -187,7 +188,8 @@ export type ActionTriggerType =
   | 'twitch_chat'
   | 'twitch_channel_points'
   | 'twitch_follow'
-  | 'twitch_watch_streak';
+  | 'twitch_watch_streak'
+  | 'timer';
 
 export interface ActionTrigger {
   id: string;
@@ -199,6 +201,10 @@ export interface ActionTrigger {
   matchMode?: 'exact' | 'startsWith' | 'contains';
   rewardId?: string;
   rewardTitle?: string;
+  /** Timer trigger: send every N minutes. */
+  intervalMinutes?: number;
+  /** Timer trigger: chat messages needed since the last run (0 = always send). */
+  minChatMessages?: number;
 }
 
 export interface TwitchRaidEvent {
@@ -307,6 +313,8 @@ export interface SequenceStep {
   duelProtectedUsers?: string[];
   duelProtectedRoles?: Array<'moderator' | 'vip' | 'subscriber'>;
   duelProtectedMessage?: string;
+  /** Reply for one specific protected viewer, keyed by lowercase login. Overrides `duelProtectedMessage`. */
+  duelProtectedUserMessages?: Record<string, string>;
   duelBroadcasterMuteSource?: string;
   duelStreamerWinMessage?: string;
   duelStreamerLoseMessage?: string;
@@ -316,6 +324,10 @@ export interface SequenceStep {
   pollQuestion?: string;
   pollOptions?: string[];
   pollDurationSeconds?: number;
+
+  // Run another sequence as a sub-action
+  sequenceId?: string;
+  waitForSequence?: boolean;
 
   // If / Else (true-false branch on the latest mini game or poll result)
   ifCondition?: SequenceIfCondition;
@@ -652,6 +664,7 @@ export interface GenerateAiPollResponse {
 
 export const Channels = {
   WindowMinimize: 'window/minimize',
+  WindowSetZoom: 'window/set-zoom',
   WindowMaximizeToggle: 'window/maximize-toggle',
   WindowClose: 'window/close',
   WindowIsMaximized: 'window/is-maximized',
@@ -783,6 +796,7 @@ export interface HostApi {
   [Channels.WindowMinimize]: { request: undefined; response: void };
   [Channels.WindowMaximizeToggle]: { request: undefined; response: { isMaximized: boolean } };
   [Channels.WindowClose]: { request: undefined; response: void };
+  [Channels.WindowSetZoom]: { request: { factor: number }; response: { ok: boolean } };
   [Channels.WindowIsMaximized]: { request: undefined; response: { isMaximized: boolean } };
   [Channels.CoreGetStatus]: { request: undefined; response: ConnectionStatus };
   [Channels.CountersGetState]: { request: undefined; response: Counter[] };

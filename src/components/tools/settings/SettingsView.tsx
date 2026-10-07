@@ -45,6 +45,7 @@ export function SettingsView() {
   const checkForUpdate = useUpdateStore((s) => s.check);
   const openWhatsNew = useUpdateStore((s) => s.openWhatsNew);
   const [updateCheckStatus, setUpdateCheckStatus] = useState<string | null>(null);
+  const [scaleDraft, setScaleDraft] = useState<number | null>(null);
   const uiScaleMode = useSettingsStore((s) => s.uiScaleMode);
   const uiCustomScale = useSettingsStore((s) => s.uiCustomScale);
   const effectiveScale = useSettingsStore((s) => s.effectiveScale);
@@ -253,13 +254,21 @@ export function SettingsView() {
                     </Button>
                     <div className="flex-1">
                       <Slider
-                        value={Math.round(uiCustomScale * 100)}
+                        value={scaleDraft ?? Math.round(uiCustomScale * 100)}
                         min={75}
                         max={175}
                         step={5}
-                        onChange={(val) => setUiScale('custom', val / 100)}
+                        // Zooming the page while the thumb is held makes it jump under the pointer, so apply on release
+                        onChange={(val) => setScaleDraft(val)}
+                        onCommit={(val) => {
+                          setScaleDraft(null);
+                          if (Math.round(uiCustomScale * 100) !== val) setUiScale('custom', val / 100);
+                        }}
                         ariaLabel={t(lang, 'settings.uiScaleActive')}
                       />
+                      <div className="mt-1 text-center font-mono text-[11px] text-muted">
+                        {scaleDraft ?? Math.round(uiCustomScale * 100)}%
+                      </div>
                     </div>
                     <Button
                       variant="ghost"

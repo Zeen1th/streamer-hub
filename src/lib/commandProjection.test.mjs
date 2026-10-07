@@ -131,3 +131,37 @@ test('projects sequence with empty triggers array as (No Triggers)', () => {
 });
 
 
+
+test('sequences run by another sequence are marked as called, including from If branches', () => {
+  const seq = (id, steps) => ({ id, enabled: true, name: id, cooldownSeconds: 0, triggers: [], steps });
+  const rows = projectCommands({
+    counters: [],
+    replies: [],
+    sequences: [
+      seq('parent', [
+        { id: 's1', type: 'run_sequence', sequenceId: 'direct' },
+        { id: 's2', type: 'if', ifCondition: 'duel_no_winner', ifThen: [{ id: 's3', type: 'run_sequence', sequenceId: 'nested' }], ifElse: [] },
+        { id: 's4', type: 'run_sequence', sequenceId: 'parent' }, // calling itself does not count
+      ]),
+      seq('direct', []),
+      seq('nested', []),
+      seq('lonely', []),
+    ],
+    obsErrors: {},
+  });
+  const called = Object.fromEntries(rows.map((row) => [row.sourceId, row.isCalled]));
+  assert.deepEqual(called, { parent: false, direct: true, nested: true, lonely: false });
+});
+
+test('sequences with a timer trigger show a timer icon kind and an every-N label', () => {
+  const rows = projectCommands({
+    counters: [],
+    replies: [],
+    sequences: [
+      { id: 'socials', enabled: true, name: 'Socials', cooldownSeconds: 0, steps: [], triggers: [{ id: 't', type: 'timer', enabled: true, intervalMinutes: 90 }] },
+    ],
+    obsErrors: {},
+  });
+  assert.deepEqual(rows[0].triggerKinds, ['timer']);
+  assert.ok(rows[0].command.includes('Every 1 h 30 min'));
+});

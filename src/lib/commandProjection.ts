@@ -1,5 +1,6 @@
 import type { AutoReply, CommandSequence, Counter, CounterAction, PermissionLevel } from '../rpc/contracts';
 import { renderTemplate } from './counterRules.ts';
+import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES } from './sequenceTimers.ts';
 
 export type CommandGroup = 'all' | 'counters' | 'replies' | 'ai' | 'sequences' | 'disabled';
 export type CommandSink = 'file' | 'title' | 'chat';
@@ -14,7 +15,9 @@ export interface CommandRow {
   /** What the list shows as the row title: counter / sequence name, or the reply's trigger word. */
   name: string;
   /** Sequence trigger kinds, shown as small icons instead of text. */
-  triggerKinds?: Array<'channel_points' | 'chat' | 'raid' | 'follow' | 'watch_streak'>;
+  /** Another sequence runs this one with a Run Sequence step (so having no trigger is fine). */
+  isCalled?: boolean;
+  triggerKinds?: Array<'channel_points' | 'chat' | 'raid' | 'follow' | 'watch_streak' | 'timer'>;
   description: string;
   permission: PermissionLevel;
   cooldownSeconds: number;
@@ -111,6 +114,16 @@ export function projectCommands({
     };
   });
 
+  const calledIds = new Set<string>();
+  const collectCalls = (steps: CommandSequence['steps'] | undefined, owner: string) => {
+    for (const step of steps ?? []) {
+      if (step.type === 'run_sequence' && step.sequenceId && step.sequenceId !== owner) calledIds.add(step.sequenceId);
+      collectCalls(step.ifThen, owner);
+      collectCalls(step.ifElse, owner);
+    }
+  };
+  for (const seq of sequences ?? []) collectCalls(seq.steps, seq.id);
+
   const sequenceRows: CommandRow[] = (sequences ?? []).map((seq) => {
     let triggerLabel = '🪙 Channel Points';
     if (Array.isArray(seq.triggers)) {
@@ -119,6 +132,7 @@ export function projectCommands({
       } else {
         const labels = seq.triggers.map((t) => {
           if (t.type === 'twitch_raid') return `🔥 Raid (≥${t.minViewers ?? 1})`;
+          if (t.type === 'timer') return `⏱ Every ${formatTimerInterval(t.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES)}`;
           if (t.type === 'twitch_chat') return t.chatCommand || 'Chat';
           return t.rewardTitle ? `🪙 ${t.rewardTitle}` : '🪙 Reward';
         });
@@ -144,6 +158,7 @@ export function projectCommands({
       command: triggerLabel,
       name: seq.name,
       triggerKinds: sequenceTriggerKinds(seq),
+      isCalled: calledIds.has(seq.id),
       description: seq.name,
       permission: 'everyone',
       cooldownSeconds: seq.cooldownSeconds,
@@ -170,6 +185,7 @@ function sequenceTriggerKinds(seq: CommandSequence): NonNullable<CommandRow['tri
       else if (trigger.type === 'twitch_raid') add('raid');
       else if (trigger.type === 'twitch_follow') add('follow');
       else if (trigger.type === 'twitch_watch_streak') add('watch_streak');
+      else if (trigger.type === 'timer') add('timer');
     }
   } else {
     if (seq.triggerType === 'channel_points' || seq.triggerType === 'both') add('channel_points');

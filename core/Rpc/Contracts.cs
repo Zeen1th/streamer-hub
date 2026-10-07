@@ -185,6 +185,7 @@ public sealed record SequenceStep
     public List<string>? DuelProtectedUsers { get; init; }
     public List<string>? DuelProtectedRoles { get; init; } // "moderator" | "vip" | "subscriber"
     public string? DuelProtectedMessage { get; init; }
+    public Dictionary<string, string>? DuelProtectedUserMessages { get; init; } // lowercase login -> reply
     public string? DuelBroadcasterMuteSource { get; init; }
     public string? DuelStreamerWinMessage { get; init; }
     public string? DuelStreamerLoseMessage { get; init; }
@@ -198,6 +199,10 @@ public sealed record SequenceStep
     // Mute Mic / OBS Source Mute
     public int? MicMuteDurationSeconds { get; init; }
     public string? MicMuteSourceName { get; init; }
+
+    // Run another sequence as a sub-action
+    public string? SequenceId { get; init; }
+    public bool? WaitForSequence { get; init; } // null/true = wait for it to finish
 
     // If / Else: branch on the latest mini game or poll result
     public string? IfCondition { get; init; } // "duel_challenger_won" | "duel_opponent_won" | "duel_no_winner" | "poll_winner_is" | "poll_tie" | "poll_no_votes"
@@ -221,7 +226,7 @@ public sealed record ObsMuteSourcePayload(string SourceName, int DurationSeconds
 public sealed record ActionTrigger
 {
     public string Id { get; init; } = string.Empty;
-    public string Type { get; init; } = "twitch_chat"; // "twitch_raid" | "twitch_chat" | "twitch_channel_points" | "twitch_follow" | "twitch_watch_streak"
+    public string Type { get; init; } = "twitch_chat"; // "twitch_raid" | "twitch_chat" | "twitch_channel_points" | "twitch_follow" | "twitch_watch_streak" | "timer"
     public bool Enabled { get; init; } = true;
     public int? MinViewers { get; init; }
     public int? MinStreak { get; init; }
@@ -229,6 +234,8 @@ public sealed record ActionTrigger
     public string? MatchMode { get; init; } // "exact" | "startsWith" | "contains"
     public string? RewardId { get; init; }
     public string? RewardTitle { get; init; }
+    public int? IntervalMinutes { get; init; } // timer trigger
+    public int? MinChatMessages { get; init; } // timer trigger
 }
 
 public sealed record TwitchRaidEvent(string FromUserId, string FromUserName, string FromUserLogin, int Viewers);
@@ -442,6 +449,8 @@ public sealed record InspectAlertPayload(
 public sealed record OpenFolderPayload(
     string Path
 );
+
+public sealed record SetZoomPayload(double Factor);
 
 public sealed record AlertTempSettingsPayload(bool KeepTempFiles, string? Directory = null);
 

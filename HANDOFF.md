@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
  
-**Version:** `v0.4.9`  
+**Version:** `v0.4.10`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -162,6 +162,7 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 
 ### 2.6d Duel Protected Viewers
 - Timeout Duel and Streamer 1v1 steps have a "Protected viewers" editor (roles + named viewers + custom reply): `duelProtectedUsers`, `duelProtectedRoles`, `duelProtectedMessage`. Viewer duel: the *opponent* can't be challenged; Streamer 1v1: protected viewers can't challenge the streamer. The duel does not start and the challenger gets the reply (`DEFAULT_PROTECTED_MESSAGES`, tokens `{challenger}` `{opponent}`). Roles come from the last chat message seen per chatter (`chatterStore`), names match case-insensitively (`src/lib/shield.ts`).
+- Each protected viewer can have their own reply (`duelProtectedUserMessages`, keyed by lowercase login, resolved by `protectedUserMessage` in `src/lib/shield.ts`); the step's default reply (`duelProtectedMessage`, or the built-in text) covers everyone else, including role-based protection. Extra token `{protected}` = the protected viewer.
 - Viewer duels can no longer target the broadcaster (use the Streamer 1v1 step); the old "Allow challenging broadcaster" option is gone. There is no global shield, Settings card or Timeout/Ban shield.
 
 ### 2.6e Commands Table & Inspector
@@ -171,10 +172,25 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 ### 2.6f Automatic Updates & What's New
 - Settings -> System -> Updates: "Install updates automatically" (default on, `localStorage` `streamer-hub-auto-update`), Check now, and a What's new button. Logic in `updateStore.ts` (`runAutoCheck`) + `src/lib/autoUpdate.ts` (`decideAutoUpdate`).
 - A check runs ~8s after launch and every 6h. An update found right after launch installs after a 15s cancelable countdown (`AutoUpdateToast`); one found mid-session only shows "will install next launch", so a live stream is never restarted. The same version is not auto-retried within 24h (a failed installer relaunches the old app), and Cancel skips it for the session. Disabled in the browser preview.
+- The What's New window can be reopened any time: click the version number in the title bar, or Settings -> System -> Updates -> What's new (it then lists every bundled version).
 - After an update the app shows `WhatsNewDialog` once, in the user's language (RTL for Arabic). Content is bundled in `src/lib/changelog.ts` (works offline); last seen version is stored in `streamer-hub-last-seen-version`, skipped versions are all listed, and a brand-new install shows nothing.
 - **Every release must add a bilingual entry to `CHANGELOG` in `src/lib/changelog.ts`** (step 1 of the release checklist below). `changelog.test.mjs` fails if the `package.json` version has no entry or the English and Arabic bullet counts differ.
 
+### 2.6g Run Another Sequence (sub-action)
+- New step type `run_sequence` (`sequenceId`, `waitForSequence`, default wait) calls another sequence as a sub-action, also usable inside If branches. The called sequence runs for the same user/input/source, ignoring its own enabled switch, triggers and cooldown, so triggerless "library" sequences work. The commands list marks such sequences with ↪ instead of the no-trigger ⚠ (`CommandRow.isCalled`).
+- Loops and depth are guarded in `sequenceRunner.ts` (`callStack` on the context, `sequenceCallBlockReason`, max depth `MAX_SEQUENCE_CALL_DEPTH` = 5): a sequence already on the stack cannot be called again. A called sequence that stops early is logged, and the caller continues. With "wait" off the call is fire-and-forget.
+- The older "Run Command" step used to only write a log line. It now starts the sequence whose chat trigger matches (e.g. `!sound`), with the same loop guard (`executeCommand` sink in `sequenceStore.ts`).
+
+### 2.6h Repeating Timers (Nightbot-style messages)
+- New sequence trigger `timer` (`ActionTrigger.intervalMinutes`, default 30, 1 to 1440; `minChatMessages`, default 5). A sequence with a Timer trigger runs itself on that interval, so a streamer can build socials/reminders out of several Send Chat Message steps with Wait steps between them (no chat flood). Studio -> Presets -> "Timed chat messages" creates a starter.
+- Engine: `sequenceStore.tickTimers()` (called every 5s from `App.tsx`). A timer first counts from when it is first seen while Twitch is connected, fires when the interval has passed AND at least `minChatMessages` non-self chat messages arrived since its last run (`shouldFireTimer` in `src/lib/sequenceTimers.ts`), waits for chat otherwise, and restarts its interval after a Twitch reconnect instead of firing a backlog. It runs with the channel name as `{username}` and source `timer`; the sequence's own cooldown still applies and a still-running sequence is not started twice.
+- In the commands list a timer shows ⏱ and "Every N min".
+
+- Studio dropdowns (Add sub-action, Add trigger, search results, Presets) and the right-click menu are height-capped and scrollable (`fitMenuToViewport` in `SequenceStudioView.tsx`): they never run past the window or the clipping panel, which used to cut off the end of the list at high UI scale.
+
 ### 2.6b UI Scale & Default Window Size
+- The UI scale is applied as native WebView2 page zoom (`window/set-zoom` -> `WebView2.ZoomFactor` in `HostController`), not CSS `zoom`: layout, viewport units and mouse coordinates stay consistent. The browser preview (no host) still falls back to CSS zoom. Because `innerWidth` shrinks when zoomed, auto scale multiplies it back by the applied zoom (`calculateAutoScale(appliedZoom)`).
+- The Settings scale slider only shows a draft value while dragging and applies the zoom on release (`Slider` `onCommit`); re-zooming mid-drag moved the slider under the pointer and made the value jump.
 - Default UI size is 110% (`DEFAULT_UI_SCALE`, custom mode) for anyone without a stored choice; "Reset" returns to 110%. The titlebar no longer shows the scale %, the theme toggle, and the action bar no longer has the Connected pill (the sidebar shows the account).
 - `src/lib/uiScale.ts`: Auto scale is monitor-height based (>=2000px: 1.35x, >=1350px: 1.25x, <900px or <1600 wide: 0.9x, else 1.0x) and capped so the window keeps >=1100 CSS px of layout width (0.05 steps, never below 1.0 on large monitors).
 - `MainForm.cs`: first launch opens at ~75% of the screen working area (1280x800 .. 2200x1300). Users whose saved size is still exactly 1280x800 are moved to that default once (`WindowSettings.SizeUpgraded`).

@@ -733,7 +733,11 @@ function FragmentRow({
               {t(lang, `workspace.type.${isCounter ? 'counter' : isAi ? 'ai' : isSequence ? 'sequence' : 'reply'}`)}
             </span>
             {isSequence && (row.triggerKinds?.length ?? 0) === 0 && (
-              <span title={t(lang, 'workspace.noTrigger')} className="text-[12px] text-amber-400">⚠</span>
+              row.isCalled ? (
+                <span title={t(lang, 'workspace.calledByOthers')} className="text-[13px] leading-none text-cyan-300">↪</span>
+              ) : (
+                <span title={t(lang, 'workspace.noTrigger')} className="text-[12px] text-amber-400">⚠</span>
+              )
             )}
             {isSequence && row.triggerKinds?.map((kind) => (
               <span key={kind} title={t(lang, `workspace.trigger.${kind}`)} className="text-[13px] leading-none">
@@ -814,6 +818,7 @@ const TRIGGER_GLYPH: Record<NonNullable<CommandRow['triggerKinds']>[number], str
   raid: '🔥',
   follow: '❤️',
   watch_streak: '⚡',
+  timer: '⏱',
 };
 
 /** Reply rows are titled by their trigger word; make sure it reads as a command. */

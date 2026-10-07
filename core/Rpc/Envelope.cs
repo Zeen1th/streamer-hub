@@ -30,6 +30,7 @@ public sealed record RpcEnvelope
 public static class Channels
 {
     public const string WindowMinimize = "window/minimize";
+    public const string WindowSetZoom = "window/set-zoom";
     public const string WindowMaximizeToggle = "window/maximize-toggle";
     public const string WindowClose = "window/close";
     public const string WindowIsMaximized = "window/is-maximized";

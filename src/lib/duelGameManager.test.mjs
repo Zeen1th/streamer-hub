@@ -705,3 +705,23 @@ test('streamer duel blocks protected challengers with the default reply', async 
   assert.equal(sent.length, 1);
   assert.ok(sent[0].includes('@Mallory') && sent[0].includes("can't challenge the streamer"));
 });
+
+test('a protected viewer can have their own reply; others use the shared reply', async () => {
+  duelGameManager.reset();
+  const sent = [];
+  const sinks = {
+    sendChatMessage: async (msg) => { sent.push(msg); return true; },
+    smartModTimeout: async () => ({ ok: true }),
+    delay: async () => {},
+  };
+  const shared = {
+    mode: 'random',
+    isProtected: (user) => ['bob', 'carol'].includes(user.toLowerCase()),
+    protectedMessage: 'shared: @{challenger} cannot duel @{opponent}',
+    protectedMessageFor: (user) => (user.toLowerCase() === 'bob' ? "bob's own: @{challenger}, {protected} is busy" : undefined),
+    sinks,
+  };
+  await duelGameManager.startDuel({ challenger: 'Alice', opponentRaw: '@Bob', ...shared });
+  await duelGameManager.startDuel({ challenger: 'Alice', opponentRaw: '@Carol', ...shared });
+  assert.deepEqual(sent, ["bob's own: @Alice, Bob is busy", 'shared: @Alice cannot duel @Carol']);
+});

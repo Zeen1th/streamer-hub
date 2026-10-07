@@ -774,3 +774,102 @@ test('a failing step inside a branch stops the sequence', async () => {
   assert.equal(result.ok, false);
   assert.deepEqual(sent, []);
 });
+
+// ---- Run Sequence steps -------------------------------------------------
+test('run_sequence waits for the called sequence and passes the caller context along', async () => {
+  const order = [];
+  const calls = [];
+  const sinks = {
+    sendChatMessage: async (m) => { order.push(`chat:${m}`); return true; },
+    runSequence: async (id, ctx) => {
+      calls.push({ id, callStack: ctx.callStack, username: ctx.username, userInput: ctx.userInput });
+      await new Promise((r) => setTimeout(r, 5));
+      order.push(`child:${id}`);
+      return { ok: true, executedSteps: 1 };
+    },
+  };
+  const { result } = await runIf(
+    [chatStep('a', 'before'), { id: 'r', type: 'run_sequence', sequenceId: 'child-1' }, chatStep('b', 'after')],
+    sinks,
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(order, ['chat:before', 'child:child-1', 'chat:after']);
+  assert.deepEqual(calls, [{ id: 'child-1', callStack: ['seq-if'], username: 'Alice', userInput: undefined }]);
+});
+
+test('run_sequence can fire and forget', async () => {
+  const order = [];
+  const { result } = await runIf(
+    [{ id: 'r', type: 'run_sequence', sequenceId: 'slow', waitForSequence: false }, chatStep('b', 'after')],
+    {
+      sendChatMessage: async (m) => { order.push(`chat:${m}`); return true; },
+      runSequence: async () => {
+        await new Promise((r) => setTimeout(r, 30));
+        order.push('child-done');
+        return { ok: true, executedSteps: 1 };
+      },
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(order, ['chat:after']);
+});
+
+test('run_sequence refuses loops and over-deep nesting, and a missing sequence does not stop the caller', async () => {
+  let called = 0;
+  const runSequence = async () => { called++; return { ok: true, executedSteps: 0 }; };
+
+  // calling the sequence that is already running (here: itself)
+  const selfCall = await runIf([{ id: 'r', type: 'run_sequence', sequenceId: 'seq-if' }, chatStep('b', 'after')], { runSequence });
+  assert.equal(called, 0);
+  assert.deepEqual(selfCall.sent, ['after']);
+
+  // A -> B -> (B calls A): A is on the call stack
+  const loop = await executeSequence(
+    ifSeq([{ id: 'r', type: 'run_sequence', sequenceId: 'A' }]),
+    { ...baseCtx, callStack: ['A'] },
+    { runSequence },
+  );
+  assert.equal(loop.ok, true);
+  assert.equal(called, 0);
+
+  // too deep
+  const deep = await executeSequence(
+    ifSeq([{ id: 'r', type: 'run_sequence', sequenceId: 'Z' }]),
+    { ...baseCtx, callStack: ['1', '2', '3', '4'] },
+    { runSequence },
+  );
+  assert.equal(deep.ok, true);
+  assert.equal(called, 0);
+
+  // missing target or no target selected
+  const missing = await runIf(
+    [{ id: 'r', type: 'run_sequence', sequenceId: 'gone' }, { id: 'n', type: 'run_sequence' }, chatStep('b', 'after')],
+    { runSequence: async () => null },
+  );
+  assert.equal(missing.result.ok, true);
+  assert.deepEqual(missing.sent, ['after']);
+});
+
+test('run_sequence works inside an If branch', async () => {
+  const ran = [];
+  const { sent } = await runIf(
+    [
+      { id: 'd', type: 'duel', duelMode: 'random' },
+      { id: 'i', type: 'if', ifCondition: 'duel_challenger_won', ifThen: [{ id: 'r', type: 'run_sequence', sequenceId: 'celebrate' }], ifElse: [chatStep('e', 'lost')] },
+    ],
+    {
+      executeDuel: duelSink({ kind: 'win', winner: 'Alice', loser: 'Bob', challengerWon: true }),
+      runSequence: async (id) => { ran.push(id); return { ok: true, executedSteps: 1 }; },
+    },
+  );
+  assert.deepEqual(ran, ['celebrate']);
+  assert.deepEqual(sent, []);
+});
+
+test('the Run Command step hands the trigger to the host with the call stack', async () => {
+  const seen = [];
+  await runIf([{ id: 'c', type: 'command', commandTrigger: '!sound' }], {
+    executeCommand: async (trigger, ctx) => { seen.push([trigger, ctx.callStack]); },
+  });
+  assert.deepEqual(seen, [['!sound', ['seq-if']]]);
+});

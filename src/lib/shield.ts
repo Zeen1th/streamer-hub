@@ -35,3 +35,14 @@ export function isShielded(username: string, settings: ShieldSettings, chatter?:
   if (settings.roles.subscriber && chatter.isSubscriber) return true;
   return false;
 }
+
+/** Key used for a viewer in per-user maps: lowercase, no @. */
+export function shieldKey(username: string): string {
+  return cleanShieldName(username).toLowerCase();
+}
+
+/** The reply configured for this specific viewer, or undefined to fall back to the shared one. */
+export function protectedUserMessage(username: string, perUser: Record<string, string> | undefined): string | undefined {
+  const message = perUser?.[shieldKey(username)]?.trim();
+  return message ? message : undefined;
+}

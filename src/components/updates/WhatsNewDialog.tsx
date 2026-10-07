@@ -71,7 +71,7 @@ export function WhatsNewDialog() {
   }, [checked, statusReceived, coreVersion, language, current, openWhatsNew]);
 
   const entries = useMemo(
-    () => autoEntries ?? CHANGELOG.filter((e) => compareVersions(e.version, current) <= 0).slice(0, 3),
+    () => autoEntries ?? CHANGELOG.filter((e) => compareVersions(e.version, current) <= 0),
     [autoEntries, current],
   );
 
@@ -105,9 +105,11 @@ export function WhatsNewDialog() {
             </div>
             <div>
               <h2 id="whats-new-title" className="font-sans text-[15px] font-bold tracking-tight text-white">
-                {t(lang, 'whatsNew.title', { version: current })}
+                {autoEntries ? t(lang, 'whatsNew.title', { version: current }) : t(lang, 'whatsNew.titleManual')}
               </h2>
-              <p className="font-sans text-[11.5px] text-muted">{t(lang, 'whatsNew.subtitle')}</p>
+              <p className="font-sans text-[11.5px] text-muted">
+                {autoEntries ? t(lang, 'whatsNew.subtitle') : `v${current}`}
+              </p>
             </div>
           </div>
           <button

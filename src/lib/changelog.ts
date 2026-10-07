@@ -19,6 +19,33 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.10',
+    en: {
+      added: [
+        'Repeating timers: a sequence can now run itself every X minutes, like Nightbot timers (socials, reminders). It waits for chat to be active first, and you can put Wait steps between messages so chat is never flooded. Try Presets > Timed chat messages.',
+        'Run Another Sequence: a sub-action that runs a different sequence, so you can build reusable sequences. The old Run Command step now really starts the sequence with that chat trigger.',
+        'Protected viewers can now have their own custom reply, set per viewer in the duel steps.',
+        'Click the version number in the title bar any time to read What is New again.',
+      ],
+      fixed: [
+        'UI scaling now uses real page zoom, and the scale slider no longer jumps around while you drag it.',
+        'Long menus in the sequence studio (Add sub-action and others) now scroll, so every item can be reached at any UI scale.',
+      ],
+    },
+    ar: {
+      added: [
+        'مؤقتات متكررة: يمكن للسلسلة الآن أن تعمل وحدها كل عدة دقائق مثل مؤقتات Nightbot (روابط التواصل والتذكيرات). تنتظر نشاط الشات أولاً، ويمكنك وضع خطوات انتظار بين الرسائل حتى لا يُغرق الشات. جرّب الإعدادات الجاهزة > رسائل شات دورية.',
+        'تشغيل سلسلة أخرى: خطوة فرعية تشغّل سلسلة مختلفة لتبني سلاسل قابلة لإعادة الاستخدام. وخطوة تشغيل أمر القديمة صارت تشغّل فعلاً السلسلة ذات أمر الشات هذا.',
+        'يمكن الآن أن يكون للمشاهدين المحميين رد خاص بكل واحد منهم من خطوات التحدي.',
+        'اضغط على رقم الإصدار في الشريط العلوي في أي وقت لقراءة ما الجديد مرة أخرى.',
+      ],
+      fixed: [
+        'تكبير الواجهة يستخدم الآن تكبير الصفحة الحقيقي، ولم يعد شريط الحجم يقفز أثناء سحبه.',
+        'القوائم الطويلة في استوديو السلاسل (إضافة خطوة فرعية وغيرها) صارت قابلة للتمرير فيمكن الوصول لكل عنصر مهما كان حجم الواجهة.',
+      ],
+    },
+  },
+  {
     version: '0.4.9',
     en: {
       added: [

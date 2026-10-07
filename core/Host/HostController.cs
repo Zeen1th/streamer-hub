@@ -401,6 +401,14 @@ public sealed class HostController : IDisposable
 
     private void RegisterHandlers()
     {
+        _dispatcher.Register(Channels.WindowSetZoom, (payload, _) =>
+        {
+            var request = Json.Deserialize<SetZoomPayload>(payload ?? default);
+            if (request is null || double.IsNaN(request.Factor)) return Task.FromResult<object?>(new { ok = false });
+            // Native page zoom: layout, pointer coordinates and viewport units all stay consistent (CSS `zoom` did not)
+            Ui(() => _webView.ZoomFactor = Math.Clamp(request.Factor, 0.5, 3.0));
+            return Task.FromResult<object?>(new { ok = true });
+        });
         _dispatcher.Register(Channels.WindowMinimize, (_, _) =>
         {
             Ui(() => _form.WindowState = FormWindowState.Minimized);

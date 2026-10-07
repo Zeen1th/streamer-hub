@@ -13,7 +13,7 @@ import { Button } from './components/ui/Button';
 import { cn } from './lib/cn';
 import { t } from './i18n/translations';
 import { resolveTheme, type ResolvedTheme } from './lib/theme';
-import { rpc } from './rpc';
+import { isMockMode, rpc } from './rpc';
 import { Channels, Events } from './rpc/contracts';
 import { useConnectionStore } from './store/connectionStore';
 import { useCounterStore } from './store/counterStore';
@@ -87,8 +87,16 @@ export default function App() {
   const effectiveScale = useSettingsStore((s) => s.effectiveScale);
 
   useEffect(() => {
-    (document.documentElement as HTMLElement).style.zoom = String(effectiveScale);
-    document.documentElement.style.setProperty('--app-ui-scale', String(effectiveScale));
+    const root = document.documentElement as HTMLElement;
+    root.style.setProperty('--app-ui-scale', String(effectiveScale));
+    if (isMockMode) {
+      // Browser preview has no host to zoom the page, so fall back to CSS zoom there
+      root.style.zoom = String(effectiveScale);
+      return;
+    }
+    // Real app: zoom the WebView itself (like browser page zoom) so layout and mouse coordinates stay consistent
+    root.style.zoom = '';
+    void rpc.invoke(Channels.WindowSetZoom, { factor: effectiveScale }).catch(() => undefined);
   }, [effectiveScale]);
 
   useEffect(() => {
@@ -118,6 +126,12 @@ export default function App() {
   }, []);
 
   useEffect(() => { void useUpdateStore.getState().check(); }, []);
+
+  // Repeating-message timers (sequences with a Timer trigger)
+  useEffect(() => {
+    const tick = window.setInterval(() => void useSequenceStore.getState().tickTimers(), 5_000);
+    return () => window.clearInterval(tick);
+  }, []);
 
   // Automatic updates: look shortly after launch (may install after a cancelable countdown), then every few hours
   // (an update found mid-session waits for the next launch so a live stream is never restarted).

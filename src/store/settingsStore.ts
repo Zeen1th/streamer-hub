@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Language } from '../i18n/translations';
 import { Channels } from '../rpc/contracts';
-import { rpc } from '../rpc';
+import { isMockMode, rpc } from '../rpc';
 import type { ChatSenderRole } from '../rpc/contracts';
 import { autoScaleFor, DEFAULT_UI_SCALE } from '../lib/uiScale';
 import type { DarkThemeVariant, ThemePreference } from '../lib/theme';
@@ -10,11 +10,15 @@ import { isDarkTheme } from '../lib/theme';
 export type { Language };
 export type UiScaleMode = 'auto' | 'custom';
 
-export function calculateAutoScale(): number {
+/**
+ * `appliedZoom` is the native page zoom currently in effect: `innerWidth` shrinks as the page is
+ * zoomed, so it is scaled back up to the real window width before deciding.
+ */
+export function calculateAutoScale(appliedZoom = 1): number {
   if (typeof window === 'undefined') return 1.0;
   const w = window.screen?.width ?? window.innerWidth ?? 1920;
   const h = window.screen?.height ?? window.innerHeight ?? 1080;
-  return autoScaleFor(w, h, window.innerWidth || w);
+  return autoScaleFor(w, h, (window.innerWidth || w) * appliedZoom);
 }
 
 interface SettingsState {
@@ -163,7 +167,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setUiScale: (mode, customScale) => {
     const currentCustom = get().uiCustomScale;
     const nextCustom = customScale !== undefined ? Math.max(0.75, Math.min(1.75, customScale)) : currentCustom;
-    const effective = mode === 'auto' ? calculateAutoScale() : nextCustom;
+    const effective = mode === 'auto' ? calculateAutoScale(isMockMode ? 1 : get().effectiveScale) : nextCustom;
     localStorage.setItem('streamer-hub-ui-scale-mode', mode);
     localStorage.setItem('streamer-hub-ui-scale-custom', String(nextCustom));
     set({ uiScaleMode: mode, uiCustomScale: nextCustom, effectiveScale: effective });
@@ -182,7 +186,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   refreshAutoScale: () => {
     if (get().uiScaleMode === 'auto') {
-      const effective = calculateAutoScale();
+      const effective = calculateAutoScale(isMockMode ? 1 : get().effectiveScale);
       set({ effectiveScale: effective });
     }
   },

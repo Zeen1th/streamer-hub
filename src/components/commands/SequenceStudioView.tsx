@@ -1,7 +1,9 @@
 import { DEFAULT_PROTECTED_MESSAGES } from '../../lib/duelGameManager';
+import { shieldKey } from '../../lib/shield';
 import { replaceSequenceTokens } from '../../lib/sequenceRunner';
 import { attachedGameIndex } from '../../lib/stepGroups';
-import React, { useEffect, useRef, useState } from 'react';
+import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../../lib/sequenceTimers';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   BarChart3,
@@ -41,6 +43,8 @@ import {
   Swords,
   GitBranch,
   Terminal,
+  Timer,
+  Workflow,
   Trash2,
   Volume2,
   VolumeX,
@@ -123,6 +127,8 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
   const [matchMode, setMatchMode] = useState(trigger.matchMode ?? 'startsWith');
   const [rewardTitle, setRewardTitle] = useState(trigger.rewardTitle ?? 'Custom Reward');
   const [rewardId, setRewardId] = useState(trigger.rewardId ?? '');
+  const [intervalMinutes, setIntervalMinutes] = useState(trigger.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES);
+  const [minChatMessages, setMinChatMessages] = useState(trigger.minChatMessages ?? TIMER_DEFAULT_MIN_CHAT_MESSAGES);
 
   const fetchAvailableRewards = useSequenceStore((s) => s.fetchAvailableRewards);
   const isLoadingRewards = useSequenceStore((s) => s.isLoadingRewards);
@@ -140,6 +146,8 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
       onSave({ enabled, minViewers: Math.max(1, Number(minViewers) || 1) });
     } else if (trigger.type === 'twitch_watch_streak') {
       onSave({ enabled, minStreak: Math.max(1, Number(minStreak) || 1) });
+    } else if (trigger.type === 'timer') {
+      onSave({ enabled, intervalMinutes: Math.max(1, Math.min(1440, Math.round(Number(intervalMinutes) || TIMER_DEFAULT_INTERVAL_MINUTES))), minChatMessages: Math.max(0, Math.round(Number(minChatMessages) || 0)) });
     } else if (trigger.type === 'twitch_chat') {
       onSave({ enabled, chatCommand: chatCommand.trim() || '!command', matchMode });
     } else {
@@ -170,6 +178,8 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                 ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
                 : trigger.type === 'twitch_watch_streak'
                 ? 'bg-purple-500/15 text-purple-400 border-purple-500/30'
+                : trigger.type === 'timer'
+                ? 'bg-teal-500/15 text-teal-300 border-teal-500/30'
                 : trigger.type === 'twitch_chat'
                 ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
                 : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
@@ -180,6 +190,8 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                 <Flame size={15} />
               ) : trigger.type === 'twitch_watch_streak' ? (
                 <Zap size={15} />
+              ) : trigger.type === 'timer' ? (
+                <Timer size={15} />
               ) : trigger.type === 'twitch_chat' ? (
                 <Terminal size={15} />
               ) : (
@@ -197,6 +209,8 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                   ? `${t(lang, 'sequence.sourceTwitchChannel')} > ${t(lang, 'sequence.typeChannelRaid')}`
                   : trigger.type === 'twitch_watch_streak'
                   ? `${t(lang, 'sequence.sourceTwitchChannel')} > ${t(lang, 'sequence.typeWatchStreak')}`
+                  : trigger.type === 'timer'
+                  ? `${t(lang, 'sequence.sourceTimer')} > ${t(lang, 'sequence.typeTimer')}`
                   : trigger.type === 'twitch_chat'
                   ? `${t(lang, 'sequence.sourceCoreCommands')} > ${t(lang, 'sequence.typeCommandTriggered')}`
                   : `${t(lang, 'sequence.sourceTwitchPoints')} > ${t(lang, 'sequence.typeRewardRedemption')}`}
@@ -285,6 +299,68 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                   <span className="rounded bg-white/5 px-1.5 py-0.5 border border-white/10 text-purple-300 font-mono text-[11px]">{'{username}'}</span>
                   <span className="rounded bg-white/5 px-1.5 py-0.5 border border-white/10 text-purple-300 font-mono text-[11px]">{'{streak}'}</span>
                   <span className="rounded bg-white/5 px-1.5 py-0.5 border border-white/10 text-purple-300 font-mono text-[11px]">{'{input}'}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {trigger.type === 'timer' && (
+            <div className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-2">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.timerInterval')}
+                </label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[5, 10, 15, 30, 60, 120].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setIntervalMinutes(m)}
+                      className={`rounded px-2.5 py-1 font-mono text-[11.5px] font-semibold transition-colors ${
+                        intervalMinutes === m
+                          ? 'bg-teal-500/25 text-teal-200 border border-teal-400/50'
+                          : 'bg-white/[0.05] text-zinc-300 border border-white/10 hover:bg-white/[0.1]'
+                      }`}
+                    >
+                      {formatTimerInterval(m)}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={intervalMinutes}
+                    onChange={(e) => setIntervalMinutes(Math.max(1, Math.min(1440, Math.round(Number(e.target.value) || 1))))}
+                    className="h-9 w-28 font-mono text-[13px]"
+                  />
+                  <span className="font-mono text-[11.5px] text-muted">
+                    {t(lang, 'sequence.timerEvery')} {formatTimerInterval(intervalMinutes)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.timerMinChat')}
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={500}
+                  value={minChatMessages}
+                  onChange={(e) => setMinChatMessages(Math.max(0, Math.min(500, Math.round(Number(e.target.value) || 0))))}
+                  className="h-9 w-28 font-mono text-[13px]"
+                />
+                <p className="text-[11px] text-muted">{t(lang, 'sequence.timerMinChatHint')}</p>
+              </div>
+
+              <div className="flex flex-col gap-2 rounded-md border border-teal-500/25 bg-teal-500/10 p-3 text-[11.5px] text-teal-200">
+                <p className="leading-relaxed text-zinc-300">{t(lang, 'sequence.timerDesc')}</p>
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  <span className="font-mono text-[10.5px] text-muted">{t(lang, 'sequence.tokensAvailable')}:</span>
+                  <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[11px] text-teal-200">{'{streamer}'}</span>
                 </div>
               </div>
             </div>
@@ -515,6 +591,35 @@ function QuickTokenInput({
   );
 }
 
+/**
+ * Ref callback for dropdowns that open downward. A menu inside the studio can be longer than the room
+ * left in the window or in its clipping panel (always the case at high UI scale), so it is capped to
+ * that room and made scrollable. If the room is very small, the panel it sits in is scrolled up a bit first.
+ */
+function fitMenuToViewport(el: HTMLElement | null) {
+  if (!el) return;
+  const MIN_ROOM = 280;
+  let scroller: HTMLElement | null = null;
+  const room = () => {
+    let bottom = window.innerHeight;
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      const { overflowY } = window.getComputedStyle(parent);
+      if (overflowY === 'visible') continue;
+      bottom = Math.min(bottom, parent.getBoundingClientRect().bottom);
+      if (!scroller && (overflowY === 'auto' || overflowY === 'scroll')) scroller = parent;
+    }
+    return bottom - el.getBoundingClientRect().top - 12;
+  };
+  let available = room();
+  if (available < MIN_ROOM && scroller) {
+    (scroller as HTMLElement).scrollTop += MIN_ROOM - available;
+    available = room();
+  }
+  el.style.maxHeight = `${Math.max(160, Math.floor(available))}px`;
+  el.style.overflowY = 'auto';
+  el.style.overscrollBehavior = 'contain';
+}
+
 // ---------------------------------------------------------------------------
 // If / Else helpers
 // ---------------------------------------------------------------------------
@@ -540,6 +645,7 @@ const BRANCH_STEP_TYPES: Array<{
   { key: 'obs_text', type: 'obs_text', en: 'Write OBS text file', ar: 'كتابة ملف نص OBS' },
   { key: 'mic_mute', type: 'mic_mute', en: 'Mute streamer mic', ar: 'كتم مايك الستريمر' },
   { key: 'wait', type: 'wait', en: 'Wait', ar: 'انتظار' },
+  { key: 'run_sequence', type: 'run_sequence', en: 'Run a sequence', ar: 'تشغيل سلسلة' },
   { key: 'command', type: 'command', en: 'Run a command', ar: 'تشغيل أمر' },
   { key: 'comment', type: 'comment', en: 'Comment / note', ar: 'تعليق / ملاحظة' },
 ];
@@ -552,8 +658,9 @@ function branchStepLabel(step: SequenceStep, lang: 'en' | 'ar'): string {
   return found ? (lang === 'ar' ? found.ar : found.en) : step.type;
 }
 
-function branchStepDetail(step: SequenceStep): string {
+function branchStepDetail(step: SequenceStep, sequenceNames?: Record<string, string>): string {
   switch (step.type) {
+    case 'run_sequence': return (step.sequenceId && sequenceNames?.[step.sequenceId]) || '';
     case 'chat': return step.chatMessage ?? '';
     case 'tts': return step.ttsText ?? '';
     case 'sound': return (step.soundPath ?? '').split(/[/\\]/).pop() ?? '';
@@ -611,7 +718,9 @@ function IfBranchEditor({
   onEdit,
   onRemove,
   onMove,
+  sequenceNames,
 }: {
+  sequenceNames?: Record<string, string>;
   title: string;
   hint: string;
   tone: 'then' | 'else';
@@ -643,7 +752,7 @@ function IfBranchEditor({
             <li key={st.id} className="flex items-center gap-2 rounded border border-white/10 bg-[#11131a] px-2.5 py-1.5">
               <span className="font-mono text-[10.5px] text-muted">{idx + 1}</span>
               <span className="shrink-0 text-[11.5px] font-semibold text-white">{branchStepLabel(st, lang)}</span>
-              <span dir="auto" className="min-w-0 flex-1 truncate text-[11px] text-muted">{branchStepDetail(st)}</span>
+              <span dir="auto" className="min-w-0 flex-1 truncate text-[11px] text-muted">{branchStepDetail(st, sequenceNames)}</span>
               <button type="button" onClick={() => onMove(idx, 'up')} disabled={idx === 0} className="p-1 text-muted hover:text-white disabled:opacity-30" title={lang === 'ar' ? 'أعلى' : 'Move up'}>
                 <ChevronUp size={12} />
               </button>
@@ -687,13 +796,19 @@ interface EditSubActionModalProps {
   index: number;
   /** Steps above this one in the sequence (used by If to find the mini game / poll it checks). */
   previousSteps: SequenceStep[];
+  /** Every sequence (to pick one to run) and the one being edited (excluded from the list). */
+  allSequences: Array<{ id: string; name: string; enabled: boolean }>;
+  currentSequenceId: string;
   counters: Array<{ id: string; name: string }>;
   lang: 'en' | 'ar';
   onSave: (patch: Partial<SequenceStep>) => void;
   onClose: () => void;
 }
 
-function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave, onClose }: EditSubActionModalProps) {
+function EditSubActionModal({ step, index, previousSteps, allSequences, currentSequenceId, counters, lang, onSave, onClose }: EditSubActionModalProps) {
+  const sequenceNames = Object.fromEntries(allSequences.map((item) => [item.id, item.name]));
+  const [runSequenceId, setRunSequenceId] = useState(step.sequenceId ?? '');
+  const [waitForSequence, setWaitForSequence] = useState(step.waitForSequence !== false);
   // If / Else state
   const ifGame = step.type === 'if' ? findIfGame(previousSteps) : null;
   const ifConditionOptions: Array<[string, string]> = !ifGame
@@ -716,6 +831,7 @@ function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave
   const [protectedUsers, setProtectedUsers] = useState<string[]>(step.duelProtectedUsers ?? []);
   const [protectedRoles, setProtectedRoles] = useState<Array<'moderator' | 'vip' | 'subscriber'>>(step.duelProtectedRoles ?? []);
   const [protectedMessage, setProtectedMessage] = useState(step.duelProtectedMessage ?? '');
+  const [protectedUserMessages, setProtectedUserMessages] = useState<Record<string, string>>(step.duelProtectedUserMessages ?? {});
   const [protectedDraft, setProtectedDraft] = useState('');
   const addProtectedUser = () => {
     const name = protectedDraft.trim().replace(/^@+/, '').slice(0, 60);
@@ -974,6 +1090,12 @@ function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave
               duelProtectedUsers: protectedUsers,
               duelProtectedRoles: protectedRoles,
               duelProtectedMessage: protectedMessage.trim() || undefined,
+              // keep only replies for viewers that are still in the list
+              duelProtectedUserMessages: Object.fromEntries(
+                protectedUsers
+                  .map((name) => [shieldKey(name), (protectedUserMessages[shieldKey(name)] ?? '').trim()] as const)
+                  .filter(([, message]) => message),
+              ),
             }
           : patch,
       );
@@ -1066,6 +1188,9 @@ function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave
           pollDurationSeconds,
         });
         break;
+      case 'run_sequence':
+        saveWithShield({ sequenceId: runSequenceId, waitForSequence });
+        break;
       case 'if':
         saveWithShield({ ifCondition, ifOption: ifCondition === 'poll_winner_is' ? ifOption : undefined, ifThen, ifElse });
         break;
@@ -1128,6 +1253,8 @@ function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave
                   ? (lang === 'ar' ? 'التفاعل > استطلاع وتصويت مباشر' : 'Interactivity > Live Poll')
                   : step.type === 'mic_mute'
                   ? (lang === 'ar' ? 'الصوت > كتم مايك الستريمر' : 'Audio > Mute Streamer Mic')
+                  : step.type === 'run_sequence'
+                  ? (lang === 'ar' ? 'النظام > تشغيل سلسلة أخرى' : 'Core > Run Another Sequence')
                   : step.type === 'if'
                   ? (lang === 'ar' ? 'المنطق > إذا / وإلا' : 'Logic > If / Else')
                   : step.type === 'wait'
@@ -1714,21 +1841,45 @@ function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave
                 </Button>
               </div>
               {protectedUsers.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-col gap-1.5">
                   {protectedUsers.map((name) => (
-                    <span key={name} className="flex items-center gap-1 rounded border border-white/15 bg-white/[0.05] px-2 py-0.5 text-[11.5px] text-zinc-100">
-                      @{name}
-                      <button type="button" onClick={() => setProtectedUsers((prev) => prev.filter((n) => n !== name))} className="text-muted hover:text-rose-400" title={lang === 'ar' ? 'إزالة' : 'Remove'}>
-                        ×
-                      </button>
-                    </span>
+                    <div key={name} className="flex flex-col gap-1 rounded-md border border-white/[0.1] bg-white/[0.04] p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[12px] font-semibold text-zinc-100">@{name}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProtectedUsers((prev) => prev.filter((n) => n !== name));
+                            setProtectedUserMessages((prev) => {
+                              const { [shieldKey(name)]: _removed, ...rest } = prev;
+                              return rest;
+                            });
+                          }}
+                          className="text-[14px] leading-none text-muted hover:text-rose-400"
+                          title={lang === 'ar' ? 'إزالة' : 'Remove'}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <Input
+                        dir="auto"
+                        value={protectedUserMessages[shieldKey(name)] ?? ''}
+                        onChange={(e) => setProtectedUserMessages((prev) => ({ ...prev, [shieldKey(name)]: e.target.value }))}
+                        placeholder={
+                          lang === 'ar'
+                            ? `رد خاص بـ @${name} (اختياري، وإلا يُستخدم الرد العام)`
+                            : `Custom reply for @${name} (optional, otherwise the default reply is used)`
+                        }
+                        className="h-8 text-[11.5px]"
+                      />
+                    </div>
                   ))}
                 </div>
               )}
 
               <div className="flex flex-col gap-1">
                 <label className="font-sans text-[11.5px] font-medium text-zinc-300">
-                  {lang === 'ar' ? 'الرد على المتحدّي' : 'Reply to the challenger'}
+                  {lang === 'ar' ? 'الرد العام على المتحدّي (للجميع ما عدا من لهم رد خاص)' : 'Default reply to the challenger (everyone without their own reply)'}
                 </label>
                 <textarea
                   value={protectedMessage}
@@ -1742,9 +1893,63 @@ function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave
                   className="w-full rounded-md border border-white/15 bg-[#11131a] p-2.5 font-mono text-[12px] text-foreground focus:border-accent focus:outline-none resize-y"
                 />
                 <p className="text-[10px] text-muted">
-                  {lang === 'ar' ? 'المتغيرات:' : 'Tokens:'} {'{challenger}'} {'{opponent}'} · {lang === 'ar' ? 'اتركه فارغاً للرد الافتراضي' : 'leave empty for the default reply'}
+                  {lang === 'ar' ? 'المتغيرات:' : 'Tokens:'} {'{challenger}'} {'{opponent}'} {'{protected}'} · {lang === 'ar' ? 'اتركه فارغاً للرد الافتراضي' : 'leave empty for the default reply'}
                 </p>
               </div>
+            </div>
+          )}
+
+          {step.type === 'run_sequence' && (
+            <div className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-sans text-[12px] font-medium text-zinc-300">
+                  {lang === 'ar' ? 'السلسلة المراد تشغيلها' : 'Sequence to run'}
+                </label>
+                <select
+                  value={runSequenceId}
+                  onChange={(e) => setRunSequenceId(e.target.value)}
+                  className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
+                >
+                  <option value="">{lang === 'ar' ? '— اختر سلسلة —' : '— Choose a sequence —'}</option>
+                  {allSequences
+                    .filter((item) => item.id !== currentSequenceId)
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name || (lang === 'ar' ? 'بدون اسم' : 'Untitled')}
+                        {item.enabled ? '' : lang === 'ar' ? ' (معطّلة)' : ' (disabled)'}
+                      </option>
+                    ))}
+                </select>
+                {runSequenceId && !sequenceNames[runSequenceId] && (
+                  <p className="text-[11px] text-amber-300">
+                    {lang === 'ar' ? 'هذه السلسلة محذوفة. اختر غيرها.' : 'That sequence was deleted. Pick another one.'}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                <div className="min-w-0">
+                  <div className="font-sans text-[12px] font-semibold text-white">
+                    {lang === 'ar' ? 'انتظر حتى تنتهي' : 'Wait for it to finish'}
+                  </div>
+                  <p className="text-[10.5px] text-muted">
+                    {lang === 'ar'
+                      ? 'مفعّل: تكمل الخطوات التالية بعد انتهاء السلسلة. معطّل: تبدأ وتكمل هذه السلسلة مباشرة.'
+                      : 'On: the next steps wait until it is done. Off: it starts and this sequence carries on right away.'}
+                  </p>
+                </div>
+                <Switch
+                  checked={waitForSequence}
+                  onChange={setWaitForSequence}
+                  label={lang === 'ar' ? 'انتظر حتى تنتهي' : 'Wait for it to finish'}
+                />
+              </div>
+
+              <p className="rounded-md border border-sky-500/25 bg-sky-500/[0.07] p-3 text-[11px] leading-relaxed text-zinc-300">
+                {lang === 'ar'
+                  ? 'تعمل السلسلة المستدعاة بنفس المستخدم والمدخلات، حتى لو كانت معطّلة أو بلا مُفعِّلات، لذا يمكنك بناء سلاسل جاهزة لإعادة الاستخدام. الحلقات (سلسلة تستدعي نفسها) تُمنع تلقائياً.'
+                  : 'The called sequence runs for the same user and input, even if it is switched off or has no triggers, so you can build reusable sequences. Loops (a sequence calling itself) are blocked automatically.'}
+              </p>
             </div>
           )}
 
@@ -1826,6 +2031,7 @@ function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave
                     onEdit={(id) => setEditingBranch({ branch: 'then', id })}
                     onRemove={(id) => setIfThen((prev) => prev.filter((x) => x.id !== id))}
                     onMove={(i, dir) => setIfThen((prev) => moveInList(prev, i, dir))}
+                    sequenceNames={sequenceNames}
                   />
                   <IfBranchEditor
                     title={lang === 'ar' ? '✗ وإلا (Else)' : '✗ Else (false)'}
@@ -1840,6 +2046,7 @@ function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave
                     onEdit={(id) => setEditingBranch({ branch: 'else', id })}
                     onRemove={(id) => setIfElse((prev) => prev.filter((x) => x.id !== id))}
                     onMove={(i, dir) => setIfElse((prev) => moveInList(prev, i, dir))}
+                    sequenceNames={sequenceNames}
                   />
                 </>
               )}
@@ -2896,6 +3103,8 @@ function EditSubActionModal({ step, index, previousSteps, counters, lang, onSave
             step={list[idx]}
             index={idx}
             previousSteps={[]}
+            allSequences={allSequences}
+            currentSequenceId={currentSequenceId}
             counters={counters}
             lang={lang}
             onSave={(patch) => setList((prev) => prev.map((x) => (x.id === editingBranch.id ? { ...x, ...patch } : x)))}
@@ -2928,6 +3137,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
   const activeRunningStepIndex = useSequenceStore((s) => s.activeRunningStepIndex);
 
   const counters = useCounterStore((s) => s.counters);
+  const allSequences = useSequenceStore((s) => s.sequences);
+  const sequenceNames = useMemo(() => Object.fromEntries(allSequences.map((item) => [item.id, item.name])), [allSequences]);
   const botAccountEnabled = useConnectionStore((s) => s.botAccountEnabled);
   const botConnected = useConnectionStore((s) => s.botConnected);
   const botLogin = useConnectionStore((s) => s.botLogin);
@@ -3109,6 +3320,20 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     }
   };
 
+  // A starter "like Nightbot": a 30 minute timer that sends two messages a few seconds apart
+  const handleAppendTimerPreset = () => {
+    const trigger = addTrigger(sequence.id, 'timer', { intervalMinutes: 30, minChatMessages: 5 });
+    void trigger;
+    update(sequence.id, {
+      steps: [
+        ...sequence.steps,
+        { id: crypto.randomUUID(), type: 'chat', chatMessage: '💜 Enjoying the stream? Hit follow so you never miss it!' },
+        { id: crypto.randomUUID(), type: 'wait', waitDuration: 10, waitUnit: 'seconds' },
+        { id: crypto.randomUUID(), type: 'chat', chatMessage: '📱 My socials: twitter.com/yourname | instagram.com/yourname | discord.gg/yourinvite' },
+      ],
+    });
+  };
+
   const handleAppendRaidPreset = () => {
     update(sequence.id, {
       steps: [
@@ -3248,6 +3473,11 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
           : st.pollAction === 'end'
           ? (lang === 'ar' ? 'استطلاع: إنهاء الاستطلاع النشط' : 'Poll: End Active Poll')
           : (lang === 'ar' ? 'استطلاع: تصفير الاستطلاع' : 'Poll: Reset Poll');
+      case 'run_sequence': {
+        const name = st.sequenceId ? sequenceNames[st.sequenceId] : undefined;
+        const label = name ?? (st.sequenceId ? (lang === 'ar' ? '(سلسلة محذوفة)' : '(deleted sequence)') : (lang === 'ar' ? '(اختر سلسلة)' : '(choose a sequence)'));
+        return `${lang === 'ar' ? 'النظام: تشغيل سلسلة' : 'Core: Run Sequence'} "${label}"${st.waitForSequence === false ? (lang === 'ar' ? ' (بدون انتظار)' : ' (no wait)') : ''}`;
+      }
       case 'if': {
         const short = st.ifCondition ? IF_CONDITION_SHORT[st.ifCondition] : undefined;
         const cond = short ? (lang === 'ar' ? short.ar : short.en) : '?';
@@ -3309,6 +3539,14 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       desc: lang === 'ar' ? 'يتم التفعيل عندما يشارك المشاهد إنجاز استمرار مشاهدة البث المتتالي' : 'Triggers when a viewer shares their consecutive stream watch streak milestone',
       icon: Zap,
       color: 'text-purple-400',
+    },
+    {
+      type: 'timer' as ActionTriggerType,
+      source: lang === 'ar' ? 'النظام > المؤقت' : 'Core > Timer',
+      title: lang === 'ar' ? 'مؤقت: تكرار كل فترة' : 'Repeating Timer',
+      desc: lang === 'ar' ? 'تشغيل السلسلة تلقائياً كل فترة تحددها (مثل رسائل السوشيال ميديا الدورية)' : 'Run this sequence automatically every set time, like Nightbot timers (socials, reminders)',
+      icon: Timer,
+      color: 'text-teal-300',
     },
   ];
 
@@ -3384,6 +3622,14 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       desc: lang === 'ar' ? 'بدء، إنهاء، أو تصفير استطلاع وتصويت مباشر على الشاشة' : 'Start, end, or reset a live stream vote/poll',
       icon: BarChart3,
       color: 'text-violet-400',
+    },
+    {
+      id: 'run_sequence',
+      type: 'run_sequence' as SequenceStepType,
+      title: lang === 'ar' ? 'النظام: تشغيل سلسلة أخرى' : 'Core: Run Another Sequence',
+      desc: lang === 'ar' ? 'استدعاء سلسلة أخرى كخطوة فرعية لبناء سلاسل قابلة لإعادة الاستخدام' : 'Call another sequence as a sub-action to build reusable sequences',
+      icon: Workflow,
+      color: 'text-indigo-400',
     },
     {
       id: 'if',
@@ -3515,7 +3761,21 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
             </Button>
 
             {showPresetsMenu && (
-              <div className="absolute end-0 top-full z-30 mt-1 w-64 rounded-md border border-[#2c3244] bg-[#161a26] p-1.5 shadow-2xl">
+              <div ref={fitMenuToViewport} className="absolute end-0 top-full z-30 mt-1 w-64 rounded-md border border-[#2c3244] bg-[#161a26] p-1.5 shadow-2xl">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-start text-[12px] hover:bg-white/[0.06] transition-colors"
+                  onClick={() => {
+                    handleAppendTimerPreset();
+                    setShowPresetsMenu(false);
+                  }}
+                >
+                  <Timer size={14} className="text-teal-300 shrink-0" />
+                  <div>
+                    <div className="font-medium text-white">{t(lang, 'sequence.presetTimer')}</div>
+                    <div className="text-[10px] text-muted">{t(lang, 'sequence.presetTimerDesc')}</div>
+                  </div>
+                </button>
                 <button
                   type="button"
                   className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-start text-[12px] hover:bg-white/[0.06] transition-colors"
@@ -3878,7 +4138,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
 
                   {/* Dropdown palette */}
                   {showTriggerSearchDropdown && (
-                    <div className="absolute start-0 top-full z-40 mt-1 w-72 rounded-md border border-[#2e3448] bg-[#161a26] p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
+                    <div ref={fitMenuToViewport} className="absolute start-0 top-full z-40 mt-1 w-72 rounded-md border border-[#2e3448] bg-[#161a26] p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
                       <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
                         Select Trigger to Add
                       </div>
@@ -3947,7 +4207,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   </Button>
 
                   {showAddTriggerMenu && (
-                    <div className="absolute end-0 top-full z-30 mt-1 w-60 rounded-md border border-[#2e3448] bg-[#161a26] p-1.5 shadow-xl">
+                    <div ref={fitMenuToViewport} className="absolute end-0 top-full z-30 mt-1 w-60 rounded-md border border-[#2e3448] bg-[#161a26] p-1.5 shadow-xl">
                       <button
                         type="button"
                         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[12px] hover:bg-white/[0.08] text-pink-400 transition-colors"
@@ -3976,6 +4236,21 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                         <div>
                           <div className="font-medium text-white">{t(lang, 'sequence.triggerRaid')}</div>
                           <div className="font-mono text-[10px] text-muted">{t(lang, 'sequence.sourceTwitchChannel')}</div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[12px] hover:bg-white/[0.08] text-teal-300 transition-colors"
+                        onClick={() => {
+                          const nt = addTrigger(sequence.id, 'timer');
+                          setShowAddTriggerMenu(false);
+                          setEditingTriggerId(nt.id);
+                        }}
+                      >
+                        <Timer size={14} />
+                        <div>
+                          <div className="font-medium text-white">{t(lang, 'sequence.triggerTimer')}</div>
+                          <div className="font-mono text-[10px] text-muted">{t(lang, 'sequence.sourceTimer')}</div>
                         </div>
                       </button>
                       <button
@@ -4060,7 +4335,9 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   ) : (
                     triggers.map((trig) => {
                       const sourceText =
-                        trig.type === 'twitch_follow'
+                        trig.type === 'timer'
+                          ? t(lang, 'sequence.sourceTimer')
+                          : trig.type === 'twitch_follow'
                           ? t(lang, 'sequence.sourceTwitchChannel')
                           : trig.type === 'twitch_raid'
                           ? t(lang, 'sequence.sourceTwitchChannel')
@@ -4071,7 +4348,9 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           : t(lang, 'sequence.sourceTwitchPoints');
 
                       const typeText =
-                        trig.type === 'twitch_follow'
+                        trig.type === 'timer'
+                          ? t(lang, 'sequence.typeTimer')
+                          : trig.type === 'twitch_follow'
                           ? t(lang, 'sequence.typeChannelFollow')
                           : trig.type === 'twitch_raid'
                           ? t(lang, 'sequence.typeChannelRaid')
@@ -4082,7 +4361,9 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           : t(lang, 'sequence.typeRewardRedemption');
 
                       const criteriaText =
-                        trig.type === 'twitch_follow'
+                        trig.type === 'timer'
+                          ? `Every ${formatTimerInterval(trig.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES)} · ≥${trig.minChatMessages ?? TIMER_DEFAULT_MIN_CHAT_MESSAGES} chat messages`
+                          : trig.type === 'twitch_follow'
                           ? 'Any new follower'
                           : trig.type === 'twitch_raid'
                           ? `Min: ${trig.minViewers ?? 1} viewers`
@@ -4103,7 +4384,9 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           {/* Source */}
                           <td className="py-2.5 px-3 font-mono text-[11.5px] text-zinc-300">
                             <div className="flex items-center gap-2">
-                              {trig.type === 'twitch_follow' ? (
+                              {trig.type === 'timer' ? (
+                                <Timer size={13} className="text-teal-300 shrink-0" />
+                              ) : trig.type === 'twitch_follow' ? (
                                 <Heart size={13} className="text-pink-400 shrink-0" />
                               ) : trig.type === 'twitch_raid' ? (
                                 <Flame size={13} className="text-orange-400 shrink-0" />
@@ -4212,7 +4495,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
 
                   {/* Dropdown palette */}
                   {showSubActionSearchDropdown && (
-                    <div className="absolute start-0 top-full z-40 mt-1 w-72 max-h-80 overflow-y-auto rounded-md border border-[#2e3448] bg-[#161a26] p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
+                    <div ref={fitMenuToViewport} className="absolute start-0 top-full z-40 mt-1 w-72 rounded-md border border-[#2e3448] bg-[#161a26] p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
                       <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
                         Select Sub-Action to Add
                       </div>
@@ -4273,7 +4556,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   </Button>
 
                   {showAddActionMenu && (
-                    <div className="absolute end-0 top-full z-30 mt-1 w-64 rounded-md border border-[#2e3448] bg-[#161a26] p-1.5 shadow-xl">
+                    <div ref={fitMenuToViewport} className="absolute end-0 top-full z-30 mt-1 w-64 rounded-md border border-[#2e3448] bg-[#161a26] p-1.5 shadow-xl">
                       <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
                         {t(lang, 'sequence.categoryTwitch')}
                       </div>
@@ -4448,6 +4731,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                       </div>
                       <button
                         type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-indigo-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'run_sequence');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <Workflow size={13} />
+                        <span>{t(lang, 'sequence.stepRunSequence')}</span>
+                      </button>
+                      <button
+                        type="button"
                         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-amber-400 transition-colors"
                         onClick={() => {
                           const ns = addStep(sequence.id, 'wait', { waitDuration: 2, waitUnit: 'seconds' });
@@ -4600,6 +4895,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                 <BarChart3 size={13} className="text-violet-400 shrink-0" />
                               ) : st.type === 'mic_mute' ? (
                                 <MicOff size={13} className="text-rose-400 shrink-0" />
+                              ) : st.type === 'run_sequence' ? (
+                                <Workflow size={13} className="text-indigo-400 shrink-0" />
                               ) : st.type === 'if' ? (
                                 <GitBranch size={13} className="text-cyan-400 shrink-0" />
                               ) : st.type === 'wait' ? (
@@ -4687,8 +4984,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                   {list.map((b) => (
                                     <li key={b.id} className="text-zinc-300">
                                       <span className="font-medium text-zinc-100">{branchStepLabel(b, lang)}</span>
-                                      {branchStepDetail(b) && (
-                                        <span dir="auto" className="text-zinc-500"> — {branchStepDetail(b).slice(0, 70)}</span>
+                                      {branchStepDetail(b, sequenceNames) && (
+                                        <span dir="auto" className="text-zinc-500"> — {branchStepDetail(b, sequenceNames).slice(0, 70)}</span>
                                       )}
                                     </li>
                                   ))}
@@ -4715,6 +5012,10 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
           style={{
             top: Math.min(contextMenu.y, window.innerHeight - 280),
             left: Math.min(contextMenu.x, window.innerWidth - 250),
+            // long menus scroll instead of running off the bottom of the window
+            maxHeight: window.innerHeight - Math.min(contextMenu.y, window.innerHeight - 280) - 12,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -4789,6 +5090,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               >
                 <Flame size={14} />
                 <span>{t(lang, 'sequence.triggerRaid')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-teal-300"
+                onClick={() => {
+                  const nt = addTrigger(sequence.id, 'timer');
+                  setContextMenu(null);
+                  setEditingTriggerId(nt.id);
+                }}
+              >
+                <Timer size={14} />
+                <span>{t(lang, 'sequence.triggerTimer')}</span>
               </button>
               <button
                 type="button"
@@ -5013,6 +5326,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               </button>
               <button
                 type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-indigo-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'run_sequence');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <Workflow size={14} />
+                <span>{t(lang, 'sequence.stepRunSequence')}</span>
+              </button>
+              <button
+                type="button"
                 className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-cyan-400"
                 onClick={() => {
                   const ns = addStep(sequence.id, 'if');
@@ -5126,6 +5451,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
             step={step}
             index={stepIdx}
             previousSteps={sequence.steps.slice(0, stepIdx)}
+            allSequences={allSequences}
+            currentSequenceId={sequence.id}
             counters={counters}
             lang={lang}
             onSave={(patch) => updateStep(sequence.id, step.id, patch)}

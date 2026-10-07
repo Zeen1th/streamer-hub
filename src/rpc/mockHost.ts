@@ -860,6 +860,9 @@ export class MockHost {
       case Channels.AlertsOpenFile:
         this.respond(request, { ok: true });
         break;
+      case Channels.WindowSetZoom:
+        this.respond(request, { ok: true });
+        break;
       case Channels.AlertsGetTempSettings:
         this.respond(request, {
           keepTempFiles: this.alertTemp.keepTempFiles,

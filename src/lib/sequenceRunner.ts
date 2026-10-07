@@ -6,13 +6,18 @@ export interface SequenceExecutionContext {
   username: string;
   userLogin?: string;
   userId?: string;
-  source: 'channel_points' | 'chat' | 'raid' | 'follow' | 'watch_streak' | 'test';
+  source: 'channel_points' | 'chat' | 'raid' | 'follow' | 'watch_streak' | 'timer' | 'test';
   userInput?: string;
   raider?: string;
   viewers?: number;
   streak?: number;
   broadcasterName?: string;
+  /** Ids of the sequences that are calling this one (innermost last). Guards against loops. */
+  callStack?: string[];
 }
+
+/** A sequence may call another, which may call another... but no deeper than this. */
+export const MAX_SEQUENCE_CALL_DEPTH = 5;
 
 export interface SequenceExecutionSinks {
   sendChatMessage?: (message: string) => Promise<boolean>;
@@ -39,6 +44,8 @@ export interface SequenceExecutionSinks {
     ctx: SequenceExecutionContext,
   ) => Promise<boolean | { ok: boolean; outcome?: Promise<DuelOutcome | null> }>;
   /** Result of the most recent poll. `wait` = the poll is still running, resolve once it closes. */
+  /** Run another sequence (ignores its own enabled switch and cooldown). Null = no sequence with that id. */
+  runSequence?: (sequenceId: string, ctx: SequenceExecutionContext) => Promise<SequenceExecutionResult | null>;
   getPollOutcome?: (wait: boolean) => Promise<PollOutcome | null>;
   executePollAction?: (
     action: 'start' | 'end' | 'reset',
@@ -285,6 +292,14 @@ type LastGame =
   | { kind: 'duel'; outcome: Promise<DuelOutcome | null> | null }
   | { kind: 'poll'; waitForEnd: boolean };
 
+/** Why `targetId` cannot be called from `caller` right now, or null if it can. */
+export function sequenceCallBlockReason(targetId: string, caller: string, ctx: SequenceExecutionContext): string | null {
+  const stack = [...(ctx.callStack ?? []), caller];
+  if (stack.includes(targetId)) return 'it would call itself in a loop';
+  if (stack.length >= MAX_SEQUENCE_CALL_DEPTH) return `sequences are nested more than ${MAX_SEQUENCE_CALL_DEPTH} levels deep`;
+  return null;
+}
+
 const defaultDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export async function executeSequence(
@@ -337,8 +352,36 @@ export async function executeSequence(
           if (step.commandTrigger?.trim()) {
             log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Run command "${step.commandTrigger.trim()}"`);
             if (sinks.executeCommand) {
-              await sinks.executeCommand(step.commandTrigger.trim(), ctx);
+              await sinks.executeCommand(step.commandTrigger.trim(), { ...ctx, callStack: [...(ctx.callStack ?? []), sequence.id] });
             }
+          }
+          break;
+        }
+
+        case 'run_sequence': {
+          if (!step.sequenceId) {
+            log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Run Sequence skipped, no sequence selected.`);
+            break;
+          }
+          const blocked = sequenceCallBlockReason(step.sequenceId, sequence.id, ctx);
+          if (blocked) {
+            log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: Run Sequence skipped, ${blocked}.`);
+            break;
+          }
+          if (!sinks.runSequence) break;
+          const childCtx = { ...ctx, callStack: [...(ctx.callStack ?? []), sequence.id] };
+          const wait = step.waitForSequence !== false;
+          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Run another sequence${wait ? '' : ' (not waiting)'}`);
+          const running = sinks.runSequence(step.sequenceId, childCtx);
+          if (!wait) {
+            void running.catch((err) => log('obs-error', `[Sequence ${sequence.name}] Called sequence failed: ${String(err)}`));
+            break;
+          }
+          const childResult = await running;
+          if (!childResult) {
+            log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: the sequence to run no longer exists.`);
+          } else if (!childResult.ok) {
+            log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: the called sequence stopped early${childResult.error ? `: ${childResult.error}` : ''}.`);
           }
           break;
         }

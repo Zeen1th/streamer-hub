@@ -23,14 +23,17 @@ import {
   extractCommandArguments,
   isSequenceOnCooldown,
   matchesSequenceTrigger,
+  sequenceCallBlockReason,
   type SequenceExecutionContext,
+  type SequenceExecutionSinks,
 } from '../lib/sequenceRunner';
 import { useCounterStore } from './counterStore';
 import { useConnectionStore } from './connectionStore';
 import { useLogStore } from './logStore';
 import { useVoteStore } from './voteStore';
 import { useSettingsStore } from './settingsStore';
-import { isShielded } from '../lib/shield';
+import { isShielded, protectedUserMessage } from '../lib/shield';
+import { shouldFireTimer, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../lib/sequenceTimers';
 import { insertIndexForIf, moveStepBlock, reorderStepBlock } from '../lib/stepGroups';
 import { useChatterStore } from './chatterStore';
 import { duelGameManager } from '../lib/duelGameManager';
@@ -75,6 +78,8 @@ interface SequenceState {
   runSequence(id: string, customContext?: Partial<SequenceExecutionContext>): Promise<boolean>;
   handleChannelPointsRedemption(redemption: ChannelPointsRedemption): Promise<boolean>;
   handleChatMessage(message: ChatMessage): Promise<boolean>;
+  /** Called every few seconds: runs sequences whose Timer trigger is due. */
+  tickTimers(): Promise<void>;
   handleRaid(raid: TwitchRaidEvent): Promise<boolean>;
   handleFollow(follow: TwitchFollowEvent): Promise<boolean>;
   handleWatchStreak(streak: TwitchWatchStreakEvent): Promise<boolean>;
@@ -118,6 +123,15 @@ export const defaultTriggerForType = (type: ActionTriggerType, options?: Partial
         enabled: true,
         rewardId: options?.rewardId ?? '',
         rewardTitle: options?.rewardTitle ?? 'Custom Reward',
+        ...options,
+      };
+    case 'timer':
+      return {
+        id,
+        type: 'timer',
+        enabled: true,
+        intervalMinutes: options?.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES,
+        minChatMessages: options?.minChatMessages ?? TIMER_DEFAULT_MIN_CHAT_MESSAGES,
         ...options,
       };
     case 'twitch_watch_streak':
@@ -292,6 +306,14 @@ export const defaultStepForType = (type: SequenceStepType, options?: Partial<Seq
         pollDurationSeconds: options?.pollDurationSeconds ?? 60,
         ...options,
       };
+    case 'run_sequence':
+      return {
+        id,
+        type: 'run_sequence',
+        sequenceId: options?.sequenceId ?? '',
+        waitForSequence: options?.waitForSequence ?? true,
+        ...options,
+      };
     case 'if':
       return {
         id,
@@ -344,6 +366,10 @@ class TimedDeduplicator {
 
 const messageDeduplicator = new MessageDeduplicator(500);
 const redemptionDeduplicator = new TimedDeduplicator(2500);
+
+// Timer triggers: when each last ran and how many chat messages had arrived at that moment
+const timerRuntime = new Map<string, { lastFiredAt: number; linesAtFire: number }>();
+let chatLineCounter = 0;
 
 export const useSequenceStore = create<SequenceState>((set, get) => ({
   sequences: [],
@@ -791,7 +817,15 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     };
 
     try {
-      const result = await executeSequence(seq, context, {
+      // Called sequences run with the same sinks, but never move the running-step highlight of the one on screen
+      const runNested = async (targetId: string, childCtx: SequenceExecutionContext) => {
+        const target = get().sequences.find((item) => item.id === targetId);
+        if (!target) return null;
+        useLogStore.getState().add({ kind: 'trigger', message: `Running sequence [${target.name}] from [${seq.name}]` });
+        return executeSequence(target, childCtx, nestedSinks);
+      };
+
+      const sinks: SequenceExecutionSinks = {
         sendChatMessage: async (msg) => {
           const res = await rpc.invoke(Channels.TwitchSendChatMessage, { message: msg });
           return Boolean(res?.ok);
@@ -799,10 +833,21 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
         executeCounterAction: async (counterId: string, action: CounterAction) => {
           useCounterStore.getState().triggerAction(counterId, action, 'manual');
         },
-        executeCommand: async (trigger: string) => {
-          // If the command is a counter command, handle it
-          useLogStore.getState().add({ kind: 'trigger', message: `Executed sub-command "${trigger}"` });
+        // "Run Command" starts the sequence whose chat trigger matches (e.g. !sound)
+        executeCommand: async (trigger, childCtx) => {
+          const match = get().sequences.find((item) => matchesSequenceTrigger(item, { chatMessage: trigger }));
+          if (!match) {
+            useLogStore.getState().add({ kind: 'obs-error', message: `Run Command "${trigger}": no sequence has that chat trigger.` });
+            return;
+          }
+          const blocked = sequenceCallBlockReason(match.id, childCtx.callStack?.at(-1) ?? seq.id, { ...childCtx, callStack: childCtx.callStack?.slice(0, -1) });
+          if (blocked) {
+            useLogStore.getState().add({ kind: 'obs-error', message: `Run Command "${trigger}" skipped, ${blocked}.` });
+            return;
+          }
+          await runNested(match.id, childCtx);
         },
+        runSequence: runNested,
         executeModerationAction: async (action, target, durationSeconds, reason) => {
           switch (action) {
             case 'smart_timeout': {
@@ -938,6 +983,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
                 useChatterStore.getState().findKnownChatter(user),
               ),
             protectedMessage: step.duelProtectedMessage,
+            protectedMessageFor: (user) => protectedUserMessage(user, step.duelProtectedUserMessages),
             broadcasterMuteSource: step.duelBroadcasterMuteSource || '',
             timeoutDuration: step.duelTimeoutDuration ?? 60,
             timerSeconds: step.duelTimerSeconds ?? 30,
@@ -1023,7 +1069,9 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
         log: (kind, message) => {
           useLogStore.getState().add({ kind, message });
         },
-      });
+      };
+      const nestedSinks: SequenceExecutionSinks = { ...sinks, onStepStart: undefined, onStepComplete: undefined };
+      const result = await executeSequence(seq, context, sinks);
 
       return result.ok;
     } finally {
@@ -1069,7 +1117,46 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     return handled;
   },
 
+  tickTimers: async () => {
+    const connection = useConnectionStore.getState();
+    if (!connection.twitchConnected) {
+      // Everything restarts its interval after a reconnect instead of firing a backlog
+      timerRuntime.clear();
+      return;
+    }
+    const now = Date.now();
+    const seen = new Set<string>();
+    for (const seq of get().sequences) {
+      if (!seq.enabled) continue;
+      for (const trigger of normalizeTriggers(seq)) {
+        if (trigger.type !== 'timer' || !trigger.enabled) continue;
+        seen.add(trigger.id);
+        const runtime = timerRuntime.get(trigger.id);
+        if (!runtime) {
+          timerRuntime.set(trigger.id, { lastFiredAt: now, linesAtFire: chatLineCounter });
+          continue;
+        }
+        const due = shouldFireTimer({
+          intervalMinutes: trigger.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES,
+          minChatMessages: trigger.minChatMessages ?? TIMER_DEFAULT_MIN_CHAT_MESSAGES,
+          lastFiredAt: runtime.lastFiredAt,
+          now,
+          chatLinesSince: chatLineCounter - runtime.linesAtFire,
+        });
+        if (!due) continue;
+        timerRuntime.set(trigger.id, { lastFiredAt: now, linesAtFire: chatLineCounter });
+        const channel = connection.twitchChannel?.replace(/^#+/, '') || 'Streamer';
+        await get().runSequence(seq.id, { username: channel, userLogin: channel.toLowerCase(), source: 'timer', userInput: '' });
+      }
+    }
+    // Forget timers that were deleted or switched off
+    for (const id of [...timerRuntime.keys()]) if (!seen.has(id)) timerRuntime.delete(id);
+  },
+
   handleChatMessage: async (message) => {
+    // Timer triggers only send into a chat that is actually active
+    if (!(message.isSelf || message.id?.startsWith('self-'))) chatLineCounter++;
+
     // Check if chatter (including broadcaster testing or participating) is answering an active timeout trivia duel
     const duelHandled = await duelGameManager.handleChatMessage(message);
     if (duelHandled) return true;

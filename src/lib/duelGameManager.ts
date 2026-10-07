@@ -45,6 +45,8 @@ export interface StartDuelOptions {
   isProtected?: (username: string) => boolean;
   /** Reply sent to the challenger instead of starting the duel. Tokens: {challenger} {opponent} {target}. */
   protectedMessage?: string;
+  /** Reply for this specific protected viewer; wins over `protectedMessage`. */
+  protectedMessageFor?: (username: string) => string | undefined;
   sinks: DuelExecutionSinks;
 }
 
@@ -412,10 +414,10 @@ class DuelGameManager {
       const fallback = options.isStreamerDuel
         ? (ar ? DEFAULT_PROTECTED_MESSAGES.streamerAr : DEFAULT_PROTECTED_MESSAGES.streamerEn)
         : (ar ? DEFAULT_PROTECTED_MESSAGES.viewerAr : DEFAULT_PROTECTED_MESSAGES.viewerEn);
-      const template = options.protectedMessage?.trim() || fallback;
+      const template = options.protectedMessageFor?.(protectedUser)?.trim() || options.protectedMessage?.trim() || fallback;
       log('trigger', `[Duel] Blocked: @${protectedUser} is protected from this duel.`);
       await sinks.sendChatMessage(
-        renderDuelMessage(template, { challenger: cleanChallenger, opponent: cleanOpponent, target: cleanOpponent }),
+        renderDuelMessage(template, { challenger: cleanChallenger, opponent: cleanOpponent, target: cleanOpponent, protected: protectedUser }),
       );
       return { ok: false, error: options.isStreamerDuel ? 'CHALLENGER_PROTECTED' : 'OPPONENT_PROTECTED' };
     }
