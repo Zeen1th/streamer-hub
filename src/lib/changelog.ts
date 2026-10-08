@@ -19,6 +19,29 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.11',
+    en: {
+      added: [
+        'Undo and redo: press Ctrl+Z to undo and Ctrl+Y (or Ctrl+Shift+Z) to redo changes to your sequences, replies and counters on the Commands tab, including deleting something by mistake. Undo and Redo buttons sit next to Delete.',
+        'Slash commands in the streamer chat box (OBS dock and Chat tab): /timeout, /untimeout, /ban, /unban, /clear, /mod, /unmod, /vip, /unvip, /shoutout and /help, with suggestions as you type.',
+        'Emote suggestions and an emote picker in the chat box, and @name suggestions from recent chatters.',
+        '7TV global emotes, and BTTV, FFZ and 7TV emotes now show in the in-app Chat tab as well as the overlay and the OBS dock.',
+        'Gifted subs are pinned at the top of the OBS dock and the Chat tab, with bundles shown once.',
+      ],
+      fixed: [],
+    },
+    ar: {
+      added: [
+        'تراجع وإعادة: اضغط Ctrl+Z للتراجع وCtrl+Y (أو Ctrl+Shift+Z) للإعادة في تعديلات السلاسل والردود والعدادات في تبويب الأوامر، بما في ذلك حذف شيء بالخطأ. وأزرار تراجع وإعادة بجانب زر الحذف.',
+        'أوامر بالشرطة المائلة في صندوق شات الستريمر (دوك OBS وتبويب الشات): /timeout و/untimeout و/ban و/unban و/clear و/mod و/unmod و/vip و/unvip و/shoutout و/help مع اقتراحات أثناء الكتابة.',
+        'اقتراحات إيموجي ومنتقي إيموجي في صندوق الشات، واقتراحات @الأسماء من آخر المتحدثين.',
+        'إيموجيات 7TV العامة، وإيموجيات BTTV وFFZ و7TV تظهر الآن في تبويب الشات داخل التطبيق إلى جانب الأوفرلاي ودوك OBS.',
+        'الاشتراكات المهداة تُثبَّت في أعلى دوك OBS وتبويب الشات، والحزم تظهر مرة واحدة.',
+      ],
+      fixed: [],
+    },
+  },
+  {
     version: '0.4.10',
     en: {
       added: [

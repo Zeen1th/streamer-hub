@@ -80,8 +80,9 @@ export const defaultDeps: ObsChatStoreDeps = {
   sendChat: async (message) => {
     try {
       const { rpc } = await import('../rpc');
-      const res = await rpc.invoke(Channels.TwitchSendChatMessage, { message });
-      return { ok: res.ok, error: res.error };
+      // Goes through the command-aware channel so "/timeout bob 10m" works from the Chat tab too
+      const res = await rpc.invoke(Channels.ChatSendInput, { message });
+      return { ok: res.ok, error: res.ok ? undefined : res.message };
     } catch (e: unknown) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }

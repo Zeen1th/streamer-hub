@@ -54,6 +54,8 @@ interface SequenceState {
   activeRunningStepIndex: number | null;
 
   hydrate(sequences: CommandSequence[]): void;
+  /** Put the saved list back exactly as `next` (used by undo / redo): saves what differs and deletes what is gone. */
+  restoreSequences(next: CommandSequence[]): void;
   fetchAvailableRewards(): Promise<void>;
   fetchObsAudioSources(): Promise<void>;
   fetchObsStatus(): Promise<void>;
@@ -382,6 +384,19 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
   isLoadingObsSources: false,
   activeRunningSequenceId: null,
   activeRunningStepIndex: null,
+
+  restoreSequences: (next) => {
+    const current = get().sequences;
+    const before = new Map(current.map((item) => [item.id, JSON.stringify(item)]));
+    set({ sequences: next });
+    for (const item of next) {
+      if (before.get(item.id) !== JSON.stringify(item)) persist(item);
+    }
+    const keep = new Set(next.map((item) => item.id));
+    for (const old of current) {
+      if (!keep.has(old.id)) rpc.invoke(Channels.SequencesDelete, { sequenceId: old.id }).catch(() => undefined);
+    }
+  },
 
   hydrate: (sequences) => {
     set({

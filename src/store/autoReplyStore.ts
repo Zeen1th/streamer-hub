@@ -33,6 +33,8 @@ interface AutoReplyState {
   hydrateGlobalSettings(settings: AutoReplySettings): void;
   updateGlobalSettings(patch: Partial<AutoReplySettings>): void;
   hydrate(rules: AutoReply[]): void;
+  /** Put the saved list back exactly as `next` (used by undo / redo). */
+  restoreRules(next: AutoReply[]): void;
   add(): string;
   update(id: string, patch: Partial<AutoReply>): void;
   remove(id: string): void;
@@ -210,6 +212,24 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
           } catch {}
         });
       }
+    }
+  },
+  restoreRules: (next) => {
+    const current = get().rules;
+    const before = new Map(current.map((item) => [item.id, JSON.stringify(item)]));
+    set({ rules: next });
+    for (const rule of next) {
+      if (before.get(rule.id) !== JSON.stringify(rule)) persist(rule, true);
+    }
+    const keep = new Set(next.map((rule) => rule.id));
+    for (const old of current) {
+      if (keep.has(old.id)) continue;
+      const pending = pendingSaves.get(old.id);
+      if (pending) {
+        clearTimeout(pending);
+        pendingSaves.delete(old.id);
+      }
+      rpc.invoke(Channels.AutoRepliesDelete, { ruleId: old.id }).catch(() => undefined);
     }
   },
   remove: (id) => {

@@ -199,25 +199,46 @@ public sealed class EmoteRegistry : IDisposable
     private async Task<IReadOnlyDictionary<string, string>> FetchSevenTvAsync(string channelUserId, CancellationToken cancellationToken)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (string.IsNullOrWhiteSpace(channelUserId)) return map;
 
-        using var document = await GetJsonAsync(
-            $"https://7tv.io/v3/users/twitch/{Uri.EscapeDataString(channelUserId)}",
-            cancellationToken).ConfigureAwait(false);
+        // Global set first (KEKW-style staples every channel can use); the channel set wins on a name clash.
+        try
+        {
+            using var global = await GetJsonAsync("https://7tv.io/v3/emote-sets/global", cancellationToken).ConfigureAwait(false);
+            if (global is not null) AddSevenTvEmotes(global.RootElement, map);
+        }
+        catch
+        {
+            // the channel set below is still useful on its own
+        }
 
-        if (document is null) return map;
-        if (!document.RootElement.TryGetProperty("emote_set", out var emoteSet)) return map;
-        if (!emoteSet.TryGetProperty("emotes", out var emotes) || emotes.ValueKind != JsonValueKind.Array) return map;
+        if (!string.IsNullOrWhiteSpace(channelUserId))
+        {
+            using var channel = await GetJsonAsync(
+                $"https://7tv.io/v3/users/twitch/{Uri.EscapeDataString(channelUserId)}",
+                cancellationToken).ConfigureAwait(false);
+            if (channel is not null && channel.RootElement.TryGetProperty("emote_set", out var emoteSet))
+            {
+                AddSevenTvEmotes(emoteSet, map);
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>Reads `{ emotes: [{ id, name }] }` (a global set or a channel's emote_set) into name -> CDN url.</summary>
+    public static void AddSevenTvEmotes(JsonElement set, Dictionary<string, string> map)
+    {
+        if (set.ValueKind != JsonValueKind.Object) return;
+        if (!set.TryGetProperty("emotes", out var emotes) || emotes.ValueKind != JsonValueKind.Array) return;
 
         foreach (var emote in emotes.EnumerateArray())
         {
             var name = emote.TryGetProperty("name", out var n) ? n.GetString() : null;
             var id = emote.TryGetProperty("id", out var i) ? i.GetString() : null;
             if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(id)) continue;
-            map[name] = $"https://cdn.7tv.app/emote/{id}/4x.webp";
+            // 2x is plenty for chat text and keeps the animated webp files small
+            map[name] = $"https://cdn.7tv.app/emote/{id}/2x.webp";
         }
-
-        return map;
     }
 
     public void Dispose()

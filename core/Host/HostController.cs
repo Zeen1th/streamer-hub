@@ -106,6 +106,12 @@ public sealed class ChatOverlayHostBridge
         CancellationToken cancellationToken = default) =>
         await _server.PublishEmotesAsync(providers, cancellationToken).ConfigureAwait(false);
 
+    public async Task PublishGiftAsync(TwitchGiftEvent gift, CancellationToken cancellationToken = default) =>
+        await _server.PublishGiftAsync(gift, cancellationToken).ConfigureAwait(false);
+
+    public async Task PublishNoticeAsync(string message, bool ok, CancellationToken cancellationToken = default) =>
+        await _server.PublishNoticeAsync(message, ok, cancellationToken).ConfigureAwait(false);
+
     public async Task ReloadAsync(string? overlayId = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(overlayId))
@@ -170,6 +176,9 @@ public sealed class HostController : IDisposable
     private static readonly HttpClient UpdateHttp = new();
     private const string UpdateRepository = "Zeen1th/streamer-hub";
     private readonly ITwitchClient _twitch = new TwitchIrcClient();
+    private readonly List<TwitchGiftEvent> _recentGifts = new();
+    private ChatCommandProcessor? _chatCommandsInstance;
+    private ChatCommandProcessor _chatCommands => _chatCommandsInstance ??= new ChatCommandProcessor(_twitch, ResolveKnownTarget, () => Lang == "ar");
     private readonly ITwitchClient _botTwitch = new TwitchIrcClient();
     private readonly TwitchEventSubClient _eventSub = new();
     private readonly WindowsMicController _micController = new();
@@ -279,6 +288,8 @@ public sealed class HostController : IDisposable
     }
     private readonly HostMessageEchoTracker _echoTracker = new();
     private readonly EmoteRegistry _emotes = new();
+    private string _emoteBroadcasterId = string.Empty;
+    private bool _emoteLoopStarted;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string UserId, string Login, string DisplayName, string? AvatarUrl)> _knownChatters = new(StringComparer.OrdinalIgnoreCase);
     private const int ProfileBatchSize = 100;
     private const int ProfileFlushDelayMs = 200;
@@ -332,7 +343,7 @@ public sealed class HostController : IDisposable
         WireBotState();
         RefreshKeybinds();
         LoadRecentGamingQuestions();
-        chatOverlayServer.ChatSendRequested += async msg => await SendChatMessageCoreAsync(msg).ConfigureAwait(false);
+        chatOverlayServer.ChatSendRequested += async msg => await HandleChatInputAsync(msg).ConfigureAwait(false);
         chatOverlayServer.ChatTimeoutRequested += async (u, d) => await _twitch.TimeoutUserAsync(u, d).ConfigureAwait(false);
         chatOverlayServer.ChatBanRequested += async u => await _twitch.BanUserAsync(u).ConfigureAwait(false);
         chatOverlayServer.ChatDeleteMessageRequested += async id => await _twitch.DeleteChatMessageAsync(id).ConfigureAwait(false);
@@ -382,6 +393,25 @@ public sealed class HostController : IDisposable
         }
     }
 
+    /// <summary>
+    /// Text typed into the streamer's chat box: "/timeout bob 10m" style commands run here, anything else is sent to chat.
+    /// The outcome of a command is shown to the streamer in the dock and the Chat tab.
+    /// </summary>
+    private async Task<(bool Handled, bool Ok, string Message)> HandleChatInputAsync(string text, string? senderRole = null)
+    {
+        var result = await _chatCommands.ExecuteAsync(text, _shutdown).ConfigureAwait(false);
+        if (!result.Handled)
+        {
+            var sent = await SendChatMessageCoreAsync(text, senderRole).ConfigureAwait(false);
+            return (false, sent, sent ? string.Empty : "TWITCH CHAT IS NOT CONNECTED");
+        }
+
+        PostEvent(Events.ChatNotice, new { message = result.Message, ok = result.Ok });
+        try { await _chatOverlay.PublishNoticeAsync(result.Message, result.Ok, _shutdown).ConfigureAwait(false); } catch { }
+        Log(result.Ok ? "moderation" : "error", $"/{(ChatCommandProcessor.Parse(text)?.Name ?? "?")}: {result.Message}");
+        return (true, result.Ok, result.Message);
+    }
+
     private string ResolveKnownTarget(string? target)
     {
         if (string.IsNullOrWhiteSpace(target)) return string.Empty;
@@ -401,6 +431,22 @@ public sealed class HostController : IDisposable
 
     private void RegisterHandlers()
     {
+        _dispatcher.Register(Channels.ChatSendInput, async (payload, _) =>
+        {
+            var request = Json.Deserialize<ChatSendInputPayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.Message))
+                return new { ok = false, handled = false, message = "EMPTY MESSAGE" };
+            var (handled, ok, message) = await HandleChatInputAsync(request.Message, request.SenderRole).ConfigureAwait(false);
+            return new { ok, handled, message };
+        });
+        _dispatcher.Register(Channels.ChatGetGifts, (_, _) =>
+        {
+            TwitchGiftEvent[] gifts;
+            lock (_recentGifts) gifts = _recentGifts.TakeLast(10).ToArray();
+            return Task.FromResult<object?>(gifts);
+        });
+        _dispatcher.Register(Channels.ChatGetEmotes, (_, _) =>
+            Task.FromResult<object?>(_emotes.Providers));
         _dispatcher.Register(Channels.WindowSetZoom, (payload, _) =>
         {
             var request = Json.Deserialize<SetZoomPayload>(payload ?? default);
@@ -1614,11 +1660,14 @@ public sealed class HostController : IDisposable
     /// </summary>
     private async Task RefreshEmotesAsync(string broadcasterUserId)
     {
+        _emoteBroadcasterId = broadcasterUserId;
+        StartEmoteRefreshLoop();
         try
         {
             var providers = await _emotes.RefreshAsync(broadcasterUserId, _shutdown).ConfigureAwait(false);
             if (providers.Count == 0) return;
             await _chatOverlay.PublishEmotesAsync(providers, _shutdown).ConfigureAwait(false);
+            PostEvent(Events.TwitchEmotes, providers);
             Log("system", $"EMOTES LOADED · {string.Join(", ", providers.Select(p => $"{p.Key} {p.Value.Count}"))}");
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
@@ -1627,6 +1676,27 @@ public sealed class HostController : IDisposable
         catch
         {
         }
+    }
+
+    /// <summary>Emote sets change while streaming (new 7TV adds); look again every few hours without a restart.</summary>
+    private void StartEmoteRefreshLoop()
+    {
+        if (_emoteLoopStarted) return;
+        _emoteLoopStarted = true;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!_shutdown.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromHours(6) + TimeSpan.FromMinutes(5), _shutdown).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(_emoteBroadcasterId)) await RefreshEmotesAsync(_emoteBroadcasterId).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        });
     }
 
     private async Task PublishChatClearAsync(ChatClear clear)
@@ -1773,6 +1843,19 @@ public sealed class HostController : IDisposable
         {
             PostEvent(Events.TwitchFollow, follow);
             Log("trigger", $"TWITCH FOLLOW · {follow.UserName} just followed!");
+        };
+        _twitch.GiftReceived += gift =>
+        {
+            lock (_recentGifts)
+            {
+                _recentGifts.Add(gift);
+                if (_recentGifts.Count > 20) _recentGifts.RemoveAt(0);
+            }
+            PostEvent(Events.TwitchGift, gift);
+            _ = _chatOverlay.PublishGiftAsync(gift, _shutdown);
+            Log("trigger", gift.Count > 1
+                ? $"GIFT SUBS · {gift.GifterName} gifted {gift.Count} subs!"
+                : $"GIFT SUB · {gift.GifterName} gifted a sub{(string.IsNullOrWhiteSpace(gift.RecipientName) ? string.Empty : " to " + gift.RecipientName)}!");
         };
         _twitch.WatchStreakReceived += streak =>
         {

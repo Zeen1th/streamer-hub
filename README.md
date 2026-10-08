@@ -44,8 +44,15 @@ Streamer Hub is a lightweight, local-first desktop companion for Twitch streamer
   - **Zero-Setup Portable FFmpeg Integration**: Auto-detects system FFmpeg or downloads portable essentials directly in the background with live progress indicators.
   - **Smart Bitrate & CRF Optimization**: Automatically tunes constrained quality parameters based on clip duration for visually lossless 1080p output.
   - **ProRes 4444 `.mov` Support**: Convert After Effects / Premiere alpha renders directly into StreamElements-ready WebM.
+- **Sequences (no-code macros)**: Triggers (channel points, chat commands, raids, follows, watch streaks, and **repeating timers** like Nightbot) and sub-actions (chat, TTS, sounds, OBS images/text, moderation, counters, polls, mini-games), plus:
+  - **If / Else** branches on a mini game or poll result, nested under the game they check.
+  - **Run Another Sequence** to build reusable sequences (loop-safe).
+  - **Protected viewers** for duels, with a reply per viewer.
+  - Timed chat messages: add many messages with Wait steps between them so chat is never flooded.
+- **Undo / Redo (Ctrl+Z / Ctrl+Y)** for sequences, replies and counters, including accidental deletes.
+- **Streamer chat box**: `/timeout`, `/ban`, `/clear`, `/mod`, `/vip`, `/shoutout` and more, with suggestions, an emote picker, `@name` and `:emote` completion; **gifted subs pinned on top**; BTTV/FFZ/7TV emotes in the dock, Chat tab and overlay.
 - **Local & Private**: No cloud accounts or subscriptions required. Runs on your Windows PC and binds strictly to loopback (`127.0.0.1`).
-- **One-Click Auto-Updates**: In-app update notifications with background downloading and automated restart.
+- **Automatic Updates**: Updates itself right after launch (cancelable countdown, never mid-stream) with a bilingual What's New window after every update. Turn it off in Settings > System > Updates.
 
 ---
 

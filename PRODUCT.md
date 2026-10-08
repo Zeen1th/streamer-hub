@@ -96,5 +96,9 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
   - High-contrast, unwashed dark themes: Solar Amber, Abyss Sapphire, Midnight Violet, Tokyo Rose, and Crimson Dark.
   - Full English and Arabic localization with Cairo typography and stable LTR shell controls.
   - First-run and version upgrade prompt modals (`ReauthPromptModal`) ensuring zero-friction permissions maintenance.
-
-
+- **Sequence Logic & Automation**:
+  - If / Else steps on mini game or poll results (shown nested under the game), Run Another Sequence (reusable, loop-safe), repeating timers with a chat-activity check (Nightbot style), and a Run Command step that really starts the matching sequence.
+  - Duel protected viewers with per-viewer replies; the Timeout Duel never targets the streamer (use Streamer 1v1).
+- **Safety Net**: Undo / Redo (Ctrl+Z / Ctrl+Y) over sequences, replies and counters (100 steps, live counts excluded), with toolbar buttons and a confirmation toast.
+- **Streamer Chat Box**: slash moderation commands (`/timeout`, `/ban`, `/clear`, `/mod`, `/vip`, `/shoutout`...) executed on the host, suggestions for commands, `@names` and `:emotes`, an emote picker, and a gifted-subs strip pinned on top of the dock and Chat tab. 7TV (global + channel), BTTV and FFZ emotes render everywhere.
+- **Updates & Scale**: automatic updates with a bilingual What's New window, 110% default UI size via native WebView zoom, and a bigger first-launch window on large screens.

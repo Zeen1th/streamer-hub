@@ -207,6 +207,19 @@ export interface ActionTrigger {
   minChatMessages?: number;
 }
 
+/** A gifted sub (count 1) or a bundle (count > 1). `tier` is the Twitch plan id: 1000, 2000, 3000. */
+export interface TwitchGiftEvent {
+  id: string;
+  gifterName: string;
+  gifterLogin: string;
+  anonymous: boolean;
+  count: number;
+  tier: string;
+  recipientName?: string | null;
+  totalGifted: number;
+  at: string;
+}
+
 export interface TwitchRaidEvent {
   fromUserId: string;
   fromUserName: string;
@@ -664,6 +677,9 @@ export interface GenerateAiPollResponse {
 
 export const Channels = {
   WindowMinimize: 'window/minimize',
+  ChatGetEmotes: 'chat/get-emotes',
+  ChatGetGifts: 'chat/get-gifts',
+  ChatSendInput: 'chat/send-input',
   WindowSetZoom: 'window/set-zoom',
   WindowMaximizeToggle: 'window/maximize-toggle',
   WindowClose: 'window/close',
@@ -780,6 +796,9 @@ export const Events = {
   CoreLog: 'core/log',
   KeybindTriggered: 'keybind/triggered',
   TwitchRaid: 'twitch/raid',
+  TwitchEmotes: 'twitch/emotes',
+  TwitchGift: 'twitch/gift',
+  ChatNotice: 'chat/notice',
   TwitchFollow: 'twitch/follow',
   TwitchWatchStreak: 'twitch/watch-streak',
   ObsWebsocketStatusChanged: 'obs/websocket-status-changed',
@@ -796,6 +815,9 @@ export interface HostApi {
   [Channels.WindowMinimize]: { request: undefined; response: void };
   [Channels.WindowMaximizeToggle]: { request: undefined; response: { isMaximized: boolean } };
   [Channels.WindowClose]: { request: undefined; response: void };
+  [Channels.ChatSendInput]: { request: { message: string; senderRole?: 'default' | 'bot' | 'broadcaster' }; response: { ok: boolean; handled: boolean; message?: string } };
+  [Channels.ChatGetGifts]: { request: undefined; response: TwitchGiftEvent[] };
+  [Channels.ChatGetEmotes]: { request: undefined; response: Record<string, Record<string, string>> };
   [Channels.WindowSetZoom]: { request: { factor: number }; response: { ok: boolean } };
   [Channels.WindowIsMaximized]: { request: undefined; response: { isMaximized: boolean } };
   [Channels.CoreGetStatus]: { request: undefined; response: ConnectionStatus };
@@ -1060,6 +1082,9 @@ export interface EventMap {
   [Events.CoreLog]: { message: string };
   [Events.KeybindTriggered]: { bindingId: string };
   [Events.TwitchRaid]: TwitchRaidEvent;
+  [Events.TwitchGift]: TwitchGiftEvent;
+  [Events.TwitchEmotes]: Record<string, Record<string, string>>;
+  [Events.ChatNotice]: { message: string; ok: boolean };
   [Events.TwitchFollow]: TwitchFollowEvent;
   [Events.TwitchWatchStreak]: TwitchWatchStreakEvent;
   [Events.ObsWebsocketStatusChanged]: { connected: boolean };

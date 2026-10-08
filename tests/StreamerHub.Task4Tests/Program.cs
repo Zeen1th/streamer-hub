@@ -5,6 +5,7 @@ using StreamerHub.Core.Host;
 using StreamerHub.Core.Overlay;
 using StreamerHub.Core.Rpc;
 using StreamerHub.Core.Storage;
+using StreamerHub.Core.Twitch;
 
 using (var release = JsonDocument.Parse("""
 {
@@ -22,6 +23,57 @@ using (var release = JsonDocument.Parse("""
     AssertTrue(
         UpdateSupport.BuildInstallerArguments(@"R:\Apps\Streamer Hub").Contains("/DIR=\"R:\\Apps\\Streamer Hub\"", StringComparison.Ordinal),
         "installer targets the running app directory");
+}
+
+// Streamer chat slash commands: parsing, durations
+{
+    var timeout = ChatCommandProcessor.Parse("/to @Bob 10m spamming links");
+    AssertTrue(timeout is not null, "slash command parses");
+    AssertEqual("to", timeout!.Name, "slash command name");
+    AssertEqual(4, timeout.Args.Count, "slash command args");
+    AssertEqual("@Bob", timeout.Args[0], "slash command first arg");
+    AssertTrue(ChatCommandProcessor.Parse("hello world") is null, "plain text is not a command");
+    AssertTrue(ChatCommandProcessor.Parse("//wave") is null, "double slash is plain text");
+    AssertTrue(ChatCommandProcessor.Parse("/ ") is null, "a lone slash is plain text");
+    AssertEqual("clear", ChatCommandProcessor.Parse("  /CLEAR  ")!.Name, "command names are case-insensitive");
+    AssertEqual(90, ChatCommandProcessor.ParseDuration("90"), "plain seconds");
+    AssertEqual(600, ChatCommandProcessor.ParseDuration("10m"), "minutes");
+    AssertEqual(7200, ChatCommandProcessor.ParseDuration("2h"), "hours");
+    AssertEqual(86400, ChatCommandProcessor.ParseDuration("1d"), "days");
+    AssertTrue(ChatCommandProcessor.ParseDuration("abc") is null, "garbage is not a duration");
+    AssertTrue(ChatCommandProcessor.ParseDuration("0") is null, "zero is not a duration");
+    AssertEqual(14 * 24 * 60 * 60, ChatCommandProcessor.ParseDuration("999d"), "durations are capped at 14 days");
+    AssertEqual("10m", ChatCommandProcessor.FormatDuration(600), "format minutes");
+    AssertEqual("bob", ChatCommandProcessor.CleanUser("@bob,"), "usernames are cleaned");
+}
+
+// Gifted subs from USERNOTICE lines
+{
+    const string tail = " :tmi.twitch.tv USERNOTICE #channel";
+    AssertTrue(TwitchUsernoticeParser.TryParseGift("@display-name=Alice;id=g1;login=alice;msg-id=subgift;msg-param-recipient-display-name=Bob;msg-param-sub-plan=2000;msg-param-sender-count=7" + tail, out var single), "single gift parses");
+    AssertEqual("Alice", single!.GifterName, "gifter name");
+    AssertEqual(1, single.Count, "single gift count");
+    AssertEqual("Bob", single.RecipientName, "recipient");
+    AssertEqual("2000", single.Tier, "tier");
+    AssertEqual(7, single.TotalGifted, "total gifted");
+
+    AssertTrue(TwitchUsernoticeParser.TryParseGift("@display-name=Dana;id=m1;login=dana;msg-id=submysterygift;msg-param-mass-gift-count=5;msg-param-sub-plan=1000;msg-param-community-gift-id=c9" + tail, out var bundle), "bundle parses");
+    AssertEqual(5, bundle!.Count, "bundle count");
+
+    AssertTrue(!TwitchUsernoticeParser.TryParseGift("@display-name=Dana;id=s1;login=dana;msg-id=subgift;msg-param-recipient-display-name=Eve;msg-param-community-gift-id=c9" + tail, out _), "per-recipient notices of a bundle are skipped");
+    AssertTrue(TwitchUsernoticeParser.TryParseGift("@display-name=ananonymousgifter;id=a1;login=ananonymousgifter;msg-id=anonsubmysterygift;msg-param-mass-gift-count=10" + tail, out var anon), "anonymous bundle parses");
+    AssertTrue(anon!.Anonymous && anon.GifterName == "Anonymous" && anon.Count == 10, "anonymous gifts are hidden");
+    AssertTrue(!TwitchUsernoticeParser.TryParseGift("@display-name=Zed;id=r1;login=zed;msg-id=raid" + tail, out _), "other notices are not gifts");
+    AssertTrue(TwitchUsernoticeParser.TryParseGift("@display-name=Sp\\sace;id=g2;login=space;msg-id=subgift;msg-param-recipient-display-name=A\\sB" + tail, out var spaced) && spaced!.GifterName == "Sp ace" && spaced.RecipientName == "A B", "escaped spaces in names are decoded");
+}
+
+// 7TV: global and channel sets share one reader
+{
+    using var set = JsonDocument.Parse("""{ "emotes": [ { "id": "01ABC", "name": "KEKW" }, { "id": "", "name": "bad" }, { "name": "noid" } ] }""");
+    var map = new Dictionary<string, string>();
+    StreamerHub.Core.Twitch.EmoteRegistry.AddSevenTvEmotes(set.RootElement, map);
+    AssertEqual(1, map.Count, "only complete 7TV emotes are kept");
+    AssertEqual("https://cdn.7tv.app/emote/01ABC/2x.webp", map["KEKW"], "7TV emote url");
 }
 
 var root = Path.Combine(Path.GetTempPath(), $"streamer-hub-task4-{Guid.NewGuid():N}");

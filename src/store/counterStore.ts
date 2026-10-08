@@ -39,6 +39,8 @@ interface CounterStoreState {
   obsStatus: Record<string, ObsStatus>;
   configSync: { state: 'idle' | 'syncing' | 'saved' | 'error'; at: string | null };
   hydrate(counters: Counter[]): void;
+  /** Put counter settings back as `next` (used by undo / redo). Live counts of counters that still exist are kept. */
+  restoreCounters(next: Counter[]): void;
   select(id: string | null): void;
   addCounter(): void;
   removeCounter(id: string): void;
@@ -267,6 +269,34 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
       set((s) => ({ counters: [...s.counters, counter], selectedId: counter.id }));
       persistCounter(counter);
       log('system', tr('log.counterCreated', { name }));
+    },
+
+    restoreCounters: (next) => {
+      const current = get().counters;
+      const before = new Map(current.map((item) => [item.id, item]));
+      const configOf = (counter: Counter) => JSON.stringify({ ...counter, count: 0 });
+      const merged = next.map((counter) => {
+        const existing = before.get(counter.id);
+        return existing ? { ...counter, count: existing.count } : counter;
+      });
+      set((s) => ({
+        counters: merged,
+        selectedId: merged.some((c) => c.id === s.selectedId) ? s.selectedId : (merged[0]?.id ?? null),
+      }));
+      for (const counter of merged) {
+        const existing = before.get(counter.id);
+        if (!existing || configOf(existing) !== configOf(counter)) persistCounter(counter, false);
+      }
+      const keep = new Set(merged.map((counter) => counter.id));
+      for (const old of current) {
+        if (keep.has(old.id)) continue;
+        void counterSyncQueue
+          .enqueue(async () => {
+            const result = await rpc.invoke(Channels.CountersDelete, { counterId: old.id });
+            if (!result.ok) throw new Error('COUNTER DELETE FAILED');
+          })
+          .catch(() => undefined);
+      }
     },
 
     removeCounter: (id) => {

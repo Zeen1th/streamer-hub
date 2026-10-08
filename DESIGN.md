@@ -438,3 +438,12 @@ Designed as a high-visibility, single-instance modal:
   Rule.
 - Don't add a dropdown — segmented controls or a tree, nothing else.
 - Don't animate the counter, the rows, or the tab change.
+
+## Patterns added in v0.4.x (reference for new screens)
+
+- **Commands table**: columns Command (item name, `!command` under counters), Type (badge + trigger icons for sequences), Who, CD. Row height 44px. The inspector shows only main controls; rarely used ones live under a collapsed `MoreSettings`.
+- **Studio dropdowns and context menus** cap their height to the room left (`fitMenuToViewport`) and scroll, so long menus work at any UI scale. New menus must do the same.
+- **Sliders that resize the page** (UI scale) show a draft value while dragging and commit on release (`Slider` `onCommit`).
+- **Toasts** (`AutoUpdateToast` bottom end, `UndoToast` bottom center) are transient `role="status"` cards; dialogs (`WhatsNewDialog`, step editors) use the shared dark `role="dialog"` shell.
+- **Chat input** (`ChatComposer`): one component for the dock and Chat tab; the suggestion list opens upward, the emote picker is a popover, and command results are a thin colored line above the box. **Gift strip** (`GiftStrip`): fuchsia gradient banner above the feed, max 3 entries, fades after 90 s.
+- **If / Else rows** nest under their mini game with a cyan guide line; Then is green, Else is rose.

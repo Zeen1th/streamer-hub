@@ -240,6 +240,9 @@ public sealed record ActionTrigger
 
 public sealed record TwitchRaidEvent(string FromUserId, string FromUserName, string FromUserLogin, int Viewers);
 public sealed record TwitchFollowEvent(string UserId, string UserName, string UserLogin, string FollowedAt);
+/// <summary>A gifted sub (one) or a gift bundle ("X gifted 5 subs"). Tier is the Twitch plan id: 1000, 2000 or 3000.</summary>
+public sealed record TwitchGiftEvent(string Id, string GifterName, string GifterLogin, bool Anonymous, int Count, string Tier, string? RecipientName, int TotalGifted, string At);
+
 public sealed record TwitchWatchStreakEvent(string UserId, string UserName, string UserLogin, int Streak, string? Message);
 
 public sealed record CommandSequence
@@ -451,6 +454,8 @@ public sealed record OpenFolderPayload(
 );
 
 public sealed record SetZoomPayload(double Factor);
+
+public sealed record ChatSendInputPayload(string Message, string? SenderRole = null);
 
 public sealed record AlertTempSettingsPayload(bool KeepTempFiles, string? Directory = null);
 

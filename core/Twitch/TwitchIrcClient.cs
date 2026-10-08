@@ -26,6 +26,7 @@ public sealed class TwitchIrcClient : ITwitchClient
     public event Action<ChatClear>? ChatCleared;
     public event Action<TwitchRaidEvent>? RaidReceived;
     public event Action<TwitchWatchStreakEvent>? WatchStreakReceived;
+    public event Action<TwitchGiftEvent>? GiftReceived;
     public event Action<TwitchState>? StateChanged;
     public event Action<TwitchInfo>? Info;
 
@@ -1290,6 +1291,11 @@ public sealed class TwitchIrcClient : ITwitchClient
                 WatchStreakReceived?.Invoke(watchStreak);
                 return;
             }
+            if (TwitchUsernoticeParser.TryParseGift(line, out var gift))
+            {
+                GiftReceived?.Invoke(gift);
+                return;
+            }
             return;
         }
         if (line.Contains(" PRIVMSG ", StringComparison.Ordinal))
@@ -1770,6 +1776,61 @@ public static class TwitchUsernoticeParser
 
         watchStreak = new TwitchWatchStreakEvent(userId ?? string.Empty, displayName, login, streak, message);
         return true;
+    }
+
+    /// <summary>
+    /// Gifted subs: "subgift" (one) and "submysterygift" (a bundle; its per-recipient "subgift" notices carry the
+    /// same community-gift id and are skipped so a bundle shows once). Anonymous gifts come as anon* msg-ids.
+    /// </summary>
+    public static bool TryParseGift(string line, [NotNullWhen(true)] out TwitchGiftEvent? gift)
+    {
+        gift = null;
+        if (string.IsNullOrEmpty(line) || !line.Contains(" USERNOTICE ", StringComparison.Ordinal)) return false;
+
+        var tags = ParseTags(line);
+        if (!tags.TryGetValue("msg-id", out var msgId)) return false;
+
+        var isMystery = msgId.Equals("submysterygift", StringComparison.OrdinalIgnoreCase) || msgId.Equals("anonsubmysterygift", StringComparison.OrdinalIgnoreCase);
+        var isSingle = msgId.Equals("subgift", StringComparison.OrdinalIgnoreCase) || msgId.Equals("anonsubgift", StringComparison.OrdinalIgnoreCase);
+        if (!isMystery && !isSingle) return false;
+
+        // A single gift that belongs to a bundle was already announced by the bundle notice
+        if (isSingle && tags.TryGetValue("msg-param-community-gift-id", out var communityId) && !string.IsNullOrWhiteSpace(communityId)) return false;
+
+        var anonymous = msgId.StartsWith("anon", StringComparison.OrdinalIgnoreCase);
+        tags.TryGetValue("display-name", out var displayName);
+        tags.TryGetValue("login", out var login);
+        displayName = Unescape(displayName);
+        if (string.IsNullOrWhiteSpace(displayName)) displayName = login ?? "Anonymous";
+        if (string.IsNullOrWhiteSpace(login)) login = displayName.ToLowerInvariant();
+        if (anonymous || login.Equals("ananonymousgifter", StringComparison.OrdinalIgnoreCase))
+        {
+            anonymous = true;
+            displayName = "Anonymous";
+        }
+
+        var count = 1;
+        if (isMystery && tags.TryGetValue("msg-param-mass-gift-count", out var countText) && int.TryParse(countText, out var mass)) count = Math.Max(1, mass);
+
+        var tier = tags.TryGetValue("msg-param-sub-plan", out var plan) && !string.IsNullOrWhiteSpace(plan) ? plan : "1000";
+        string? recipient = null;
+        if (isSingle && tags.TryGetValue("msg-param-recipient-display-name", out var recipientName)) recipient = Unescape(recipientName);
+
+        var total = 0;
+        if (tags.TryGetValue("msg-param-sender-count", out var totalText) && int.TryParse(totalText, out var parsedTotal)) total = Math.Max(0, parsedTotal);
+
+        tags.TryGetValue("id", out var id);
+        if (string.IsNullOrWhiteSpace(id)) id = Guid.NewGuid().ToString("N");
+
+        gift = new TwitchGiftEvent(id, displayName, login, anonymous, count, tier, recipient, total, DateTime.UtcNow.ToString("o"));
+        return true;
+    }
+
+    /// <summary>IRCv3 tag values escape spaces and a few symbols.</summary>
+    private static string? Unescape(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return value;
+        return value.Replace("\\s", " ").Replace("\\:", ";").Replace("\\\\", "\\");
     }
 
     private static Dictionary<string, string> ParseTags(string line)

@@ -201,6 +201,24 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         await BroadcastAsync(ChatOverlayProtocol.Emotes(providers), cancellationToken).ConfigureAwait(false);
     }
 
+    private readonly List<TwitchGiftEvent> _recentGifts = new();
+
+    /// <summary>Remembers the gift (for docks that connect later) and shows it on the streamer's chat dock.</summary>
+    public async Task PublishGiftAsync(TwitchGiftEvent gift, CancellationToken cancellationToken = default)
+    {
+        lock (_stateLock)
+        {
+            _recentGifts.Add(gift);
+            if (_recentGifts.Count > 20) _recentGifts.RemoveAt(0);
+        }
+        await BroadcastAsync(ChatOverlayProtocol.Gift(gift), "obs-chat", cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PublishNoticeAsync(string message, bool ok, CancellationToken cancellationToken = default)
+    {
+        await BroadcastAsync(ChatOverlayProtocol.Notice(message, ok), "obs-chat", cancellationToken).ConfigureAwait(false);
+    }
+
     public void SetActivePoll(PollState poll)
     {
         lock (_stateLock) _activePoll = poll ?? new();
@@ -613,6 +631,15 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                 await client.SendAsync(
                     connected ? ChatOverlayProtocol.Connected() : ChatOverlayProtocol.Disconnected(),
                     cancellationToken).ConfigureAwait(false);
+                if (string.Equals(target, "obs-chat", StringComparison.OrdinalIgnoreCase))
+                {
+                    TwitchGiftEvent[] gifts;
+                    lock (_stateLock) gifts = _recentGifts.TakeLast(5).ToArray();
+                    foreach (var gift in gifts)
+                    {
+                        await client.SendAsync(ChatOverlayProtocol.Gift(gift), cancellationToken).ConfigureAwait(false);
+                    }
+                }
                 if (_previewEnabled)
                 {
                     await client.SendAsync(ChatOverlayProtocol.Preview(true, _previewMessages), cancellationToken).ConfigureAwait(false);

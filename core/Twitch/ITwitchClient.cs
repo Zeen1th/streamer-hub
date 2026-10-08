@@ -11,6 +11,7 @@ public interface ITwitchClient : IAsyncDisposable
     event Action<ChatClear>? ChatCleared;
     event Action<TwitchRaidEvent>? RaidReceived;
     event Action<TwitchWatchStreakEvent>? WatchStreakReceived;
+    event Action<TwitchGiftEvent>? GiftReceived;
     event Action<TwitchState>? StateChanged;
     event Action<TwitchInfo>? Info;
     TwitchState State { get; }

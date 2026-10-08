@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronRight, Copy, FolderOpen, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Trash2, TriangleAlert, Tv, X } from 'lucide-react';
+import { Check, ChevronRight, Redo2, Undo2, Copy, FolderOpen, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Trash2, TriangleAlert, Tv, X } from 'lucide-react';
 import type { CounterAction, PermissionLevel } from '../../rpc/contracts';
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
@@ -23,6 +23,7 @@ import { useConnectionStore } from '../../store/connectionStore';
 import { useCounterStore } from '../../store/counterStore';
 import { useLogStore, type LogEntry } from '../../store/logStore';
 import { useSettingsStore } from '../../store/settingsStore';
+import { undoManager, useUndoStore } from '../../store/undoStore';
 import { useToolStore } from '../../store/toolStore';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -183,6 +184,8 @@ export function CommandsView() {
   const setSelected = useToolStore((s) => s.setSelected);
   const setQuery = useToolStore((s) => s.setQuery);
   const inspectorWidth = useToolStore((s) => s.inspectorWidth);
+  const canUndo = useUndoStore((s) => s.canUndo);
+  const canRedo = useUndoStore((s) => s.canRedo);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
   const workspaceRef = useRef<HTMLDivElement | null>(null);
@@ -398,6 +401,8 @@ export function CommandsView() {
         <Button size="sm" onClick={createCommand}><Plus size={13} />{t(lang, 'workspace.new')}</Button>
         <Button size="sm" variant="outline" disabled={selectedRows.length === 0} onClick={duplicateSelected}><Copy size={12} />{t(lang, 'workspace.duplicate')}</Button>
         <Button size="sm" variant="outline" disabled={selectedRows.length === 0} onClick={deleteSelected}><Trash2 size={12} />{t(lang, 'workspace.delete')}</Button>
+        <Button size="sm" variant="outline" disabled={!canUndo} onClick={() => undoManager.undo()} title={`${t(lang, 'undo.button')} (Ctrl+Z)`} aria-label={t(lang, 'undo.button')}><Undo2 size={13} /></Button>
+        <Button size="sm" variant="outline" disabled={!canRedo} onClick={() => undoManager.redo()} title={`${t(lang, 'redo.button')} (Ctrl+Y)`} aria-label={t(lang, 'redo.button')}><Redo2 size={13} /></Button>
         <span aria-hidden className="mx-0.5 h-[22px] w-px bg-white/[0.12]" />
         <label className="relative w-[210px]">
           <Search aria-hidden size={12} className="absolute start-2 top-1/2 -translate-y-1/2 text-muted" />

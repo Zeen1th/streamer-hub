@@ -49,6 +49,14 @@ public static class ChatOverlayProtocol
     public static string VoteState(PollState state) =>
         Serialize("vote-state", state);
 
+    /// <summary>A gifted sub (or bundle) for the top strip of the streamer's chat dock.</summary>
+    public static string Gift(TwitchGiftEvent gift) =>
+        Serialize("gift", gift);
+
+    /// <summary>A short status line for the streamer's chat dock (result of a slash command, etc.).</summary>
+    public static string Notice(string message, bool ok) =>
+        Serialize("notice", new { message, ok });
+
     public static string ShowImage(object payload) =>
         Serialize("show-image", payload);
 

@@ -12,9 +12,13 @@ import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/700.css';
 import './index.css';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowDown, AtSign, Ban, Clock, MessageSquare, Send, Trash2 } from 'lucide-react';
+import { ArrowDown, AtSign, Ban, Clock, MessageSquare, Trash2 } from 'lucide-react';
+import { ChatComposer, type ComposerNotice } from './components/chat/ChatComposer';
+import { recentChatters } from './lib/chatInputAssist';
+import { GiftStrip } from './components/chat/GiftStrip';
+import { mergeGift } from './lib/giftStrip';
 import {
   ensureReadableColor,
   formatBidiText,
@@ -25,7 +29,7 @@ import {
 } from './lib/chatOverlay';
 import { applyChatFilters } from './lib/chatOverlayFilters';
 import { mergeEmoteProviders, tokenizeMessage, type ThirdPartyEmoteMap } from './lib/chatEmotes';
-import type { ChatMessage, ChatOverlaySettings, EmoteRange } from './rpc/contracts';
+import type { ChatMessage, ChatOverlaySettings, EmoteRange, TwitchGiftEvent } from './rpc/contracts';
 import { DEFAULT_CHAT_OVERLAY_SETTINGS } from './lib/chatOverlay';
 import { resolveFontStack } from './overlay/tokens';
 import { loadSavedDockSettings, type ObsChatDockSettings } from './store/obsChatStore';
@@ -39,6 +43,8 @@ type EnvelopeKind =
   | 'profile'
   | 'clear'
   | 'emotes'
+  | 'notice'
+  | 'gift'
   | 'reload';
 
 const KNOWN_KINDS: readonly EnvelopeKind[] = [
@@ -50,6 +56,8 @@ const KNOWN_KINDS: readonly EnvelopeKind[] = [
   'profile',
   'clear',
   'emotes',
+  'notice',
+  'gift',
   'reload',
 ];
 
@@ -89,6 +97,9 @@ function ObsChatDockApp() {
   const [providers, setProviders] = useState<Record<string, ThirdPartyEmoteMap>>({});
   const [connected, setConnected] = useState(false);
   const [inputMsg, setInputMsg] = useState('');
+  const [notice, setNotice] = useState<ComposerNotice | null>(null);
+  const [gifts, setGifts] = useState<TwitchGiftEvent[]>([]);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fontSize, setFontSize] = useState<number>(() => {
     if (typeof localStorage !== 'undefined') {
       const saved = Number(localStorage.getItem('streamer-hub-obs-dock-font-size'));
@@ -244,6 +255,20 @@ function ObsChatDockApp() {
             }
             return;
           }
+          case 'gift': {
+            const gift = envelope.payload as TwitchGiftEvent;
+            if (gift && typeof gift.id === 'string') setGifts((current) => mergeGift(current, gift));
+            return;
+          }
+          case 'notice': {
+            const payload = envelope.payload as { message?: string; ok?: boolean };
+            if (typeof payload?.message === 'string' && payload.message) {
+              setNotice({ message: payload.message, ok: payload.ok !== false });
+              if (noticeTimer.current) clearTimeout(noticeTimer.current);
+              noticeTimer.current = setTimeout(() => setNotice(null), 6000);
+            }
+            return;
+          }
           case 'emotes': {
             const payload = envelope.payload as { providers?: Record<string, ThirdPartyEmoteMap> };
             setProviders(payload?.providers ?? {});
@@ -386,8 +411,9 @@ function ObsChatDockApp() {
     inputRef.current?.focus();
   }, []);
 
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
+  const chatters = useMemo(() => recentChatters(messages), [messages]);
+
+  const handleSend = () => {
     const text = inputMsg.trim();
     if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     wsRef.current.send(JSON.stringify({ kind: 'send-chat', message: text }));
@@ -450,6 +476,8 @@ function ObsChatDockApp() {
         </div>
       </header>
 
+      <GiftStrip gifts={gifts} lang="en" compact onDismiss={() => setGifts([])} />
+
       {/* Main Messages Feed Area */}
       <div className="relative min-h-0 flex-1 overflow-hidden bg-[#13171b]">
         <div
@@ -505,28 +533,18 @@ function ObsChatDockApp() {
       </div>
 
       {/* Quick Input Bar for Streamer Dock in OBS */}
-      <form
+      <ChatComposer
+        compact
+        value={inputMsg}
+        onChange={setInputMsg}
         onSubmit={handleSend}
-        className="flex h-9 shrink-0 items-center gap-1.5 border-t border-white/10 bg-[#182026] px-2 select-text"
-      >
-        <input
-          ref={inputRef}
-          type="text"
-          dir="auto"
-          value={inputMsg}
-          onChange={(e) => setInputMsg(e.target.value)}
-          placeholder="Send message to Twitch..."
-          className="h-7 flex-1 rounded bg-[#0f1418] px-2.5 text-xs text-white placeholder:text-slate-400 outline-none border border-white/15 focus:border-accent font-sans"
-        />
-        <button
-          type="submit"
-          disabled={!inputMsg.trim()}
-          className="flex h-7 items-center justify-center rounded bg-accent px-3 text-xs font-bold text-white hover:brightness-110 disabled:opacity-40 cursor-pointer transition-colors shadow-sm"
-          title="Send"
-        >
-          <Send size={12} strokeWidth={2.5} />
-        </button>
-      </form>
+        placeholder="Send message to Twitch... ( / for commands )"
+        users={chatters}
+        emotes={thirdParty}
+        lang={isRtlText(inputMsg) ? 'ar' : 'en'}
+        notice={notice}
+        inputRef={inputRef}
+      />
     </div>
   );
 }
@@ -728,7 +746,7 @@ function DockMessageText({
   thirdParty?: ThirdPartyEmoteMap;
   isRtl: boolean;
 }) {
-  const { tokens } = useMemo(
+  const { tokens, emoteOnly } = useMemo(
     () => tokenizeMessage(text, emotes, thirdParty, { twitch: true }),
     [text, emotes, thirdParty],
   );
@@ -739,7 +757,7 @@ function DockMessageText({
   }
 
   return (
-    <span className="inline-flex flex-wrap items-center gap-1" dir={isRtl ? 'rtl' : 'ltr'}>
+    <span className="whitespace-pre-wrap" dir={isRtl ? 'rtl' : 'ltr'}>
       {tokens.map((token, index) =>
         token.type === 'emote' ? (
           <img
@@ -747,7 +765,7 @@ function DockMessageText({
             src={token.url}
             alt={token.name}
             title={token.name}
-            className="inline-block h-[1.35em] w-auto max-w-[2.5em] object-contain align-middle select-none"
+            className={`mx-px inline-block w-auto object-contain align-middle select-none ${emoteOnly ? 'h-[2.5em] max-w-[5em]' : 'h-[1.55em] max-w-[3.2em]'}`}
             loading="eager"
             onError={(e) => {
               const replacement = document.createElement('span');

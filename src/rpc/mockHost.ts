@@ -860,6 +860,29 @@ export class MockHost {
       case Channels.AlertsOpenFile:
         this.respond(request, { ok: true });
         break;
+      case Channels.ChatSendInput: {
+        const payload = request.payload as { message?: string };
+        const text = (payload?.message ?? '').trim();
+        if (text.startsWith('/') && !text.startsWith('//')) {
+          this.respond(request, { ok: true, handled: true, message: `(mock) ran ${text.split(/\s+/)[0]}` });
+        } else {
+          this.respond(request, { ok: true, handled: false });
+        }
+        break;
+      }
+      case Channels.ChatGetGifts:
+        this.respond(request, []);
+        break;
+      case Channels.ChatGetEmotes: {
+        // Tiny inline emotes so the preview can show :emote suggestions and the picker without network access
+        const dot = (color: string, glyph: string) =>
+          `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='56' height='56'><circle cx='28' cy='28' r='26' fill='${color}'/><text x='28' y='37' font-size='26' text-anchor='middle'>${glyph}</text></svg>`)}`;
+        this.respond(request, {
+          sevenTv: { KEKW: dot('#f5c542', '😂'), Clap: dot('#4f9cf5', '👏'), peepoHappy: dot('#6cc070', '😊'), Sadge: dot('#8a8fa3', '😢') },
+          bttv: { monkaS: dot('#e0644f', '😰') },
+        });
+        break;
+      }
       case Channels.WindowSetZoom:
         this.respond(request, { ok: true });
         break;

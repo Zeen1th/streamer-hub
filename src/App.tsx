@@ -33,6 +33,10 @@ import { VotesView } from './components/tools/votes/VotesView';
 import { AlertCompressorView } from './components/tools/alerts/AlertCompressorView';
 import { useAlertCompressorStore } from './store/alertCompressorStore';
 import { AutoUpdateToast } from './components/updates/AutoUpdateToast';
+import { UndoToast } from './components/undo/UndoToast';
+import { undoManager } from './store/undoStore';
+import { useEmoteStore } from './store/emoteStore';
+import { useGiftStore } from './store/giftStore';
 import { WhatsNewDialog } from './components/updates/WhatsNewDialog';
 import { ReauthPromptModal } from './components/modals/ReauthPromptModal';
 
@@ -126,6 +130,27 @@ export default function App() {
   }, []);
 
   useEffect(() => { void useUpdateStore.getState().check(); }, []);
+
+  // Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) on the Commands tab. Text fields keep their own undo, and an open dialog
+  // owns the keyboard, so neither is intercepted.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      const undo = key === 'z' && !e.shiftKey;
+      const redo = key === 'y' || (key === 'z' && e.shiftKey);
+      if (!undo && !redo) return;
+      if (useToolStore.getState().activeTab !== 'commands') return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      e.preventDefault();
+      if (undo) undoManager.undo();
+      else undoManager.redo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Repeating-message timers (sequences with a Timer trigger)
   useEffect(() => {
@@ -252,6 +277,10 @@ export default function App() {
         const sequences = await rpc.invoke(Channels.SequencesGetState);
         if (!disposed) useSequenceStore.getState().hydrate(sequences);
       } catch { void 0; }
+      void useEmoteStore.getState().load();
+      void useGiftStore.getState().load();
+      // Everything saved is loaded: this is where Ctrl+Z history starts
+      if (!disposed) undoManager.arm();
       try {
         if (!disposed) {
           await Promise.all([
@@ -342,6 +371,7 @@ export default function App() {
         </div>
       )}
       <ReauthPromptModal />
+      <UndoToast />
       <WhatsNewDialog />
       <AutoUpdateToast />
       <WindowResizeHandles />

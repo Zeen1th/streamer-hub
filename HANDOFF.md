@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
  
-**Version:** `v0.4.10`  
+**Version:** `v0.4.11`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -187,6 +187,17 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - In the commands list a timer shows ⏱ and "Every N min".
 
 - Studio dropdowns (Add sub-action, Add trigger, search results, Presets) and the right-click menu are height-capped and scrollable (`fitMenuToViewport` in `SequenceStudioView.tsx`): they never run past the window or the clipping panel, which used to cut off the end of the list at high UI scale.
+
+### 2.6i Undo / Redo (Ctrl+Z)
+- Covers every command: sequences (steps, triggers, settings, add/delete), prepared & AI replies, and counter settings. Counter live counts are ignored (they keep counting) and survive an undo. History lives in memory (100 steps, cleared on restart) and starts when the saved commands finish loading (`undoManager.arm()` in `App.tsx`).
+- `src/lib/undoHistory.ts` is the pure snapshot history (quick edits to the same item within 1s merge into one step, so typing a name is one undo); `src/lib/undoSnapshot.ts` serializes snapshots and labels changes; `src/store/undoStore.ts` subscribes to the three stores and applies a snapshot through `restoreSequences` / `restoreRules` / `restoreCounters`, which save what differs and delete what is gone on the host.
+- Keys (Commands tab only): Ctrl+Z undo, Ctrl+Y or Ctrl+Shift+Z redo. Ignored while typing in a field (the field's own undo works) and while a dialog is open. Toolbar has Undo/Redo buttons, and `UndoToast` says what was undone. Alert Studio settings are not covered.
+
+### 2.6j OBS Chat polish: emotes, slash commands, gifts
+- **7TV (and BTTV/FFZ) everywhere**: `EmoteRegistry.cs` now loads 7TV's global set plus the channel set (channel wins; 2x webp) and re-checks every ~6 h. Providers are pushed to the chat overlay and OBS dock over the overlay WebSocket (`emotes` envelope) and to the app as `twitch/emotes` + `chat/get-emotes` (`src/store/emoteStore.ts`), so the in-app Chat tab renders third-party emotes too. Per-provider toggles are the overlay settings' `emotes` flags. Messages render inline (emote-only messages are enlarged).
+- **Chat box** (`src/components/chat/ChatComposer.tsx`, used by the dock page `obs-chat.tsx` and the Chat tab): suggestions for `/commands`, `@names` (recent chatters) and `:emotes`, Tab/Enter/arrows to pick, Esc to dismiss, and an emote picker button. Logic is pure in `src/lib/chatInputAssist.ts`.
+- **Slash commands** run on the host (`core/Host/ChatCommandProcessor.cs`): `/timeout|/to user [10m] [reason]`, `/untimeout`, `/ban`, `/unban`, `/clear`, `/mod`, `/unmod`, `/vip`, `/unvip`, `/shoutout|/so`, `/help`. Unknown `/x` is reported, never sent to chat; `//` and plain text pass through. The dock (`send-chat` WS) and the Chat tab (`chat/send-input`) share `HostController.HandleChatInputAsync`; sequences/auto-replies still use `twitch/send-chat-message` unchanged. Results appear as a notice line in both (`notice` envelope / `chat/notice` event).
+- **Gifts strip**: `TwitchUsernoticeParser.TryParseGift` reads `subgift` / `submysterygift` (and anon*) USERNOTICEs; per-recipient notices of a bundle are skipped. Pushed as `twitch/gift` + `gift` WS envelope (last 5 replayed to a newly opened dock), shown by `GiftStrip` at the top of the dock and the Chat tab for 90 s (max 3). Bits/resubs/follows are not shown.
 
 ### 2.6b UI Scale & Default Window Size
 - The UI scale is applied as native WebView2 page zoom (`window/set-zoom` -> `WebView2.ZoomFactor` in `HostController`), not CSS `zoom`: layout, viewport units and mouse coordinates stay consistent. The browser preview (no host) still falls back to CSS zoom. Because `innerWidth` shrinks when zoomed, auto scale multiplies it back by the applied zoom (`calculateAutoScale(appliedZoom)`).
@@ -434,3 +445,22 @@ git push origin main
 git push origin vX.Y.Z
 ```
 GitHub Actions will automatically build the Windows binaries, compile the Inno Setup installer, and publish the release with assets attached.
+
+---
+
+## 7. Where the last session ended (v0.4.8 to v0.4.11)
+
+Shipped in order: If/Else + nested display, duel protected viewers (per-viewer replies), commands table + slim inspector, 110% default scale + native WebView zoom + steady slider, auto-updates + What's New, Run Another Sequence, repeating timers, scrollable studio menus, Undo/Redo, and the chat box work (slash commands, emote picker/suggestions, 7TV global, gifts strip). Feature details are in sections 2.6b to 2.6j.
+
+**Release checklist** (section 5.2) starts with adding a bilingual `CHANGELOG` entry in `src/lib/changelog.ts`; `changelog.test.mjs` fails otherwise.
+
+**Local test tips**
+- `npm test` (JS) and `npx tsc -b` (types; plain `tsc --noEmit` checks nothing in this repo).
+- C# tests are console projects under `tests/`. While the app is running its exe locks `core/bin`, so build tests elsewhere: `dotnet build -c Debug -p:OutDir=<dir>` then `dotnet <dir>/StreamerHub.Task4Tests.dll`.
+- The browser preview (`npm run dev`, mock host) cannot exercise the host: native zoom, the auto-update install, IRC gifts and slash commands against Twitch must be checked in the real app.
+
+**Open ideas / not done**
+- The gifts strip only shows gifted subs (no bits, resubs, follows or raids) and is not on the viewer overlay.
+- Ctrl+Z covers commands only (not Alert Studio, overlay design, or counters' live counts).
+- The slash command list is fixed (no /announce, /slow, /followers, /me). Timer triggers only run while the app is connected to Twitch.
+- The emote picker lists 7TV/BTTV/FFZ only (not Twitch's own emotes).

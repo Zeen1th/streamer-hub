@@ -30,6 +30,9 @@ public sealed record RpcEnvelope
 public static class Channels
 {
     public const string WindowMinimize = "window/minimize";
+    public const string ChatGetEmotes = "chat/get-emotes";
+    public const string ChatGetGifts = "chat/get-gifts";
+    public const string ChatSendInput = "chat/send-input";
     public const string WindowSetZoom = "window/set-zoom";
     public const string WindowMaximizeToggle = "window/maximize-toggle";
     public const string WindowClose = "window/close";
@@ -145,6 +148,9 @@ public static class Events
     public const string CoreLog = "core/log";
     public const string KeybindTriggered = "keybind/triggered";
     public const string TwitchRaid = "twitch/raid";
+    public const string TwitchEmotes = "twitch/emotes";
+    public const string TwitchGift = "twitch/gift";
+    public const string ChatNotice = "chat/notice";
     public const string TwitchFollow = "twitch/follow";
     public const string TwitchWatchStreak = "twitch/watch-streak";
     public const string ObsWebsocketStatusChanged = "obs/websocket-status-changed";

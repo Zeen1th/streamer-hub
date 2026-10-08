@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AtSign,
   Ban,
@@ -12,7 +12,6 @@ import {
   Minus,
   Plus,
   Radio,
-  Send,
   Settings2,
   Sparkles,
   Trash2,
@@ -26,10 +25,16 @@ import { Button } from '../../ui/Button';
 import { Switch } from '../../ui/Switch';
 import { Input } from '../../ui/Input';
 import { isRtlText, formatBidiText, ensureReadableColor } from '../../../lib/chatOverlay';
-import { tokenizeMessage } from '../../../lib/chatEmotes';
+import { ChatComposer, type ComposerNotice } from '../../chat/ChatComposer';
+import { GiftStrip } from '../../chat/GiftStrip';
+import { useGiftStore } from '../../../store/giftStore';
+import { recentChatters } from '../../../lib/chatInputAssist';
+import { mergeEmoteProviders, tokenizeMessage, type ThirdPartyEmoteMap } from '../../../lib/chatEmotes';
+import { useEmoteStore } from '../../../store/emoteStore';
+import { useObsChatOverlayStore } from '../../../store/chatOverlayStore';
 import { resolveFontStack } from '../../../overlay/tokens';
 import { rpc } from '../../../rpc';
-import { Channels } from '../../../rpc/contracts';
+import { Channels, Events } from '../../../rpc/contracts';
 import { normalizeInstalledFontFamilies } from '../../../lib/fontChoices';
 
 export function ObsChatView() {
@@ -42,7 +47,13 @@ export function ObsChatView() {
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
 
+  const emoteProviders = useEmoteStore((s) => s.providers);
+  const emoteToggles = useObsChatOverlayStore((s) => s.settings.emotes);
+  const thirdParty = useMemo(() => mergeEmoteProviders(emoteProviders, emoteToggles), [emoteProviders, emoteToggles]);
   const [inputMessage, setInputMessage] = useState('');
+  const [notice, setNotice] = useState<ComposerNotice | null>(null);
+  const gifts = useGiftStore((s) => s.gifts);
+  const clearGifts = useGiftStore((s) => s.clear);
   const [sending, setSending] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -148,8 +159,23 @@ export function ObsChatView() {
     }
   };
 
-  const handleSend = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  // Result lines for slash commands (also shows ones typed in the OBS dock)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const off = rpc.on(Events.ChatNotice, (payload) => {
+      setNotice({ message: payload.message, ok: payload.ok });
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setNotice(null), 6000);
+    });
+    return () => {
+      off();
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  const chatters = useMemo(() => recentChatters(messages), [messages]);
+
+  const handleSend = async () => {
     const text = inputMessage.trim();
     if (!text || sending) return;
 
@@ -173,7 +199,7 @@ export function ObsChatView() {
 
   const handleSendTestMessage = () => {
     const samples = [
-      { user: 'Viewer_One', msg: 'Welcome to the stream everyone! PogChamp', mod: false, sub: true, vip: false, color: '#3B82F6' },
+      { user: 'Viewer_One', msg: 'Welcome to the stream everyone! KEKW Clap', mod: false, sub: true, vip: false, color: '#3B82F6' },
       { user: 'ModSquad', msg: 'Please keep the chat friendly and enjoy the game!', mod: true, sub: true, vip: false, color: '#10B981' },
       { user: 'VIP_Gamer', msg: 'Are you trying the new boss today?', mod: false, sub: false, vip: true, color: '#EC4899' },
       { user: 'صديق_البث', msg: 'أهلاً وسهلاً بك في البث يا أسطورة! 🎮🔥', mod: false, sub: true, vip: false, color: '#F59E0B' },
@@ -191,6 +217,21 @@ export function ObsChatView() {
       timestamp: new Date().toISOString(),
       emotes: [],
     });
+    // Preview the gifts strip too (one in three test messages)
+    if (Math.random() < 0.34) {
+      const bundle = Math.random() < 0.5;
+      useGiftStore.getState().add({
+        id: `test-gift-${Date.now()}`,
+        gifterName: picked.user,
+        gifterLogin: picked.user.toLowerCase(),
+        anonymous: false,
+        count: bundle ? 5 : 1,
+        tier: '1000',
+        recipientName: bundle ? null : 'LuckyViewer',
+        totalGifted: 25,
+        at: new Date().toISOString(),
+      });
+    }
   };
 
   return (
@@ -331,6 +372,7 @@ export function ObsChatView() {
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* Chat Feed Scroll Container */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <GiftStrip gifts={gifts} lang={lang} onDismiss={clearGifts} />
           <div
             ref={scrollRef}
             onScroll={handleScroll}
@@ -363,6 +405,7 @@ export function ObsChatView() {
                       key={msg.id}
                       message={msg}
                       settings={dockSettings}
+                      thirdParty={thirdParty}
                       fontStack={fontStack}
                       lang={lang}
                       onMention={handleMention}
@@ -390,34 +433,24 @@ export function ObsChatView() {
           )}
 
           {/* Quick Chat Send Bar */}
-          <form
-            onSubmit={handleSend}
-            className="flex shrink-0 items-center gap-2 border-t border-white/[0.12] bg-[#182026] p-2.5"
-          >
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/25 font-bold text-accent-text text-xs border border-accent/40">
-              {activeSender.charAt(0).toUpperCase()}
-            </div>
-            <input
-              ref={inputRef}
-              dir="auto"
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              placeholder={t(lang, 'obsChat.sendPlaceholder', { sender: activeSender })}
-              className="h-8 flex-1 rounded-md border border-white/15 bg-[#0f1418] px-3 font-sans text-xs text-white placeholder:text-slate-400 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              disabled={sending}
-            />
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              disabled={!inputMessage.trim() || sending}
-              className="h-8 px-3 text-xs"
-            >
-              <Send size={13} className="me-1" />
-              <span>{t(lang, 'obsChat.send')}</span>
-            </Button>
-          </form>
+          <ChatComposer
+            value={inputMessage}
+            onChange={setInputMessage}
+            onSubmit={() => void handleSend()}
+            placeholder={t(lang, 'obsChat.sendPlaceholder', { sender: activeSender }) + ' ( / )'}
+            users={chatters}
+            emotes={thirdParty}
+            lang={lang}
+            disabled={sending}
+            notice={notice}
+            inputRef={inputRef}
+            sendLabel={t(lang, 'obsChat.send')}
+            leading={
+              <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/25 font-bold text-accent-text text-xs border border-accent/40">
+                {activeSender.charAt(0).toUpperCase()}
+              </div>
+            }
+          />
         </div>
 
         {/* Dock Settings Side Panel */}
@@ -750,6 +783,7 @@ export function ObsChatView() {
 interface ChatMessageRowProps {
   message: ObsChatMessage;
   settings: ObsChatDockSettings;
+  thirdParty: ThirdPartyEmoteMap;
   fontStack: string;
   lang: 'en' | 'ar';
   onMention: (user: string) => void;
@@ -762,6 +796,7 @@ interface ChatMessageRowProps {
 function ChatMessageRow({
   message,
   settings,
+  thirdParty,
   fontStack,
   lang,
   onMention,
@@ -871,7 +906,7 @@ function ChatMessageRow({
           {message.deleted ? (
             <em className="text-rose-400 font-mono text-[11.5px] italic select-none">{t(lang, 'obsChat.deleted')}</em>
           ) : (
-            <DockMessageText text={message.message} emotes={message.emotes} isRtl={isRtl} />
+            <DockMessageText text={message.message} emotes={message.emotes} thirdParty={thirdParty} isRtl={isRtl} />
           )}
         </span>
       </div>
@@ -937,15 +972,17 @@ function ChatMessageRow({
 function DockMessageText({
   text,
   emotes,
+  thirdParty,
   isRtl,
 }: {
   text: string;
   emotes?: readonly { id: string; start: number; end: number }[];
+  thirdParty?: ThirdPartyEmoteMap;
   isRtl: boolean;
 }) {
-  const { tokens } = useMemo(
-    () => tokenizeMessage(text, emotes, undefined, { twitch: true }),
-    [text, emotes],
+  const { tokens, emoteOnly } = useMemo(
+    () => tokenizeMessage(text, emotes, thirdParty, { twitch: true }),
+    [text, emotes, thirdParty],
   );
 
   const hasEmotes = tokens.some((t) => t.type === 'emote');
@@ -954,7 +991,7 @@ function DockMessageText({
   }
 
   return (
-    <span className="inline-flex flex-wrap items-center gap-1" dir={isRtl ? 'rtl' : 'ltr'}>
+    <span className="whitespace-pre-wrap" dir={isRtl ? 'rtl' : 'ltr'}>
       {tokens.map((token, index) =>
         token.type === 'emote' ? (
           <img
@@ -962,7 +999,7 @@ function DockMessageText({
             src={token.url}
             alt={token.name}
             title={token.name}
-            className="inline-block h-[1.35em] w-auto max-w-[2.5em] object-contain align-middle select-none"
+            className={`mx-px inline-block w-auto object-contain align-middle select-none ${emoteOnly ? 'h-[2.5em] max-w-[5em]' : 'h-[1.55em] max-w-[3.2em]'}`}
             loading="eager"
             onError={(e) => {
               const replacement = document.createElement('span');
