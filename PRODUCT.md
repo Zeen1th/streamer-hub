@@ -93,7 +93,8 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
 - **Settings & UI**:
   - Sectioned navigation: General, Twitch Connection, Bot Account, Appearance, and Step-by-Step Setup Guide.
   - Responsive per-monitor DPI architecture with user-adjustable UI Zoom Scale slider (80% to 140%).
-  - High-contrast, unwashed dark themes: Solar Amber, Abyss Sapphire, Midnight Violet, Tokyo Rose, and Crimson Dark.
+  - Themes: Dark (default), Light, and Fluent (Windows 11 style with see-through layers and native Mica backdrop).
+  - **Home dashboard**: a customizable grid of widgets (Stream Pulse, Chat Activity, Live Feed, Leaderboards, Quick Run, Stream Checklist, counter, title, keybinds, auto-reply, chat overlay) that the streamer can drag, resize, add and remove. Leaderboards rank top chatters, duelists, gifters and redeemers for the current stream or all time.
   - Full English and Arabic localization with Cairo typography and stable LTR shell controls.
   - First-run and version upgrade prompt modals (`ReauthPromptModal`) ensuring zero-friction permissions maintenance.
 - **Sequence Logic & Automation**:

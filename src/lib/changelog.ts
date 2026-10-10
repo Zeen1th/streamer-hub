@@ -19,6 +19,35 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.12',
+    en: {
+      added: [
+        'A brand new Home: a dashboard you build yourself. Press Customize to drag cards into any order, pick each card width, and add or remove widgets. The three profiles now load a ready made layout.',
+        'New Home widgets: Stream Pulse (time on air, messages, chatters, follows, raids, gifts, with tiles you can pick and reorder), Chat Activity (messages per minute), Live Feed (follows, raids, gifts, redemptions and duels as they happen), Quick Run (fire any sequence in one click) and a Stream Checklist.',
+        'Leaderboards on Home: top chatters, duelists, gifters and reward redeemers, for this stream or all time, with a button to post the top 5 to your chat. Bots are hidden and you can choose to include yourself. Counting starts from this update.',
+        'A second look: the Fluent theme (Settings > Appearance). Windows 11 style see-through layers on a deep navy window, rounded corners and Segoe UI. On Windows 11 the window itself uses the Mica backdrop. Dark and Light are unchanged, and the logo at the top left of the title bar is gone.',
+        'Shield for the Moderation step: Smart Timeout, Timeout and Ban can now skip protected viewers (by name, moderators, VIPs or subscribers) and optionally say so in chat.',
+        'Duel shield, reworked: a shielded viewer now plays the duel for real. If they lose they are not timed out and chat gets a shield message; if they win, everything works as usual. This also covers the trivia timer running out.',
+      ],
+      fixed: [
+        'Command names written in Arabic now line up on the left, like English ones, in the commands table.',
+      ],
+    },
+    ar: {
+      added: [
+        'صفحة رئيسية جديدة كلياً: لوحة تبنيها بنفسك. اضغط تخصيص لسحب البطاقات بأي ترتيب، واختيار عرض كل بطاقة، وإضافة العناصر أو حذفها. والملفات الثلاثة تحمّل الآن تخطيطاً جاهزاً.',
+        'عناصر جديدة في الرئيسية: البث (وقت البث والرسائل والمتحدثون والمتابعات والريدات والهدايا، مع بطاقات تختارها وتعيد ترتيبها)، ونشاط الشات (الرسائل في الدقيقة)، والأحداث المباشرة (المتابعات والريدات والهدايا والمكافآت والتحديات لحظة حدوثها)، والتشغيل السريع (شغّل أي سلسلة بضغطة)، وقائمة قبل البث.',
+        'لوحات المتصدرين في الرئيسية: أكثر المتحدثين والمتحدّين والمُهدين والمستبدلين للمكافآت، لهذا البث أو لكل الأوقات، مع زر لنشر أفضل 5 في الشات. البوتات مخفية ويمكنك إضافة نفسك. العدّ يبدأ من هذا التحديث.',
+        'مظهر ثانٍ: ثيم Fluent (الإعدادات > المظهر). طبقات شفافة بأسلوب ويندوز 11 على نافذة كحلية داكنة، وزوايا مستديرة وخط Segoe UI. وفي ويندوز 11 تستخدم النافذة نفسها خلفية Mica. الداكن والفاتح كما هما، وشعار أعلى يسار شريط العنوان أُزيل.',
+        'درع لخطوة الإشراف: الإسكات الذكي والإسكات والحظر يمكنها الآن تخطي المشاهدين المحميين (بالاسم أو المشرفون أو VIP أو المشتركون) والإعلان عن ذلك في الشات اختيارياً.',
+        'درع التحديات بشكل جديد: صاحب الدرع يلعب التحدي فعلاً. إذا خسر لا يُسكت ويصل الشات رسالة الدرع، وإذا فاز يستمر كل شيء طبيعياً. وهذا يشمل انتهاء وقت سؤال التريفيا.',
+      ],
+      fixed: [
+        'أسماء الأوامر المكتوبة بالعربية تصطف الآن على اليسار مثل الإنجليزية في جدول الأوامر.',
+      ],
+    },
+  },
+  {
     version: '0.4.11',
     en: {
       added: [

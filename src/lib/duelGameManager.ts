@@ -41,13 +41,26 @@ export interface StartDuelOptions {
   isStreamerDuel?: boolean;
   streamerWinMessage?: string;
   streamerLoseMessage?: string;
-  /** Off-limits check: the opponent in a viewer duel, the challenger in a streamer duel. */
+  /**
+   * Shield check. A shielded viewer still plays the duel; if they lose (or time runs out) they are not
+   * timed out and `protectedMessage` is sent instead. If they win, the duel goes on as usual.
+   */
   isProtected?: (username: string) => boolean;
-  /** Reply sent to the challenger instead of starting the duel. Tokens: {challenger} {opponent} {target}. */
+  /** Reply sent when a shielded viewer would have been timed out. Tokens: {challenger} {opponent} {protected} {winner} {loser}. */
   protectedMessage?: string;
   /** Reply for this specific protected viewer; wins over `protectedMessage`. */
   protectedMessageFor?: (username: string) => string | undefined;
   sinks: DuelExecutionSinks;
+}
+
+interface DuelShield {
+  challenger: string;
+  opponent: string;
+  isStreamerDuel?: boolean;
+  language?: 'en' | 'ar' | 'auto';
+  isProtected?: (username: string) => boolean;
+  message?: string;
+  messageFor?: (username: string) => string | undefined;
 }
 
 export interface ActiveTriviaDuel {
@@ -67,16 +80,17 @@ export interface ActiveTriviaDuel {
   streamerLoseMessage?: string;
   messageWin?: string;
   messageTimeout?: string;
+  shield: DuelShield;
   sinks: DuelExecutionSinks;
   timerHandle: ReturnType<typeof setTimeout> | null;
   resolveOutcome?: (outcome: DuelOutcome | null) => void;
 }
 
 export const DEFAULT_PROTECTED_MESSAGES = {
-  viewerEn: "⛔ @{challenger}, you can't duel @{opponent} — they're off-limits for duels.",
-  viewerAr: '⛔ @{challenger}، لا يمكنك تحدي @{opponent} — هذا المشاهد غير متاح للتحديات.',
-  streamerEn: "⛔ @{challenger}, you can't challenge the streamer.",
-  streamerAr: '⛔ @{challenger}، لا يمكنك تحدي الستريمر.',
+  viewerEn: '🛡️ @{protected} has a shield, so no timeout this time!',
+  viewerAr: '🛡️ @{protected} لديه درع، لذلك لا إسكات هذه المرة!',
+  streamerEn: '🛡️ @{protected} has a shield, so no timeout this time!',
+  streamerAr: '🛡️ @{protected} لديه درع، لذلك لا إسكات هذه المرة!',
 };
 
 export const DEFAULT_DUEL_MESSAGES = {
@@ -373,6 +387,42 @@ class DuelGameManager {
     this.lastDuelFinishedAt = 0;
   }
 
+  /**
+   * Times the loser out unless they have a shield. A shielded loser gets the shield message instead.
+   * Returns ok so callers can treat "skipped" like a successful timeout.
+   */
+  private async timeoutUnlessShielded(
+    sinks: DuelExecutionSinks,
+    shield: DuelShield,
+    target: string,
+    durationSeconds: number,
+    reason: string,
+    winner?: string,
+  ): Promise<{ ok: boolean; wasMod?: boolean; error?: string }> {
+    const user = target.trim().replace(/^@+/, '');
+    if (!shield.isProtected?.(user)) {
+      return sinks.smartModTimeout(target, durationSeconds, reason);
+    }
+    const ar = shield.language === 'ar';
+    const fallback = shield.isStreamerDuel
+      ? (ar ? DEFAULT_PROTECTED_MESSAGES.streamerAr : DEFAULT_PROTECTED_MESSAGES.streamerEn)
+      : (ar ? DEFAULT_PROTECTED_MESSAGES.viewerAr : DEFAULT_PROTECTED_MESSAGES.viewerEn);
+    const template = shield.messageFor?.(user)?.trim() || shield.message?.trim() || fallback;
+    sinks.log?.('trigger', `[Duel] @${user} is shielded, skipping the timeout.`);
+    await sinks.sendChatMessage(
+      renderDuelMessage(template, {
+        challenger: shield.challenger,
+        opponent: shield.opponent,
+        target: user,
+        protected: user,
+        loser: user,
+        winner: winner ?? '',
+        duration: durationSeconds,
+      }),
+    );
+    return { ok: true };
+  }
+
   public async startDuel(options: StartDuelOptions): Promise<StartDuelResult> {
     const { challenger, opponentRaw, mode, sinks } = options;
     const timeoutDuration = Math.max(5, options.timeoutDuration ?? 60);
@@ -408,19 +458,15 @@ class DuelGameManager {
       return { ok: false, error: 'CANNOT_CHALLENGE_BROADCASTER' };
     }
 
-    const protectedUser = options.isStreamerDuel ? cleanChallenger : cleanOpponent;
-    if (options.isProtected?.(protectedUser)) {
-      const ar = options.language === 'ar';
-      const fallback = options.isStreamerDuel
-        ? (ar ? DEFAULT_PROTECTED_MESSAGES.streamerAr : DEFAULT_PROTECTED_MESSAGES.streamerEn)
-        : (ar ? DEFAULT_PROTECTED_MESSAGES.viewerAr : DEFAULT_PROTECTED_MESSAGES.viewerEn);
-      const template = options.protectedMessageFor?.(protectedUser)?.trim() || options.protectedMessage?.trim() || fallback;
-      log('trigger', `[Duel] Blocked: @${protectedUser} is protected from this duel.`);
-      await sinks.sendChatMessage(
-        renderDuelMessage(template, { challenger: cleanChallenger, opponent: cleanOpponent, target: cleanOpponent, protected: protectedUser }),
-      );
-      return { ok: false, error: options.isStreamerDuel ? 'CHALLENGER_PROTECTED' : 'OPPONENT_PROTECTED' };
-    }
+    const shield: DuelShield = {
+      challenger: cleanChallenger,
+      opponent: cleanOpponent,
+      isStreamerDuel: options.isStreamerDuel,
+      language: options.language,
+      isProtected: options.isProtected,
+      message: options.protectedMessage,
+      messageFor: options.protectedMessageFor,
+    };
 
     if (this.isStarting || this.activeDuel) {
       log('trigger', `[Duel] Blocked duplicate duel start (already active or starting)`);
@@ -479,7 +525,7 @@ class DuelGameManager {
             const winTpl = options.streamerWinMessage?.trim() || DEFAULT_DUEL_MESSAGES.streamerWin;
             await sinks.sendChatMessage(renderDuelMessage(winTpl, makeTokens(winner, loser, { source: muteSrc })));
             log('trigger', `[Duel] Streamer @${winner} won 1v1 challenge against @${loser}! Timing out @${loser} for ${timeoutDuration}s`);
-            await sinks.smartModTimeout(loser, timeoutDuration, `Lost 1v1 challenge against Streamer ${winner}`);
+            await this.timeoutUnlessShielded(sinks, shield, loser, timeoutDuration, `Lost 1v1 challenge against Streamer ${winner}`, winner);
           }
         } else {
           // Standard viewer vs viewer
@@ -498,10 +544,13 @@ class DuelGameManager {
               await sinks.muteStreamerSource(muteSrc, timeoutDuration);
             }
           } else {
-            const timeoutResult = await sinks.smartModTimeout(
+            const timeoutResult = await this.timeoutUnlessShielded(
+              sinks,
+              shield,
               loser,
               timeoutDuration,
               `Lost 1v1 duel against ${winner}`,
+              winner,
             );
 
             if (!timeoutResult.ok) {
@@ -566,6 +615,7 @@ class DuelGameManager {
         streamerLoseMessage: options.streamerLoseMessage,
         messageWin: options.messageWin,
         messageTimeout: options.messageTimeout,
+        shield,
         sinks,
         timerHandle,
         resolveOutcome,
@@ -656,10 +706,13 @@ class DuelGameManager {
         const winTpl = duel.streamerWinMessage?.trim() || DEFAULT_DUEL_MESSAGES.streamerWin;
         await duel.sinks.sendChatMessage(renderDuelMessage(winTpl, tokens));
         duel.sinks.log?.('trigger', `[Duel] Streamer @${winner} won trivia challenge against @${loser}! Timing out @${loser} for ${duel.timeoutDuration}s`);
-        await duel.sinks.smartModTimeout(
+        await this.timeoutUnlessShielded(
+          duel.sinks,
+          duel.shield,
           loser,
           duel.timeoutDuration,
           `Lost trivia challenge against Streamer ${winner} (Answer: ${duel.answer})`,
+          winner,
         );
       }
     } else {
@@ -679,10 +732,13 @@ class DuelGameManager {
           await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
         }
       } else {
-        await duel.sinks.smartModTimeout(
+        await this.timeoutUnlessShielded(
+          duel.sinks,
+          duel.shield,
           loser,
           duel.timeoutDuration,
           `Lost trivia duel against ${winner} (Answer: ${duel.answer})`,
+          winner,
         );
       }
     }
@@ -721,7 +777,9 @@ class DuelGameManager {
       if (duel.sinks.muteStreamerSource) {
         await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
       }
-      await duel.sinks.smartModTimeout(
+      await this.timeoutUnlessShielded(
+        duel.sinks,
+        duel.shield,
         duel.challenger,
         duel.timeoutDuration,
         `Failed trivia challenge against Streamer (Time expired, answer was ${duel.answer})`,
@@ -743,7 +801,9 @@ class DuelGameManager {
       if (isChallengerBroadcaster) {
         if (duel.sinks.muteStreamerSource) await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
       } else {
-        await duel.sinks.smartModTimeout(
+        await this.timeoutUnlessShielded(
+          duel.sinks,
+          duel.shield,
           duel.challenger,
           duel.timeoutDuration,
           `Failed trivia duel against ${duel.opponent} (Time expired, answer was ${duel.answer})`,
@@ -753,7 +813,9 @@ class DuelGameManager {
       if (isOpponentBroadcaster) {
         if (duel.sinks.muteStreamerSource) await duel.sinks.muteStreamerSource(muteSrc, duel.timeoutDuration);
       } else {
-        await duel.sinks.smartModTimeout(
+        await this.timeoutUnlessShielded(
+          duel.sinks,
+          duel.shield,
           duel.opponent,
           duel.timeoutDuration,
           `Failed trivia duel against ${duel.challenger} (Time expired, answer was ${duel.answer})`,

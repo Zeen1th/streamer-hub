@@ -650,8 +650,7 @@ test('trivia duel outcome resolves on a correct answer and on time-out', async (
   assert.equal(await second.outcome, null);
 });
 
-test('viewer duel does not start against a protected opponent and replies to the challenger', async () => {
-  duelGameManager.reset();
+test('a shielded viewer still plays; losing sends the shield message instead of a timeout', async () => {
   const sent = [];
   const timeouts = [];
   const sinks = {
@@ -659,54 +658,71 @@ test('viewer duel does not start against a protected opponent and replies to the
     smartModTimeout: async (target) => { timeouts.push(target); return { ok: true }; },
     delay: async () => {},
   };
-  const res = await duelGameManager.startDuel({
-    challenger: 'Alice',
-    opponentRaw: '@Bob',
-    mode: 'random',
-    isProtected: (user) => user.toLowerCase() === 'bob',
-    protectedMessage: '@{challenger} you cannot duel @{opponent}!',
-    sinks,
-  });
-  assert.equal(res.ok, false);
-  assert.equal(res.error, 'OPPONENT_PROTECTED');
-  assert.deepEqual(sent, ['@Alice you cannot duel @Bob!']);
+  const run = async (chance) => {
+    duelGameManager.reset();
+    sent.length = 0;
+    timeouts.length = 0;
+    return duelGameManager.startDuel({
+      challenger: 'Alice',
+      opponentRaw: '@Bob',
+      mode: 'random',
+      challengerWinChance: chance,
+      isProtected: (user) => user.toLowerCase() === 'bob',
+      protectedMessage: '@{protected} has a shield!',
+      sinks,
+    });
+  };
+
+  // Alice always wins: Bob loses but is shielded, so no timeout and the shield message is sent
+  const bobLoses = await run(99);
+  assert.equal(bobLoses.ok, true);
   assert.deepEqual(timeouts, []);
-  assert.equal(duelGameManager.getActiveDuel(), null);
+  assert.ok(sent.includes('@Bob has a shield!'));
 
-  // Not protected: the duel runs normally
-  const ok = await duelGameManager.startDuel({
-    challenger: 'Alice',
-    opponentRaw: '@Carol',
-    mode: 'random',
-    isProtected: (user) => user.toLowerCase() === 'bob',
-    sinks,
-  });
-  assert.equal(ok.ok, true);
+  // Alice always loses: she is not shielded, so she is timed out normally
+  const aliceLoses = await run(1);
+  assert.equal(aliceLoses.ok, true);
+  assert.deepEqual(timeouts, ['Alice']);
+  assert.ok(!sent.includes('@Bob has a shield!'));
 });
 
-test('streamer duel blocks protected challengers with the default reply', async () => {
-  duelGameManager.reset();
+test('a shielded streamer-duel challenger who loses is not timed out; one who wins mutes the streamer', async () => {
   const sent = [];
-  const res = await duelGameManager.startDuel({
-    challenger: 'Mallory',
-    opponentRaw: '',
-    mode: 'random',
-    isStreamerDuel: true,
-    broadcasterName: 'Streamer',
-    isProtected: (user) => user === 'Mallory',
-    sinks: {
-      sendChatMessage: async (msg) => { sent.push(msg); return true; },
-      smartModTimeout: async () => ({ ok: true }),
-      delay: async () => {},
-    },
-  });
-  assert.equal(res.ok, false);
-  assert.equal(res.error, 'CHALLENGER_PROTECTED');
-  assert.equal(sent.length, 1);
-  assert.ok(sent[0].includes('@Mallory') && sent[0].includes("can't challenge the streamer"));
+  const timeouts = [];
+  const muted = [];
+  const run = async (chance) => {
+    duelGameManager.reset();
+    sent.length = 0;
+    timeouts.length = 0;
+    muted.length = 0;
+    return duelGameManager.startDuel({
+      challenger: 'Mallory',
+      opponentRaw: '',
+      mode: 'random',
+      challengerWinChance: chance,
+      isStreamerDuel: true,
+      broadcasterName: 'Streamer',
+      isProtected: (user) => user === 'Mallory',
+      sinks: {
+        sendChatMessage: async (msg) => { sent.push(msg); return true; },
+        smartModTimeout: async (target) => { timeouts.push(target); return { ok: true }; },
+        muteStreamerSource: async (src) => { muted.push(src); return true; },
+        delay: async () => {},
+      },
+    });
+  };
+
+  await run(1); // streamer wins
+  assert.deepEqual(timeouts, []);
+  assert.ok(sent.some((m) => m.includes('@Mallory') && m.includes('has a shield')));
+
+  await run(99); // shielded challenger wins: normal behaviour
+  assert.equal(muted.length, 1);
+  assert.deepEqual(timeouts, []);
+  assert.ok(!sent.some((m) => m.includes('has a shield')));
 });
 
-test('a protected viewer can have their own reply; others use the shared reply', async () => {
+test('a shielded viewer can have their own reply; others use the shared reply', async () => {
   duelGameManager.reset();
   const sent = [];
   const sinks = {
@@ -716,12 +732,14 @@ test('a protected viewer can have their own reply; others use the shared reply',
   };
   const shared = {
     mode: 'random',
+    challengerWinChance: 99,
     isProtected: (user) => ['bob', 'carol'].includes(user.toLowerCase()),
-    protectedMessage: 'shared: @{challenger} cannot duel @{opponent}',
-    protectedMessageFor: (user) => (user.toLowerCase() === 'bob' ? "bob's own: @{challenger}, {protected} is busy" : undefined),
+    protectedMessage: 'shared: {protected} is shielded',
+    protectedMessageFor: (user) => (user.toLowerCase() === 'bob' ? "bob's own: {protected} is busy" : undefined),
     sinks,
   };
   await duelGameManager.startDuel({ challenger: 'Alice', opponentRaw: '@Bob', ...shared });
   await duelGameManager.startDuel({ challenger: 'Alice', opponentRaw: '@Carol', ...shared });
-  assert.deepEqual(sent, ["bob's own: @Alice, Bob is busy", 'shared: @Alice cannot duel @Carol']);
+  assert.ok(sent.includes("bob's own: Bob is busy"));
+  assert.ok(sent.includes('shared: Carol is shielded'));
 });

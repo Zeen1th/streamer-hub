@@ -15,6 +15,7 @@
 @import '@fontsource/cinzel/600.css';
 @import '@fontsource/jetbrains-mono/400.css';
 @import 'tailwindcss';
+@import './styles/fluent-skin.css';
 
 :root {
   color-scheme: light;

@@ -32,6 +32,7 @@ import { useConnectionStore } from './connectionStore';
 import { useLogStore } from './logStore';
 import { useVoteStore } from './voteStore';
 import { useSettingsStore } from './settingsStore';
+import { useStatsStore } from './statsStore';
 import { isShielded, protectedUserMessage } from '../lib/shield';
 import { shouldFireTimer, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../lib/sequenceTimers';
 import { insertIndexForIf, moveStepBlock, reorderStepBlock } from '../lib/stepGroups';
@@ -863,6 +864,19 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
           await runNested(match.id, childCtx);
         },
         runSequence: runNested,
+        isModerationProtected: (step, target) =>
+          isShielded(
+            target,
+            {
+              roles: {
+                moderator: !!step.modProtectedRoles?.includes('moderator'),
+                vip: !!step.modProtectedRoles?.includes('vip'),
+                subscriber: !!step.modProtectedRoles?.includes('subscriber'),
+              },
+              names: step.modProtectedUsers ?? [],
+            },
+            useChatterStore.getState().findKnownChatter(target),
+          ),
         executeModerationAction: async (action, target, durationSeconds, reason) => {
           switch (action) {
             case 'smart_timeout': {
@@ -1038,6 +1052,10 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
                 useLogStore.getState().addLocal({ kind: kind as any, message: msg });
               },
             },
+          });
+          // Feed the Home leaderboards: a finished duel with a winner counts for both players
+          void res.outcome?.then((o) => {
+            if (o?.kind === 'win') useStatsStore.getState().recordDuel({ winner: o.winner, loser: o.loser, kind: 'win' });
           });
           return { ok: res.ok, outcome: res.outcome };
         },

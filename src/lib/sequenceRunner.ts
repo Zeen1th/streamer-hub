@@ -1,5 +1,6 @@
 import type { DuelOutcome } from './duelGameManager.ts';
 import type { PollOutcome } from './pollOutcome.ts';
+import { protectedUserMessage } from './shield.ts';
 import type { CommandSequence, CounterAction, LogKind, ModerationAction, SequenceIfCondition, SequenceStep } from '../rpc/contracts';
 
 export interface SequenceExecutionContext {
@@ -29,6 +30,8 @@ export interface SequenceExecutionSinks {
     durationSeconds?: number,
     reason?: string,
   ) => Promise<{ ok: boolean; wasMod?: boolean; error?: string }>;
+  /** Is this viewer shielded from the step's timeout/ban? */
+  isModerationProtected?: (step: SequenceStep, target: string) => boolean;
   playSound?: (soundPath: string, volume?: number) => Promise<boolean>;
   speakTts?: (
     text: string,
@@ -412,6 +415,18 @@ export async function executeSequence(
           const reason = step.reason ? replaceSequenceTokens(step.reason, ctx) : `Triggered by ${ctx.username} via Streamer Hub`;
 
           log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Moderation "${action}" on "${cleanTarget}" (duration: ${duration}s)`);
+
+          if (
+            (action === 'smart_timeout' || action === 'timeout' || action === 'ban') &&
+            sinks.isModerationProtected?.(step, cleanTarget)
+          ) {
+            log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Skipped "${action}", @${cleanTarget} is protected.`);
+            const template = protectedUserMessage(cleanTarget, step.modProtectedUserMessages) ?? step.modProtectedMessage?.trim();
+            if (template && sinks.sendChatMessage) {
+              await sinks.sendChatMessage(replaceSequenceTokens(template.replace(/\{protected\}/gi, cleanTarget), ctx));
+            }
+            break;
+          }
 
           if (sinks.executeModerationAction) {
             const res = await sinks.executeModerationAction(action, cleanTarget, duration, reason);

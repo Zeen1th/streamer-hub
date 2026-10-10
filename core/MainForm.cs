@@ -28,6 +28,26 @@ internal static class Native
 
     [DllImport("user32.dll")]
     internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    internal const int DwmwaUseImmersiveDarkMode = 20;
+    internal const int DwmwaWindowCornerPreference = 33;
+    internal const int DwmwaBorderColor = 34;
+    internal const int DwmwaCaptionColor = 35;
+    internal const int DwmwaSystemBackdropType = 38;
+    internal const int DwmColorNone = unchecked((int)0xFFFFFFFE);
+    internal const int DwmsbtMainWindow = 2; // Mica
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Margins
+    {
+        public int Left, Right, Top, Bottom;
+    }
+
+    [DllImport("dwmapi.dll")]
+    internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [DllImport("dwmapi.dll")]
+    internal static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins margins);
 }
 
 internal sealed class TransparentResizeGrip : Control
@@ -72,6 +92,7 @@ public sealed class MainForm : Form
     private const int EdgeZone = 6;
     private const int WmNcHitTest = 0x84;
     private const int WmNcCalcSize = 0x0083;
+    private const int WmNcActivate = 0x0086;
     private const int WmSetCursor = 0x0020;
     private const int WmGetMinMaxInfo = 0x0024;
     private const int WmNclButtonDown = 0x00A1;
@@ -103,6 +124,8 @@ public sealed class MainForm : Form
     private GlobalHotkeyManager? _hotkeys;
     private bool _lastMaximized;
     private bool _webViewRefreshPending;
+    /// <summary>True when the window is drawn on a Windows 11 Mica backdrop and the web view is transparent.</summary>
+    private bool _micaActive;
     /// <summary>
     /// Why the window is closing. Anything other than the user clicking the
     /// close button must terminate the process rather than hide to the tray.
@@ -184,6 +207,7 @@ public sealed class MainForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        TryEnableMica();
         if (Icon != null)
         {
             try
@@ -192,6 +216,44 @@ public sealed class MainForm : Form
                 Native.SendMessage(Handle, Native.WmSetIcon, (IntPtr)Native.IconBig, Icon.Handle);
             }
             catch { }
+        }
+    }
+
+    /// <summary>
+    /// Asks DWM for the Mica backdrop (Windows 11 22H2+) and extends the glass over the whole client area, so a
+    /// transparent web page shows the tinted wallpaper behind it. Anywhere else this silently does nothing and
+    /// the window keeps its solid background.
+    /// </summary>
+    private void TryEnableMica()
+    {
+        try
+        {
+            if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621)) return;
+
+            var dark = 1;
+            Native.DwmSetWindowAttribute(Handle, Native.DwmwaUseImmersiveDarkMode, ref dark, sizeof(int));
+
+            var backdrop = Native.DwmsbtMainWindow;
+            if (Native.DwmSetWindowAttribute(Handle, Native.DwmwaSystemBackdropType, ref backdrop, sizeof(int)) != 0) return;
+
+            // The glass frame would otherwise paint a light caption band and an accent border around the window
+            var none = Native.DwmColorNone;
+            Native.DwmSetWindowAttribute(Handle, Native.DwmwaCaptionColor, ref none, sizeof(int));
+            Native.DwmSetWindowAttribute(Handle, Native.DwmwaBorderColor, ref none, sizeof(int));
+            var round = 2; // DWMWCP_ROUND
+            Native.DwmSetWindowAttribute(Handle, Native.DwmwaWindowCornerPreference, ref round, sizeof(int));
+
+            var margins = new Native.Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+            if (Native.DwmExtendFrameIntoClientArea(Handle, ref margins) != 0) return;
+
+            // Pure black is what DWM treats as "show the backdrop" for GDI-painted client pixels
+            BackColor = Color.Black;
+            _webView.DefaultBackgroundColor = Color.Transparent;
+            _micaActive = true;
+        }
+        catch
+        {
+            // Older Windows or missing dwmapi: keep the solid window
         }
     }
 
@@ -257,6 +319,11 @@ public sealed class MainForm : Form
         _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
         _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
         _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+        if (_micaActive)
+        {
+            // Tells the page it can let the backdrop show through (see data-backdrop in App.tsx)
+            await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.__nativeBackdrop = 'mica';");
+        }
 
         var wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         var devDist = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "dist"));
@@ -556,6 +623,13 @@ public sealed class MainForm : Form
             var bindingId = _hotkeys?.Resolve(m.WParam.ToInt32());
             if (bindingId is not null) _host?.PostEvent(StreamerHub.Core.Rpc.Events.KeybindTriggered, new { bindingId });
             m.Result = IntPtr.Zero;
+            return;
+        }
+        if (m.Msg == WmNcActivate && _micaActive)
+        {
+            // Activation changes must not repaint the (hidden) non-client frame: that is what flashed the borders
+            m.LParam = (IntPtr)(-1);
+            base.WndProc(ref m);
             return;
         }
         if (m.Msg == WmNcCalcSize && m.WParam != IntPtr.Zero)

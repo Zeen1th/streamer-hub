@@ -828,10 +828,16 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
     (ifConditionOptions.some(([k]) => k === step.ifCondition) ? step.ifCondition : ifConditionOptions[0]?.[0]) as SequenceIfCondition ?? 'duel_challenger_won',
   );
   const [ifOption, setIfOption] = useState(step.ifOption || (ifGame?.kind === 'poll' ? ifGame.step.pollOptions?.[0] ?? '' : ''));
-  const [protectedUsers, setProtectedUsers] = useState<string[]>(step.duelProtectedUsers ?? []);
-  const [protectedRoles, setProtectedRoles] = useState<Array<'moderator' | 'vip' | 'subscriber'>>(step.duelProtectedRoles ?? []);
-  const [protectedMessage, setProtectedMessage] = useState(step.duelProtectedMessage ?? '');
-  const [protectedUserMessages, setProtectedUserMessages] = useState<Record<string, string>>(step.duelProtectedUserMessages ?? {});
+  // The shield panel is shared by duels and the moderation step (Smart Timeout / Timeout / Ban)
+  const isModStep = step.type === 'moderation';
+  const [protectedUsers, setProtectedUsers] = useState<string[]>((isModStep ? step.modProtectedUsers : step.duelProtectedUsers) ?? []);
+  const [protectedRoles, setProtectedRoles] = useState<Array<'moderator' | 'vip' | 'subscriber'>>(
+    (isModStep ? step.modProtectedRoles : step.duelProtectedRoles) ?? [],
+  );
+  const [protectedMessage, setProtectedMessage] = useState((isModStep ? step.modProtectedMessage : step.duelProtectedMessage) ?? '');
+  const [protectedUserMessages, setProtectedUserMessages] = useState<Record<string, string>>(
+    (isModStep ? step.modProtectedUserMessages : step.duelProtectedUserMessages) ?? {},
+  );
   const [protectedDraft, setProtectedDraft] = useState('');
   const addProtectedUser = () => {
     const name = protectedDraft.trim().replace(/^@+/, '').slice(0, 60);
@@ -1082,9 +1088,24 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
   };
 
   const handleApply = () => {
+    const shieldedMessages = () =>
+      // keep only replies for viewers that are still in the list
+      Object.fromEntries(
+        protectedUsers
+          .map((name) => [shieldKey(name), (protectedUserMessages[shieldKey(name)] ?? '').trim()] as const)
+          .filter(([, message]) => message),
+      );
     const saveWithShield = (patch: Partial<SequenceStep>) =>
       onSave(
-        step.type === 'duel' || step.type === 'duel_streamer'
+        isModStep
+          ? {
+              ...patch,
+              modProtectedUsers: protectedUsers,
+              modProtectedRoles: protectedRoles,
+              modProtectedMessage: protectedMessage.trim() || undefined,
+              modProtectedUserMessages: shieldedMessages(),
+            }
+          : step.type === 'duel' || step.type === 'duel_streamer'
           ? {
               ...patch,
               duelProtectedUsers: protectedUsers,
@@ -1788,18 +1809,25 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
           )}
 
           {/* MIC MUTE / OBS AUDIO SOURCE MUTE */}
-          {(step.type === 'duel' || step.type === 'duel_streamer') && (
+          {(step.type === 'duel' || step.type === 'duel_streamer' ||
+            (isModStep && (moderationAction === 'smart_timeout' || moderationAction === 'timeout' || moderationAction === 'ban'))) && (
             <div className="flex flex-col gap-2.5 rounded-md border border-sky-500/25 bg-sky-500/[0.07] p-3">
               <div>
                 <div className="font-sans text-[12px] font-semibold text-white">
-                  🛡️ {step.type === 'duel_streamer'
-                    ? (lang === 'ar' ? 'مشاهدون لا يمكنهم تحدي الستريمر' : "Viewers who can't challenge the streamer")
-                    : (lang === 'ar' ? 'مشاهدون محميون من التحدي' : 'Protected viewers (cannot be challenged)')}
+                  🛡️ {isModStep
+                    ? (lang === 'ar' ? 'مشاهدون محميون من العقوبة' : 'Shield (viewers this step never punishes)')
+                    : step.type === 'duel_streamer'
+                    ? (lang === 'ar' ? 'مشاهدون لديهم درع ضد الإسكات' : 'Shield (viewers who are never timed out)')
+                    : (lang === 'ar' ? 'مشاهدون لديهم درع ضد الإسكات' : 'Shield (viewers who are never timed out)')}
                 </div>
                 <p className="text-[10.5px] text-muted">
-                  {lang === 'ar'
-                    ? 'عند المحاولة لا يبدأ التحدي ويصل المتحدّي الرد أدناه.'
-                    : 'If someone tries, the duel does not start and they get the reply below.'}
+                  {isModStep
+                    ? (lang === 'ar'
+                      ? 'إذا كان الهدف محمياً تُتخطى هذه الخطوة ولا يُسكت أو يُحظر، ويُرسل الرد أدناه إن وُجد.'
+                      : 'If the target is protected, this step is skipped (no timeout or ban) and the reply below is sent, if set.')
+                    : lang === 'ar'
+                    ? 'تُلعب اللعبة كالمعتاد؛ إذا خسر صاحب الدرع لا يُسكت ويُرسل الرد أدناه، وإذا فاز تستمر اللعبة طبيعياً.'
+                    : 'The game is played as usual. If a shielded viewer loses they are not timed out and the reply below is sent; if they win, everything works normally.'}
                 </p>
               </div>
 
@@ -1879,21 +1907,27 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
 
               <div className="flex flex-col gap-1">
                 <label className="font-sans text-[11.5px] font-medium text-zinc-300">
-                  {lang === 'ar' ? 'الرد العام على المتحدّي (للجميع ما عدا من لهم رد خاص)' : 'Default reply to the challenger (everyone without their own reply)'}
+                  {isModStep
+                    ? (lang === 'ar' ? 'الرد العام في الشات (اختياري، للجميع ما عدا من لهم رد خاص)' : 'Default chat reply (optional, everyone without their own reply)')
+                    : lang === 'ar' ? 'رد الدرع العام (للجميع ما عدا من لهم رد خاص)' : 'Default shield reply (everyone without their own reply)'}
                 </label>
                 <textarea
                   value={protectedMessage}
                   onChange={(e) => setProtectedMessage(e.target.value)}
                   rows={2}
                   placeholder={
-                    step.type === 'duel_streamer'
+                    isModStep
+                      ? (lang === 'ar' ? 'مثال: @{protected} محمي من العقوبة 🛡️' : 'e.g. @{protected} is shielded 🛡️')
+                      : step.type === 'duel_streamer'
                       ? (lang === 'ar' ? DEFAULT_PROTECTED_MESSAGES.streamerAr : DEFAULT_PROTECTED_MESSAGES.streamerEn)
                       : (lang === 'ar' ? DEFAULT_PROTECTED_MESSAGES.viewerAr : DEFAULT_PROTECTED_MESSAGES.viewerEn)
                   }
                   className="w-full rounded-md border border-white/15 bg-[#11131a] p-2.5 font-mono text-[12px] text-foreground focus:border-accent focus:outline-none resize-y"
                 />
                 <p className="text-[10px] text-muted">
-                  {lang === 'ar' ? 'المتغيرات:' : 'Tokens:'} {'{challenger}'} {'{opponent}'} {'{protected}'} · {lang === 'ar' ? 'اتركه فارغاً للرد الافتراضي' : 'leave empty for the default reply'}
+                  {lang === 'ar' ? 'المتغيرات:' : 'Tokens:'} {isModStep ? '{username} {protected}' : '{challenger} {opponent} {protected} {winner}'} · {isModStep
+                    ? (lang === 'ar' ? 'اتركه فارغاً لعدم إرسال رد' : 'leave empty to send no reply')
+                    : lang === 'ar' ? 'اتركه فارغاً للرد الافتراضي' : 'leave empty for the default reply'}
                 </p>
               </div>
             </div>

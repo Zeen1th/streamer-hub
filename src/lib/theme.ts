@@ -1,6 +1,6 @@
-export type DarkThemeVariant = 'dark';
+export type DarkThemeVariant = 'dark' | 'fluent';
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+export type ThemePreference = 'system' | 'light' | 'dark' | 'fluent';
 export type ResolvedTheme = 'light' | 'dark';
 
 export interface ThemeOption {
@@ -23,6 +23,14 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
     isDark: true,
   },
   {
+    id: 'fluent',
+    labelKey: 'settings.themeFluent',
+    hintKey: 'settings.themeFluentHint',
+    surfaceColor: '#1b1d27',
+    accentColor: '#6366f1',
+    isDark: true,
+  },
+  {
     id: 'light',
     labelKey: 'settings.themeLight',
     hintKey: 'settings.themeLightHint',
@@ -34,12 +42,19 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
 ];
 
 export function isDarkTheme(theme: string): theme is DarkThemeVariant {
-  return theme === 'dark';
+  return theme === 'dark' || theme === 'fluent';
+}
+
+/** Extra look layered on top of the resolved light/dark base. 'default' is the original Streamer.bot-like look. */
+export type ThemeSkin = 'default' | 'fluent';
+
+export function skinFor(preference: ThemePreference): ThemeSkin {
+  return preference === 'fluent' ? 'fluent' : 'default';
 }
 
 export function resolveTheme(preference: ThemePreference, systemIsDark: boolean): ResolvedTheme {
   if (preference === 'system') {
     return systemIsDark ? 'dark' : 'light';
   }
-  return preference === 'light' ? 'light' : 'dark';
+  return preference === 'light' ? 'light' : 'dark'; // 'fluent' is a dark skin
 }

@@ -1,0 +1,162 @@
+/*
+ * Fluent: the second app theme, modelled on the Windows 11 / PowerToys Settings look.
+ * Deep navy window with a glowing gradient, softly lit cards, rounded controls, original indigo accent, Segoe UI.
+ * Dark base (so [data-app='dark'] logic still applies) with data-skin='fluent' layered on top.
+ * Hard-coded Tailwind colors are handled in fluent-skin.generated.css (npm run gen:skin).
+ */
+@import './fluent-skin.generated.css';
+
+[data-app='dark'][data-skin='fluent'],
+:root[data-theme='dark'][data-skin='fluent'],
+:root.theme-dark[data-skin='fluent'] {
+  --bg: #14161e;
+  --surface: #1a1c27;
+  --surface-2: #14161e;
+  --surface-3: #232636;
+  --surface-hover: #2b2f42;
+  --card: #212435;
+  --card-hover: #292d41;
+  --ink: #ffffff;
+  --fg: #ffffff;
+  --muted: #a9aec1;
+  --faint: #8c92a8;
+  --rule: #343850;
+  --hair: #262a3c;
+  --border: rgba(255, 255, 255, .07);
+  --border-strong: rgba(255, 255, 255, .14);
+  /* Accent and button colors stay as in the original Dark theme */
+  --accent: #6366f1;
+  --accent-hover: #7a7cf6;
+  --accent-text: #a5b4fc;
+  --accent-fill: #6366f1;
+  --accent-soft: rgba(99, 102, 241, .15);
+  --accent-deep: #4f46e5;
+  --accent-2: #22a7e0;
+  --accent-cyan: #22a7e0;
+  --on-accent: #ffffff;
+
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Cairo', system-ui, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', 'Cairo', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Cascadia Code', 'Consolas', 'Cairo', ui-monospace, monospace;
+  /* Fluent never goes heavier than semibold */
+  --font-weight-bold: 600;
+  --font-weight-extrabold: 600;
+  --font-weight-black: 600;
+
+  /* Soft Windows 11 corners: controls ~7px, cards ~9-11px */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 9px;
+  --radius-xl: 11px;
+  --radius-2xl: 14px;
+  --radius-3xl: 18px;
+
+  /* Neutral palette: navy-tinted instead of blue-grey */
+  --color-zinc-50: #f4f5fa; --color-zinc-100: #e6e8f1; --color-zinc-200: #cdd1e0; --color-zinc-300: #aeb3c8;
+  --color-zinc-400: #9094ab; --color-zinc-500: #747890; --color-zinc-600: #565a70; --color-zinc-700: #3f4357;
+  --color-zinc-800: #2b2e40; --color-zinc-900: #1d2030; --color-zinc-950: #12141c;
+  --color-slate-50: #f4f5fa; --color-slate-100: #e6e8f1; --color-slate-200: #cdd1e0; --color-slate-300: #aeb3c8;
+  --color-slate-400: #9094ab; --color-slate-500: #747890; --color-slate-600: #565a70; --color-slate-700: #3f4357;
+  --color-slate-800: #2b2e40; --color-slate-900: #1d2030; --color-slate-950: #12141c;
+  --color-gray-50: #f4f5fa; --color-gray-100: #e6e8f1; --color-gray-200: #cdd1e0; --color-gray-300: #aeb3c8;
+  --color-gray-400: #9094ab; --color-gray-500: #747890; --color-gray-600: #565a70; --color-gray-700: #3f4357;
+  --color-gray-800: #2b2e40; --color-gray-900: #1d2030; --color-gray-950: #12141c;
+}
+
+:root[data-skin='fluent'] body {
+  background:
+    radial-gradient(1000px 700px at 4% -6%, rgba(62, 100, 224, .20), transparent 65%),
+    radial-gradient(900px 700px at 104% 106%, rgba(132, 70, 214, .15), transparent 65%),
+    linear-gradient(160deg, #181b2a 0%, #12141f 100%) fixed;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Cairo', system-ui, sans-serif;
+}
+
+/* The shell lets the gradient through; the title bar, action bar and sidebar are frosted glass over it */
+[data-app='dark'][data-skin='fluent'] {
+  background: transparent !important;
+}
+
+:root[data-skin='fluent'] [data-chrome] {
+  background-color: rgba(10, 12, 26, .28) !important;
+  background-image: none !important;
+  border-color: rgba(255, 255, 255, .07) !important;
+}
+
+:root[data-skin='fluent'][lang='ar'] body,
+html[lang='ar'][data-skin='fluent'] body {
+  font-family: 'Cairo', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+}
+
+:root[data-skin='fluent'] ::selection {
+  background: rgba(99, 102, 241, .35);
+}
+
+/* Cards: lifted surface, 1px hairline, 8px corners */
+:root[data-skin='fluent'] .slab,
+:root[data-skin='fluent'] .engraved {
+  background: rgba(255, 255, 255, .055);
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset;
+}
+
+:root[data-skin='fluent'] .ui-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+:root[data-skin='fluent'] .data-value {
+  font-family: 'Cascadia Mono', 'Consolas', ui-monospace, monospace;
+}
+
+/* Windows controls feel: subtle fill, hairline border, 4px, a quiet press state */
+:root[data-skin='fluent'] button:not(:disabled):active {
+  filter: brightness(.92);
+}
+
+:root[data-skin='fluent'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
+:root[data-skin='fluent'] select,
+:root[data-skin='fluent'] textarea {
+  border-radius: 7px;
+  border-bottom-color: rgba(255, 255, 255, .42);
+}
+
+:root[data-skin='fluent'] input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
+:root[data-skin='fluent'] select:focus,
+:root[data-skin='fluent'] textarea:focus {
+  border-bottom-color: var(--accent);
+  outline: none !important;
+}
+
+:root[data-skin='fluent'] * {
+  scrollbar-color: #3a3f58 transparent;
+}
+
+/* Workspace panes sit directly on the gradient */
+:root[data-skin='fluent'] main,
+:root[data-skin='fluent'] section.app-scroll {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+/* Floating layers sit over content, so they get frosted glass instead of a bare veil */
+:root[data-skin='fluent'] [class~='fixed'][class*='z-[']:not([class~='inset-0']),
+:root[data-skin='fluent'] [role='menu'],
+:root[data-skin='fluent'] [role='listbox'],
+:root[data-skin='fluent'] [class~='shadow-2xl'],
+:root[data-skin='fluent'] [class~='shadow-xl'] {
+  background-color: rgba(34, 38, 58, .86) !important;
+  backdrop-filter: blur(28px) saturate(1.4);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+}
+
+/* With native Mica the page itself is see-through: the wallpaper-tinted backdrop replaces the painted gradient */
+:root[data-skin='fluent'][data-backdrop='mica'] body {
+  background: transparent;
+}
+
+:root[data-skin='fluent'][data-backdrop='mica'] [data-chrome] {
+  background-color: rgba(10, 12, 26, .18) !important;
+}

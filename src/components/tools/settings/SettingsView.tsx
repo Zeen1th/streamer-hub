@@ -135,7 +135,7 @@ export function SettingsView() {
               <p className="mb-3 font-sans text-xs text-muted">
                 {t(lang, 'settings.themeHint')}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {THEME_OPTIONS.map((opt) => {
                   const isSelected = theme === opt.id;
                   return (

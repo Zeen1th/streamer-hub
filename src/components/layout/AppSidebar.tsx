@@ -102,6 +102,7 @@ export function AppSidebar() {
 
   return (
     <aside
+      data-chrome
       className="flex h-full w-[236px] shrink-0 select-none flex-col border-e border-white/[0.08] bg-[#1a2228] text-ink"
       data-od-id="sidebar"
       aria-label="Application Sidebar"

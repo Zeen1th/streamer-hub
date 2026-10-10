@@ -11,6 +11,7 @@ export function ActionBar() {
 
   return (
     <div
+      data-chrome
       className="flex h-[46px] shrink-0 select-none items-center gap-[2px] border-b border-white/[0.08] bg-[#1a2228] px-2 text-ink"
       data-od-id="actionbar"
     >

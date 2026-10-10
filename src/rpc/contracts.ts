@@ -280,6 +280,13 @@ export interface SequenceStep {
   targetUser?: string;
   durationSeconds?: number;
   reason?: string;
+  /** Shield for Smart Timeout / Timeout / Ban: these viewers (and roles) are never punished by this step. */
+  modProtectedUsers?: string[];
+  modProtectedRoles?: Array<'moderator' | 'vip' | 'subscriber'>;
+  /** Optional chat reply when the step skips a protected viewer. */
+  modProtectedMessage?: string;
+  /** Reply for one specific protected viewer, keyed by lowercase login. Overrides `modProtectedMessage`. */
+  modProtectedUserMessages?: Record<string, string>;
   commentText?: string;
 
   // Sound Effect

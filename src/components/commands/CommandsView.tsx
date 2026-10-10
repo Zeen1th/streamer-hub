@@ -724,7 +724,7 @@ function FragmentRow({
       >
         <td className="px-2.5">
           <div className="flex min-w-0 flex-col justify-center leading-tight">
-            <span dir="auto" className={`truncate font-sans text-[13.5px] font-bold ${row.enabled ? 'text-[#e8ecff]' : 'text-muted line-through'}`}>
+            <span dir="ltr" className={`truncate text-left font-sans text-[13.5px] font-bold ${row.enabled ? 'text-[#e8ecff]' : 'text-muted line-through'}`}>
               {(isAi || row.sourceKind === 'reply' ? prefixed(row.name, '!') : row.name) || t(lang, 'workspace.untitled')}
             </span>
             {isCounter && row.command && (

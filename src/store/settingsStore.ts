@@ -73,7 +73,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   clientId: '',
   clientSecret: '',
   language: '',
-  theme: ((localStorage.getItem('streamer-hub-theme') as ThemePreference | null) ?? 'dark'),
+  theme: (() => {
+    const stored = localStorage.getItem('streamer-hub-theme');
+    return (stored === 'ember' ? 'fluent' : (stored as ThemePreference | null)) ?? 'dark';
+  })(),
   lastDarkTheme: (() => {
     const stored = localStorage.getItem('streamer-hub-last-dark-theme');
     return stored && isDarkTheme(stored) ? (stored as DarkThemeVariant) : 'dark';

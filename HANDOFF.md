@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
  
-**Version:** `v0.4.11`  
+**Version:** `v0.4.12`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -160,10 +160,11 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - Conditions: `duel_challenger_won`, `duel_opponent_won` (= streamer won in a streamer duel), `duel_no_winner`, `poll_winner_is` (+`ifOption`), `poll_tie`, `poll_no_votes`.
 - UI: `SequenceStudioView.tsx` `EditSubActionModal` (If section + `IfBranchEditor`); Done is disabled until a game step exists above. In the sub-action list the If row shows its Then / Else steps as bullet points underneath (double-click edits). If is also in the Add dropdown and right-click menu. An If directly under a mini game / poll is *attached*: it is indented under it, a newly added If snaps in right under the nearest game, and moving or dragging the game carries its attached Ifs (`src/lib/stepGroups.ts`).
 
-### 2.6d Duel Protected Viewers
-- Timeout Duel and Streamer 1v1 steps have a "Protected viewers" editor (roles + named viewers + custom reply): `duelProtectedUsers`, `duelProtectedRoles`, `duelProtectedMessage`. Viewer duel: the *opponent* can't be challenged; Streamer 1v1: protected viewers can't challenge the streamer. The duel does not start and the challenger gets the reply (`DEFAULT_PROTECTED_MESSAGES`, tokens `{challenger}` `{opponent}`). Roles come from the last chat message seen per chatter (`chatterStore`), names match case-insensitively (`src/lib/shield.ts`).
-- Each protected viewer can have their own reply (`duelProtectedUserMessages`, keyed by lowercase login, resolved by `protectedUserMessage` in `src/lib/shield.ts`); the step's default reply (`duelProtectedMessage`, or the built-in text) covers everyone else, including role-based protection. Extra token `{protected}` = the protected viewer.
-- Viewer duels can no longer target the broadcaster (use the Streamer 1v1 step); the old "Allow challenging broadcaster" option is gone. There is no global shield, Settings card or Timeout/Ban shield.
+### 2.6d Duel Shield (reworked in v0.4.12)
+- Timeout Duel and Streamer 1v1 steps have a "Shield" editor (roles + named viewers + replies): `duelProtectedUsers`, `duelProtectedRoles`, `duelProtectedMessage`, `duelProtectedUserMessages`. A shielded viewer is **not blocked**: the duel is played for real (coin flip or trivia). Every timeout the duel would apply goes through `DuelGameManager.timeoutUnlessShielded`; if the loser is shielded there is no timeout and the shield message is sent instead (`DEFAULT_PROTECTED_MESSAGES`, tokens `{challenger}` `{opponent}` `{protected}` `{winner}` `{loser}`). If the shielded viewer wins, the duel behaves normally. This also covers a trivia timer expiring (both players are checked) and a shielded Streamer 1v1 challenger who loses.
+- Roles come from the last chat message seen per chatter (`chatterStore`), names match case-insensitively (`src/lib/shield.ts`). Each shielded viewer can have their own reply (`protectedUserMessage`); the default reply covers everyone else.
+- Viewer duels can no longer target the broadcaster (use the Streamer 1v1 step).
+- **Moderation step shield**: Smart Timeout, Timeout and Ban steps carry `modProtectedUsers/Roles/Message/UserMessages`. `sequenceRunner` asks the `isModerationProtected` sink (implemented in `sequenceStore`); a protected target is skipped (not an error), the optional reply is sent, and the sequence continues. The editor reuses the same shield panel as duels.
 
 ### 2.6e Commands Table & Inspector
 - Table columns: Command (the item's name; counters add their `!command` underneath; reply rows use their trigger word), Type (badge, count / studio button, and trigger icons for sequences: 🪙 channel points, 💬 chat, 🔥 raid, ❤️ follow, ⚡ watch streak, ⚠ no trigger), Who, CD. Writes/Last columns were removed.
@@ -198,6 +199,16 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - **Chat box** (`src/components/chat/ChatComposer.tsx`, used by the dock page `obs-chat.tsx` and the Chat tab): suggestions for `/commands`, `@names` (recent chatters) and `:emotes`, Tab/Enter/arrows to pick, Esc to dismiss, and an emote picker button. Logic is pure in `src/lib/chatInputAssist.ts`.
 - **Slash commands** run on the host (`core/Host/ChatCommandProcessor.cs`): `/timeout|/to user [10m] [reason]`, `/untimeout`, `/ban`, `/unban`, `/clear`, `/mod`, `/unmod`, `/vip`, `/unvip`, `/shoutout|/so`, `/help`. Unknown `/x` is reported, never sent to chat; `//` and plain text pass through. The dock (`send-chat` WS) and the Chat tab (`chat/send-input`) share `HostController.HandleChatInputAsync`; sequences/auto-replies still use `twitch/send-chat-message` unchanged. Results appear as a notice line in both (`notice` envelope / `chat/notice` event).
 - **Gifts strip**: `TwitchUsernoticeParser.TryParseGift` reads `subgift` / `submysterygift` (and anon*) USERNOTICEs; per-recipient notices of a bundle are skipped. Pushed as `twitch/gift` + `gift` WS envelope (last 5 replayed to a newly opened dock), shown by `GiftStrip` at the top of the dock and the Chat tab for 90 s (max 3). Bits/resubs/follows are not shown.
+
+### 2.6k Home dashboard, widgets and leaderboards (v0.4.12)
+- `src/components/tools/home/HomeView.tsx` renders a 12-column grid of widgets from `useHomeLayoutStore` (`src/store/homeLayoutStore.ts`, localStorage `streamer-hub-home-layout-v2`). Pure layout logic (defaults, presets, add/remove/resize/move/nudge, normalization) is in `src/lib/homeLayout.ts`. **Customize** turns on edit mode: drag cards (native HTML5 DnD) or use the arrows, choose a width (S/M/L/Full where the widget allows it), remove, or add from a gallery. The three profile buttons apply `LAYOUT_PRESETS`.
+- Widgets live in `home/widgets/` and register in `widgetRegistry.tsx`: `pulse` (tiles, user-picked and reorderable, config `tiles`), `activity` (SVG area chart of messages/min), `feed`, `leaderboard`, `counter`, `title`, `keybinds`, `reply`, `overlay` (the last five are the old Home modules, extracted), `quickrun` (runs a sequence via `sequenceStore.runSequence`) and `checklist`. Each widget renders its own `WidgetCard` (edit chrome included) and gets `config`/`setConfig` stored on its layout item. All Home text is in `homeText.ts` (EN + AR).
+- **Stats** (`src/store/statsStore.ts`, pure helpers and tests in `src/lib/stats.ts`): per-viewer tallies (messages, duel wins/losses, gifts, redemptions, points) kept both for "this stream" and all time, an event feed, and messages-per-minute buckets, persisted to localStorage (`streamer-hub-stats-v1`, saved 2 s after changes, all-time capped at 2500 viewers). Fed by `App.tsx` (chat), `statsStore` itself (follow, raid, gift, redemption, watch streak events; gifts de-duplicated by event id) and `sequenceStore.executeDuel` (duel winners). A session older than 8 h at launch is archived (all-time only). Bots (`KNOWN_BOTS`) are always hidden from leaderboards and the streamer unless "Include me" is ticked. "Post to chat" sends the top 5 through `twitch/send-chat-message`. Counting starts at the v0.4.12 install; nothing is backfilled.
+
+### 2.6l Fluent theme and native Mica (v0.4.12)
+- Settings > Appearance has a third option, **Fluent** (`ThemePreference = 'fluent'`, a *skin* on the dark base: `data-skin="fluent"` on the root and the app shell, resolved theme stays `dark`). `src/styles/fluent-skin.css` sets tokens (navy palette, Segoe UI, 7-11px radii, indigo accent unchanged) and `src/styles/fluent-skin.generated.css` re-colors the many hard-coded `bg-[#...]` classes into see-through veils. **Regenerate it with `npm run gen:skin`** (`scripts/gen-fluent-skin.mjs`) after adding hard-coded colors. Title bar, action bar and sidebar carry `data-chrome` so Fluent can make them glass.
+- **Native Mica** (`core/MainForm.cs`, `TryEnableMica`): on Windows 11 22H2+ the form asks DWM for the Mica backdrop, extends the frame into the client area, turns the WebView2 background transparent and sets caption/border colors to none (otherwise a light caption band and border flash when the window is restored or re-activated; `WM_NCACTIVATE` is also passed `lParam = -1`). The host injects `window.__nativeBackdrop = 'mica'`; `App.tsx` turns that into `data-backdrop="mica"`, and Fluent then lets the page background be transparent. Other Windows versions keep the solid window. Dark/Light paint opaque backgrounds, so they look the same.
+- The old `ember` theme value (never shipped) migrates to `fluent` in `settingsStore`. The title bar logo was removed.
 
 ### 2.6b UI Scale & Default Window Size
 - The UI scale is applied as native WebView2 page zoom (`window/set-zoom` -> `WebView2.ZoomFactor` in `HostController`), not CSS `zoom`: layout, viewport units and mouse coordinates stay consistent. The browser preview (no host) still falls back to CSS zoom. Because `innerWidth` shrinks when zoomed, auto scale multiplies it back by the applied zoom (`calculateAutoScale(appliedZoom)`).
@@ -448,9 +459,9 @@ GitHub Actions will automatically build the Windows binaries, compile the Inno S
 
 ---
 
-## 7. Where the last session ended (v0.4.8 to v0.4.11)
+## 7. Where the last session ended (v0.4.8 to v0.4.12)
 
-Shipped in order: If/Else + nested display, duel protected viewers (per-viewer replies), commands table + slim inspector, 110% default scale + native WebView zoom + steady slider, auto-updates + What's New, Run Another Sequence, repeating timers, scrollable studio menus, Undo/Redo, and the chat box work (slash commands, emote picker/suggestions, 7TV global, gifts strip). Feature details are in sections 2.6b to 2.6j.
+Shipped in order: If/Else + nested display, duel protected viewers (per-viewer replies), commands table + slim inspector, 110% default scale + native WebView zoom + steady slider, auto-updates + What's New, Run Another Sequence, repeating timers, scrollable studio menus, Undo/Redo, the chat box work (slash commands, emote picker/suggestions, 7TV global, gifts strip), and v0.4.12 (customizable Home dashboard with leaderboards, the Fluent theme with native Mica, shield for Smart Timeout/Timeout/Ban, play-then-shield duels). Feature details are in sections 2.6b to 2.6l.
 
 **Release checklist** (section 5.2) starts with adding a bilingual `CHANGELOG` entry in `src/lib/changelog.ts`; `changelog.test.mjs` fails otherwise.
 

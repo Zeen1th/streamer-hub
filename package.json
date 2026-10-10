@@ -1,13 +1,14 @@
 {
   "name": "streamer-hub",
   "private": true,
-  "version": "0.4.11",
+  "version": "0.4.12",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
+    "gen:skin": "node scripts/gen-fluent-skin.mjs",
     "test": "node --test src/lib/*.test.mjs src/rpc/mockHost.test.mjs"
   },
   "dependencies": {

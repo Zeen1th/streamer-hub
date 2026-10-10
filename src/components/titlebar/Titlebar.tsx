@@ -26,7 +26,7 @@ export function Titlebar() {
   const [message, setMessage] = useState<string | null>(null);
 
   const parsedNotes = parseReleaseNotes(releaseNotes, lang);
-  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.11';
+  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.12';
 
   useEffect(() => {
     if (!debugPromptRequested) return;
@@ -37,6 +37,7 @@ export function Titlebar() {
   return (
     <header
       dir="ltr"
+      data-chrome
       className="relative z-50 flex h-8 shrink-0 select-none items-center justify-between border-b border-white/[0.08] bg-[#1a2228] ps-3"
       onPointerDown={(event) => {
         if (event.button !== 0 || (event.target as HTMLElement | null)?.closest('[data-drag-exclude]')) return;
@@ -45,29 +46,6 @@ export function Titlebar() {
       onDoubleClick={() => rpc.invoke(Channels.WindowMaximizeToggle).catch(() => undefined)}
     >
       <div className="flex items-center gap-2.5">
-        <svg className="size-[19px] shrink-0" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-          <defs>
-            <linearGradient id="tb-tile-bg" x1="0" y1="0" x2="0" y2="64" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stopColor="#242C36" />
-              <stop offset="100%" stopColor="#11161B" />
-            </linearGradient>
-            <linearGradient id="tb-beacon-grad" x1="10" y1="10" x2="54" y2="54" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stopColor="#8B5CF6" />
-              <stop offset="50%" stopColor="#6366F1" />
-              <stop offset="100%" stopColor="#06B6D4" />
-            </linearGradient>
-          </defs>
-          {/* App Tile Squircle */}
-          <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#tb-tile-bg)" stroke="rgba(255, 255, 255, 0.16)" strokeWidth="1.8" />
-          {/* Outer Diamond Pulse Ring */}
-          <rect x="14" y="14" width="36" height="36" rx="7.5" transform="rotate(45 32 32)" fill="none" stroke="url(#tb-beacon-grad)" strokeWidth="2.8" opacity="0.5" />
-          {/* Mid Diamond Pulse Ring */}
-          <rect x="19" y="19" width="26" height="26" rx="6" transform="rotate(45 32 32)" fill="none" stroke="url(#tb-beacon-grad)" strokeWidth="3.4" opacity="0.85" />
-          {/* Central Core Diamond */}
-          <rect x="24.5" y="24.5" width="15" height="15" rx="3.5" transform="rotate(45 32 32)" fill="url(#tb-beacon-grad)" />
-          {/* Center Beacon Dot */}
-          <circle cx="32" cy="32" r="2.8" fill="#FFFFFF" />
-        </svg>
         <span className="font-sans text-[12.5px] font-bold tracking-tight text-ink">Streamer Hub</span>
         <button
           type="button"

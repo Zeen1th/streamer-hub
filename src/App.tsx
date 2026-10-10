@@ -12,7 +12,7 @@ import { ActivityLog } from './components/tools/counter/ActivityLog';
 import { Button } from './components/ui/Button';
 import { cn } from './lib/cn';
 import { t } from './i18n/translations';
-import { resolveTheme, type ResolvedTheme } from './lib/theme';
+import { resolveTheme, skinFor, type ResolvedTheme } from './lib/theme';
 import { isMockMode, rpc } from './rpc';
 import { Channels, Events } from './rpc/contracts';
 import { useConnectionStore } from './store/connectionStore';
@@ -26,6 +26,7 @@ import { useKeybindStore } from './store/keybindStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useToolStore } from './store/toolStore';
 import { useUpdateStore } from './store/updateStore';
+import { useStatsStore } from './store/statsStore';
 import { useChatterStore } from './store/chatterStore';
 import { useVoteStore } from './store/voteStore';
 import { ObsChatView } from './components/tools/chat/ObsChatView';
@@ -82,6 +83,11 @@ export default function App() {
       setResolvedTheme(resolved);
       document.documentElement.dataset.theme = resolved;
       document.documentElement.classList.toggle('theme-dark', resolved !== 'light');
+      document.documentElement.dataset.skin = skinFor(theme);
+      // The desktop host sets this when the window sits on a Windows 11 Mica backdrop
+      if ((window as { __nativeBackdrop?: string }).__nativeBackdrop === 'mica') {
+        document.documentElement.dataset.backdrop = 'mica';
+      }
     };
     apply();
     media?.addEventListener('change', apply);
@@ -188,6 +194,7 @@ export default function App() {
         isVip: message.isVip,
         isSubscriber: message.isSubscriber,
       });
+      useStatsStore.getState().recordMessage(message);
       useLogStore.getState().addLocal({ kind: 'chat', message: message.message, username: message.username });
       useCounterStore.getState().handleChatMessage(message);
       useAutoReplyStore.getState().handleChatMessage(message);
@@ -327,6 +334,7 @@ export default function App() {
   return (
     <div
       data-app={resolvedTheme}
+      data-skin={skinFor(theme)}
       className={cn(
         'app-shell flex h-full w-full flex-col overflow-hidden font-sans text-ink',
         resolvedTheme === 'dark' ? 'bg-[#1a2228]' : 'bg-surface',
