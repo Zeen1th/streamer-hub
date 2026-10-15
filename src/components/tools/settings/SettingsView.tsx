@@ -15,6 +15,7 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Slider } from '../../ui/Slider';
 import { Switch } from '../../ui/Switch';
 import { TriggerGlobalSettings } from '../auto-replies/TriggerGlobalSettings';
+import { BackupsCard } from './BackupsCard';
 import { KeybindSettings } from './KeybindSettings';
 import { ObsSettings } from './ObsSettings';
 
@@ -345,6 +346,7 @@ export function SettingsView() {
               </div>
             </div>
           </Card>
+          <BackupsCard />
           <Card title={t(lang, 'updates.settingsTitle')}>
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-4">

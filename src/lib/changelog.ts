@@ -19,6 +19,27 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.13',
+    en: {
+      added: [
+        'Backups: Settings > System & Window Behavior now has a Backups card. Pick an earlier copy of your commands, counters, replies and settings and restore it with one click. The app restarts to load it, and what you had before is kept so you can undo the restore.',
+        'Your settings are now protected. They are written safely to the disk, the last good copy is always kept, and an automatic backup is taken every few hours (the last 8 are kept). If the settings file is ever damaged or missing when the app starts, the last good copy is restored automatically and a notice tells you what happened.',
+      ],
+      fixed: [
+        'Settings could be wiped after a crash or power loss (for example while removing a display driver), because a damaged settings file was silently replaced with an empty one. It is now kept aside and your last good copy is restored instead.',
+      ],
+    },
+    ar: {
+      added: [
+        'النسخ الاحتياطية: في الإعدادات > سلوك النظام والنوافذ بطاقة جديدة للنسخ الاحتياطية. اختر نسخة أقدم من أوامرك وعداداتك وردودك وإعداداتك واستعدها بضغطة واحدة. يُعاد تشغيل التطبيق لتحميلها، وما كان لديك قبلها يُحفظ حتى تتمكن من التراجع عن الاستعادة.',
+        'إعداداتك الآن محمية. تُكتب على القرص بأمان، ويُحتفظ دائماً بآخر نسخة سليمة، وتؤخذ نسخة احتياطية تلقائية كل عدة ساعات (تُحفظ آخر 8). وإذا كان ملف الإعدادات تالفاً أو مفقوداً عند تشغيل التطبيق تُستعاد آخر نسخة سليمة تلقائياً ويظهر إشعار يشرح ما حدث.',
+      ],
+      fixed: [
+        'كانت الإعدادات قد تُمسح بعد انهيار أو انقطاع الكهرباء (مثلاً أثناء حذف تعريف كرت الشاشة) لأن الملف التالف كان يُستبدل بصمت بملف فارغ. الآن يُحفظ الملف التالف جانباً وتُستعاد آخر نسخة سليمة بدلاً منه.',
+      ],
+    },
+  },
+  {
     version: '0.4.12',
     en: {
       added: [

@@ -208,6 +208,28 @@ export interface ActionTrigger {
 }
 
 /** A gifted sub (count 1) or a bundle (count > 1). `tier` is the Twitch plan id: 1000, 2000, 3000. */
+export type SettingsBackupKind = 'last' | 'pending' | 'snapshot' | 'before-restore';
+
+export interface SettingsBackupInfo {
+  name: string;
+  kind: SettingsBackupKind;
+  /** ISO timestamp of the copy. */
+  modified: string;
+  counters: number;
+  replies: number;
+  sequences: number;
+  keybinds: number;
+  bytes: number;
+}
+
+/** Reported once at startup when settings.json was damaged or missing. */
+export interface SettingsRecovery {
+  /** File the settings were restored from, or null when nothing could be restored. */
+  restoredFrom: string | null;
+  /** Name the unreadable settings.json was kept under, or null when the file was simply missing. */
+  savedAs: string | null;
+}
+
 export interface TwitchGiftEvent {
   id: string;
   gifterName: string;
@@ -707,6 +729,8 @@ export const Channels = {
   TwitchBotForget: 'twitch/bot-forget',
   TwitchBotSimulate: 'twitch/bot-simulate',
   SettingsGetState: 'settings/get-state',
+  SettingsListBackups: 'settings/list-backups',
+  SettingsRestoreBackup: 'settings/restore-backup',
   SettingsSave: 'settings/save',
   ChatOverlayGetState: 'chat-overlay/get-state',
   ChatOverlaySaveSettings: 'chat-overlay/save-settings',
@@ -851,7 +875,7 @@ export interface HostApi {
     request: { enabled?: boolean; login?: string } | undefined;
     response: { ok: boolean; simulated: boolean; botLogin: string };
   };
-  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; preferredChatSender?: ChatSenderRole; startupEnabled?: boolean; closeToTray?: boolean } };
+  [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; preferredChatSender?: ChatSenderRole; startupEnabled?: boolean; closeToTray?: boolean; recovery?: SettingsRecovery | null } };
   [Channels.SettingsSave]: {
     request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; preferredChatSender?: ChatSenderRole; startupEnabled?: boolean; closeToTray?: boolean };
     response: { ok: boolean };
@@ -866,6 +890,8 @@ export interface HostApi {
   [Channels.WindowBeginResize]: { request: { edge: WindowResizeEdge }; response: { ok: boolean } };
   [Channels.AutoRepliesGetState]: { request: undefined; response: AutoReply[] };
   [Channels.AutoRepliesSettingsGet]: { request: undefined; response: AutoReplySettings };
+  [Channels.SettingsListBackups]: { request: undefined; response: { backups: SettingsBackupInfo[] } };
+  [Channels.SettingsRestoreBackup]: { request: { name: string }; response: { ok: boolean; restarting?: boolean; error?: string } };
   [Channels.AutoRepliesSettingsSave]: { request: AutoReplySettings; response: { ok: boolean } };
   [Channels.AutoRepliesSave]: { request: { rule: AutoReply }; response: { ok: boolean } };
   [Channels.AutoRepliesDelete]: { request: { ruleId: string }; response: { ok: boolean } };

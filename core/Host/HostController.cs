@@ -729,7 +729,31 @@ public sealed class HostController : IDisposable
             return Task.FromResult<object?>(new { ok = true, simulated = _botSimulated, botLogin = _botLogin });
         });
         _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
-            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, preferredChatSender = _settings.PreferredChatSender, startupEnabled = _settings.StartupEnabled, closeToTray = _settings.CloseToTray ?? true }));
+            Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, preferredChatSender = _settings.PreferredChatSender, startupEnabled = _settings.StartupEnabled, closeToTray = _settings.CloseToTray ?? true, recovery = _settings.TakeRecoveryNotice() }));
+        _dispatcher.Register(Channels.SettingsListBackups, (_, _) =>
+            Task.FromResult<object?>(new
+            {
+                backups = _settings.ListBackups().Select(b => new
+                {
+                    name = b.Name,
+                    kind = b.Kind,
+                    modified = b.ModifiedUtc.ToString("o"),
+                    counters = b.Counters,
+                    replies = b.Replies,
+                    sequences = b.Sequences,
+                    keybinds = b.Keybinds,
+                    bytes = b.Bytes,
+                }).ToArray(),
+            }));
+        _dispatcher.Register(Channels.SettingsRestoreBackup, (payload, _) =>
+        {
+            var request = Json.Deserialize<RestoreBackupPayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.Name)) return Task.FromResult<object?>(new { ok = false, error = "BACKUP NOT FOUND" });
+            if (!_settings.RestoreBackup(request.Name, out var error)) return Task.FromResult<object?>(new { ok = false, error });
+            Log("system", $"SETTINGS RESTORED FROM {request.Name}");
+            if (!RelaunchApp()) return Task.FromResult<object?>(new { ok = true, restarting = false });
+            return Task.FromResult<object?>(new { ok = true, restarting = true });
+        });
         _dispatcher.Register(Channels.ChatOverlayGetState, (_, _) =>
             Task.FromResult<object?>(_chatOverlay.GetState()));
         _dispatcher.Register(Channels.ChatOverlaySaveSettings, async (payload, ct) =>
@@ -2154,6 +2178,54 @@ public sealed class HostController : IDisposable
         catch
         {
             return new UpdateCheckResponse(current, current, false, $"https://github.com/{UpdateRepository}/releases/latest");
+        }
+    }
+
+    private sealed record RestoreBackupPayload(string Name);
+
+    /// <summary>
+    /// Starts a hidden helper that waits for this process to exit and then launches the app again, and closes the
+    /// app. Restoring settings needs a restart so the overlay server, hotkeys and Twitch connection reload them.
+    /// </summary>
+    private bool RelaunchApp()
+    {
+        try
+        {
+            var appPath = Process.GetCurrentProcess().MainModule?.FileName ?? Path.Combine(AppContext.BaseDirectory, "StreamerHub.exe");
+            static string PsQuote(string value) => "'" + value.Replace("'", "''") + "'";
+            var script = string.Join("; ", new[]
+            {
+                "$deadline = (Get-Date).AddSeconds(30)",
+                $"while ((Get-Process -Id {Environment.ProcessId} -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {{ Start-Sleep -Milliseconds 250 }}",
+                $"Start-Process -FilePath {PsQuote(appPath)}",
+            });
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"{script}\"",
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                UseShellExecute = false,
+            });
+            if (process is null) return false;
+            Ui(() =>
+            {
+                var closeTimer = new System.Windows.Forms.Timer { Interval = 600 };
+                closeTimer.Tick += (_, _) =>
+                {
+                    closeTimer.Stop();
+                    closeTimer.Dispose();
+                    // Not Close(): close-to-tray would hide the window and leave the helper waiting
+                    _form.ExitForUpdate();
+                };
+                closeTimer.Start();
+            });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log("system", $"RESTART FAILED: {ex.Message}");
+            return false;
         }
     }
 

@@ -886,6 +886,20 @@ export class MockHost {
       case Channels.WindowSetZoom:
         this.respond(request, { ok: true });
         break;
+      case Channels.SettingsListBackups: {
+        const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+        this.respond(request, {
+          backups: [
+            { name: 'settings.json.bak', kind: 'last', modified: hoursAgo(0.4), counters: 2, replies: 14, sequences: 6, keybinds: 3, bytes: 48_213 },
+            { name: 'backups/settings-20261015-120000.json', kind: 'snapshot', modified: hoursAgo(3), counters: 2, replies: 13, sequences: 6, keybinds: 3, bytes: 47_002 },
+            { name: 'backups/settings-20261014-210000.json', kind: 'snapshot', modified: hoursAgo(19), counters: 1, replies: 9, sequences: 4, keybinds: 2, bytes: 31_870 },
+          ],
+        });
+        break;
+      }
+      case Channels.SettingsRestoreBackup:
+        this.respond(request, { ok: true, restarting: false });
+        break;
       case Channels.AlertsGetTempSettings:
         this.respond(request, {
           keepTempFiles: this.alertTemp.keepTempFiles,

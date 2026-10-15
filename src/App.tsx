@@ -45,6 +45,7 @@ export default function App() {
   const tab = useToolStore((s) => s.activeTab);
   const language = useSettingsStore((s) => s.language);
   const theme = useSettingsStore((s) => s.theme);
+  const recoveryNotice = useSettingsStore((s) => s.recoveryNotice);
   const twitchConnected = useConnectionStore((s) => s.twitchConnected);
   const twitchChannel = useConnectionStore((s) => s.twitchChannel);
   const statusReceived = useConnectionStore((s) => s.statusReceived);
@@ -299,7 +300,10 @@ export default function App() {
       } catch { void 0; }
       try {
         const settings = await rpc.invoke(Channels.SettingsGetState);
-        if (!disposed) useSettingsStore.getState().hydrate(settings.twitch.clientId, settings.twitch.clientSecret, settings.language, settings.botAccountEnabled, settings.preferredChatSender, settings.startupEnabled, settings.closeToTray);
+        if (!disposed) {
+          useSettingsStore.getState().hydrate(settings.twitch.clientId, settings.twitch.clientSecret, settings.language, settings.botAccountEnabled, settings.preferredChatSender, settings.startupEnabled, settings.closeToTray);
+          if (settings.recovery) useSettingsStore.setState({ recoveryNotice: settings.recovery });
+        }
       } catch { void 0; }
       try { const keys = await rpc.invoke(Channels.OpenRouterGetState); if (!disposed) useSettingsStore.getState().hydrateOpenRouter(keys.configured, keys.groqConfigured); } catch { void 0; }
       try {
@@ -343,6 +347,17 @@ export default function App() {
     >
       <Titlebar />
       <ActionBar />
+      {recoveryNotice && (
+        <div role="alert" className="flex min-h-[44px] shrink-0 items-center gap-3 border-b border-amber-500/25 bg-amber-500/10 px-4 py-1.5">
+          <TriangleAlert size={16} className="shrink-0 text-amber-400" aria-hidden />
+          <p className="min-w-0 flex-1 text-[12px] leading-snug text-ink" dir="auto">
+            {recoveryNotice.restoredFrom
+              ? t(lang, recoveryNotice.savedAs ? 'recovery.restoredDamaged' : 'recovery.restoredMissing', { saved: recoveryNotice.savedAs ?? '' })
+              : t(lang, 'recovery.unreadable', { saved: recoveryNotice.savedAs ?? '' })}
+          </p>
+          <Button size="sm" variant="outline" onClick={() => useSettingsStore.getState().dismissRecoveryNotice()}>{t(lang, 'recovery.dismiss')}</Button>
+        </div>
+      )}
       {statusReceived && !twitchConnected && (
         <div className="flex min-h-[44px] shrink-0 items-center gap-3 border-b border-amber-500/25 bg-amber-500/10 px-4">
           <TriangleAlert size={16} className="shrink-0 text-amber-400" aria-hidden />

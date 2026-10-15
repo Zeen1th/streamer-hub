@@ -1,3 +1,4 @@
+import type { SettingsRecovery } from '../rpc/contracts';
 import { create } from 'zustand';
 import type { Language } from '../i18n/translations';
 import { Channels } from '../rpc/contracts';
@@ -31,6 +32,9 @@ interface SettingsState {
   preferredChatSender: ChatSenderRole;
   startupEnabled: boolean;
   closeToTray: boolean;
+  /** Set when the host had to restore settings.json at startup; shown as a dismissible banner. */
+  recoveryNotice: SettingsRecovery | null;
+  dismissRecoveryNotice(): void;
   loaded: boolean;
   openRouterConfigured: boolean;
   groqConfigured: boolean;
@@ -85,6 +89,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   preferredChatSender: 'bot',
   startupEnabled: true,
   closeToTray: true,
+  recoveryNotice: null,
+  dismissRecoveryNotice: () => set({ recoveryNotice: null }),
   loaded: false,
   openRouterConfigured: false,
   groqConfigured: false,

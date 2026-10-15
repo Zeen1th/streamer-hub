@@ -1,6 +1,6 @@
 # Streamer Hub: Technical & Architecture Handoff
  
-**Version:** `v0.4.12`  
+**Version:** `v0.4.13`  
 **Repository:** [Zeen1th/streamer-hub](https://github.com/Zeen1th/streamer-hub)  
 **Target Platform:** Windows 10/11 (64-bit), Microsoft WebView2 Runtime, OBS Studio 28+  
 
@@ -209,6 +209,13 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - Settings > Appearance has a third option, **Fluent** (`ThemePreference = 'fluent'`, a *skin* on the dark base: `data-skin="fluent"` on the root and the app shell, resolved theme stays `dark`). `src/styles/fluent-skin.css` sets tokens (navy palette, Segoe UI, 7-11px radii, indigo accent unchanged) and `src/styles/fluent-skin.generated.css` re-colors the many hard-coded `bg-[#...]` classes into see-through veils. **Regenerate it with `npm run gen:skin`** (`scripts/gen-fluent-skin.mjs`) after adding hard-coded colors. Title bar, action bar and sidebar carry `data-chrome` so Fluent can make them glass.
 - **Native Mica** (`core/MainForm.cs`, `TryEnableMica`): on Windows 11 22H2+ the form asks DWM for the Mica backdrop, extends the frame into the client area, turns the WebView2 background transparent and sets caption/border colors to none (otherwise a light caption band and border flash when the window is restored or re-activated; `WM_NCACTIVATE` is also passed `lParam = -1`). The host injects `window.__nativeBackdrop = 'mica'`; `App.tsx` turns that into `data-backdrop="mica"`, and Fluent then lets the page background be transparent. Other Windows versions keep the solid window. Dark/Light paint opaque backgrounds, so they look the same.
 - The old `ember` theme value (never shipped) migrates to `fluent` in `settingsStore`. The title bar logo was removed.
+
+### 2.6m Settings durability, backups and restore (v0.4.13)
+- Why: a user lost every command and counter after a crash during a display driver removal. The old `SettingsStore.Load()` swallowed any read error and returned an empty document, and the next save overwrote `settings.json`.
+- `core/Storage/SettingsStore.cs`: saves go through `WriteDurably` (write-through + `Flush(true)`) into `settings.json.tmp` and are then moved over `settings.json`. Before replacing, a *valid* current file is copied to `settings.json.bak` (a damaged file never overwrites it). `MaybeSnapshot` copies the file into `%APPDATA%/StreamerHub/backups/settings-<time>.json` at most every 6 h (last 8 kept) and only when there is real data (counters, replies or sequences).
+- Load recovery: if `settings.json` is missing or unreadable it is moved to `settings.corrupt-<time>.json` (last 5 kept) and the first valid candidate of `.tmp`, `.bak`, newest snapshot is restored. `TakeRecoveryNotice()` (one-shot) is returned in `settings/get-state` as `recovery`; `App.tsx` shows an amber banner (`recovery.*` strings). A first run never reports anything.
+- Restore button: Settings > System & Window Behavior > **Backups** (`BackupsCard.tsx`). `settings/list-backups` lists copies that hold user data (`last`, `pending`, `snapshot`, `before-restore`); `settings/restore-backup {name}` accepts only listed names, saves the current file to `backups/before-restore-<time>.json` (last 5 kept, so a restore can be undone), makes the backup live and calls `RelaunchApp()` (hidden PowerShell waits for the process to exit, then starts the exe; the form closes through `ExitForUpdate` so close-to-tray cannot keep it alive). The restart is needed because the overlay server, hotkeys and Twitch connection read settings once at startup.
+- Not covered: the web side's localStorage (theme, Home layout, stats, known chatters) is not backed up. Tests: `tests/StreamerHub.Task4Tests` (recovery, listing, restore).
 
 ### 2.6b UI Scale & Default Window Size
 - The UI scale is applied as native WebView2 page zoom (`window/set-zoom` -> `WebView2.ZoomFactor` in `HostController`), not CSS `zoom`: layout, viewport units and mouse coordinates stay consistent. The browser preview (no host) still falls back to CSS zoom. Because `innerWidth` shrinks when zoomed, auto scale multiplies it back by the applied zoom (`calculateAutoScale(appliedZoom)`).
@@ -459,9 +466,9 @@ GitHub Actions will automatically build the Windows binaries, compile the Inno S
 
 ---
 
-## 7. Where the last session ended (v0.4.8 to v0.4.12)
+## 7. Where the last session ended (v0.4.8 to v0.4.13)
 
-Shipped in order: If/Else + nested display, duel protected viewers (per-viewer replies), commands table + slim inspector, 110% default scale + native WebView zoom + steady slider, auto-updates + What's New, Run Another Sequence, repeating timers, scrollable studio menus, Undo/Redo, the chat box work (slash commands, emote picker/suggestions, 7TV global, gifts strip), and v0.4.12 (customizable Home dashboard with leaderboards, the Fluent theme with native Mica, shield for Smart Timeout/Timeout/Ban, play-then-shield duels). Feature details are in sections 2.6b to 2.6l.
+Shipped in order: If/Else + nested display, duel protected viewers (per-viewer replies), commands table + slim inspector, 110% default scale + native WebView zoom + steady slider, auto-updates + What's New, Run Another Sequence, repeating timers, scrollable studio menus, Undo/Redo, the chat box work (slash commands, emote picker/suggestions, 7TV global, gifts strip), and v0.4.12 (customizable Home dashboard with leaderboards, the Fluent theme with native Mica, shield for Smart Timeout/Timeout/Ban, play-then-shield duels), and v0.4.13 (settings durability, automatic backups and a Restore button). Feature details are in sections 2.6b to 2.6m.
 
 **Release checklist** (section 5.2) starts with adding a bilingual `CHANGELOG` entry in `src/lib/changelog.ts`; `changelog.test.mjs` fails otherwise.
 

@@ -54,6 +54,8 @@ public static class Channels
     public const string TwitchBotSimulate = "twitch/bot-simulate";
     public const string SettingsGetState = "settings/get-state";
     public const string SettingsSave = "settings/save";
+    public const string SettingsListBackups = "settings/list-backups";
+    public const string SettingsRestoreBackup = "settings/restore-backup";
     public const string ChatOverlayGetState = "chat-overlay/get-state";
     public const string ChatOverlaySaveSettings = "chat-overlay/save-settings";
     public const string ChatOverlayGetUrl = "chat-overlay/get-url";

@@ -93,6 +93,7 @@ A lightweight, local-first streaming companion that provides dedicated tools wit
 - **Settings & UI**:
   - Sectioned navigation: General, Twitch Connection, Bot Account, Appearance, and Step-by-Step Setup Guide.
   - Responsive per-monitor DPI architecture with user-adjustable UI Zoom Scale slider (80% to 140%).
+  - Backups: settings.json is saved durably with a last-good copy and automatic snapshots (last 8); a damaged or missing file is restored at startup, and Settings > System > Backups restores any earlier copy with one click (the app restarts).
   - Themes: Dark (default), Light, and Fluent (Windows 11 style with see-through layers and native Mica backdrop).
   - **Home dashboard**: a customizable grid of widgets (Stream Pulse, Chat Activity, Live Feed, Leaderboards, Quick Run, Stream Checklist, counter, title, keybinds, auto-reply, chat overlay) that the streamer can drag, resize, add and remove. Leaderboards rank top chatters, duelists, gifters and redeemers for the current stream or all time.
   - Full English and Arabic localization with Cairo typography and stable LTR shell controls.

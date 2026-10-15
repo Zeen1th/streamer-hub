@@ -76,6 +76,95 @@ using (var release = JsonDocument.Parse("""
     AssertEqual("https://cdn.7tv.app/emote/01ABC/2x.webp", map["KEKW"], "7TV emote url");
 }
 
+// Settings survive a damaged or missing settings.json (crash or power cut mid-write)
+{
+    var recoveryRoot = Path.Combine(Path.GetTempPath(), $"streamer-hub-recovery-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(recoveryRoot);
+    try
+    {
+        var file = Path.Combine(recoveryRoot, "settings.json");
+        using (var first = new SettingsStore(file))
+        {
+            first.SaveCounter(new Counter { Id = "c1", Name = "Deaths", Count = 7 });
+            first.Flush();
+            first.SetLanguage("ar");
+            first.Flush(); // second write keeps the first as the last good copy
+        }
+        AssertTrue(File.Exists(file + ".bak"), "a last good copy is kept");
+        AssertTrue(Directory.GetFiles(Path.Combine(recoveryRoot, "backups"), "settings-*.json").Length == 1, "a snapshot is taken once there is data");
+
+        // damaged settings.json: restored from the backup, damaged copy kept, one-shot notice
+        File.WriteAllText(file, "{ \"counters\": [ { \"id\": \"c1\", \"na");
+        using (var restored = new SettingsStore(file))
+        {
+            AssertEqual(1, restored.Counters.Count, "counters restored from backup");
+            AssertEqual(7, restored.Counters[0].Count, "counter value restored");
+            var notice = restored.TakeRecoveryNotice();
+            AssertTrue(notice is not null, "restore is reported");
+            AssertEqual("settings.json.bak", notice!.RestoredFrom, "restored from the last good copy");
+            AssertTrue(notice.SavedAs is not null && notice.SavedAs.StartsWith("settings.corrupt-"), "damaged file is kept aside");
+            AssertTrue(File.Exists(Path.Combine(recoveryRoot, notice.SavedAs!)), "damaged copy exists");
+            AssertTrue(restored.TakeRecoveryNotice() is null, "the notice is reported once");
+        }
+        AssertTrue(File.ReadAllText(file).Contains("\"counters\""), "settings.json is valid again");
+
+        // missing settings.json: restored silently from the backup
+        File.Delete(file);
+        using (var missing = new SettingsStore(file))
+        {
+            AssertEqual(1, missing.Counters.Count, "counters restored when the file is gone");
+            var notice = missing.TakeRecoveryNotice();
+            AssertTrue(notice is not null && notice.RestoredFrom is not null && notice.SavedAs is null, "missing file restored without a damaged copy");
+        }
+
+        // nothing to restore from: starts empty but keeps the damaged file and says so
+        var lonely = Path.Combine(recoveryRoot, "lonely");
+        Directory.CreateDirectory(lonely);
+        File.WriteAllText(Path.Combine(lonely, "settings.json"), "not json at all");
+        using (var empty = new SettingsStore(Path.Combine(lonely, "settings.json")))
+        {
+            AssertEqual(0, empty.Counters.Count, "no data to restore");
+            var notice = empty.TakeRecoveryNotice();
+            AssertTrue(notice is not null && notice.RestoredFrom is null && notice.SavedAs is not null, "unreadable file is reported");
+            AssertTrue(File.Exists(Path.Combine(lonely, notice!.SavedAs!)), "unreadable file is kept");
+        }
+
+        // listing and restoring backups on demand (the Settings > Backups card)
+        using (var manual = new SettingsStore(file))
+        {
+            manual.SaveCounter(new Counter { Id = "c2", Name = "Wins", Count = 1 });
+            manual.Flush(); // main now has 2 counters; the backup and snapshot hold 1
+            var backups = manual.ListBackups();
+            AssertTrue(backups.Count >= 2, "backup and snapshot are listed");
+            AssertTrue(backups.All(b => b.Counters == 1), "listed copies report their contents");
+            AssertTrue(backups.Any(b => b.Kind == "last") && backups.Any(b => b.Kind == "snapshot"), "kinds are reported");
+            AssertTrue(!manual.RestoreBackup("../settings.json", out var traversalError) && traversalError == "BACKUP NOT FOUND", "unknown names are rejected");
+            AssertTrue(!manual.RestoreBackup(Path.Combine(recoveryRoot, "settings.json"), out _), "paths are rejected");
+
+            var snapshot = backups.First(b => b.Kind == "snapshot");
+            AssertTrue(manual.RestoreBackup(snapshot.Name, out var restoreError) && restoreError is null, "restore succeeds");
+            AssertEqual(1, manual.Counters.Count, "restored settings are live");
+            AssertTrue(Directory.GetFiles(Path.Combine(recoveryRoot, "backups"), "before-restore-*.json").Length == 1, "the previous settings are kept before restoring");
+            AssertTrue(manual.ListBackups().Any(b => b.Kind == "before-restore" && b.Counters == 2), "the previous settings can be restored again");
+        }
+        using (var reopened = new SettingsStore(file))
+        {
+            AssertEqual(1, reopened.Counters.Count, "the restore survives a restart");
+        }
+
+        // a first run is not a problem
+        var fresh = Path.Combine(recoveryRoot, "fresh", "settings.json");
+        using (var firstRun = new SettingsStore(fresh))
+        {
+            AssertTrue(firstRun.TakeRecoveryNotice() is null, "first run has no recovery notice");
+        }
+    }
+    finally
+    {
+        try { Directory.Delete(recoveryRoot, recursive: true); } catch { }
+    }
+}
+
 var root = Path.Combine(Path.GetTempPath(), $"streamer-hub-task4-{Guid.NewGuid():N}");
 Directory.CreateDirectory(root);
 try

@@ -8,6 +8,7 @@ Streamer Hub is a lightweight, local-first desktop companion for Twitch streamer
 
 - **Customizable Home dashboard**: drag, resize, add and remove widgets (Stream Pulse, Chat Activity, Live Feed, Quick Run, Stream Checklist, counters, title, keybinds, auto-reply, overlay). Leaderboards for top chatters, duelists, gifters and reward redeemers (this stream or all time) with a one-click post to chat.
 - **Themes**: Dark, Light and Fluent (Windows 11 style, native Mica backdrop on Windows 11).
+- **Safe settings**: settings are written durably, the last good copy and automatic backups are kept, a damaged file is restored automatically, and Settings > System has a Backups card with a one-click Restore.
 - **Shield**: protect viewers from Smart Timeout, Timeout and Ban steps, and let shielded viewers play duels without ever being timed out.
 - **Stream Counters**: Multi-command chat counters (+1, −1, reset) syncing instantly to plain text files for OBS text sources.
 - **Smart Title Sync**: Integrates counters with your live Twitch stream title using `{title}` and `{count}` with automatic anti-compounding protection.
