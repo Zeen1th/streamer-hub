@@ -231,10 +231,16 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         await BroadcastAsync(ChatOverlayProtocol.VoteState(state), "vote-overlay", cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// A dedicated image/clip browser source shows the picture on its own. Sending it to the chat overlay as well
+    /// would draw the same picture twice, once on each OBS source, so chat overlays only show it when no image
+    /// source is connected (the older "no extra source needed" behaviour).
+    /// </summary>
     public async Task PublishShowImageAsync(object payload, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(payload);
-        await BroadcastAsync(ChatOverlayProtocol.ShowImage(payload), cancellationToken).ConfigureAwait(false);
+        var hasImageSource = _clients.Values.Any(c => string.Equals(c.Target, "image-overlay", StringComparison.OrdinalIgnoreCase));
+        await BroadcastAsync(ChatOverlayProtocol.ShowImage(payload), hasImageSource ? "image-overlay" : null, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Clips only go to the image/clip browser source; the chat overlay has no player.</summary>

@@ -11,6 +11,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function listOf(block, key) {
   const start = block.indexOf(`${key}: [`);
   if (start < 0) return [];
+  // An empty list is written on one line: `fixed: [],`
+  if (/^\[\s*\]/.test(block.slice(start + key.length + 2))) return [];
   const end = block.indexOf('\n      ],', start);
   const body = block.slice(start, end < 0 ? undefined : end);
   return [...body.matchAll(/'((?:[^'\\]|\\.)*)'/g)].map((m) => m[1].replace(/\\'/g, "'").replace(/\\\\/g, '\\'));

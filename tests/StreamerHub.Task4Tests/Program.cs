@@ -73,6 +73,52 @@ using (var release = JsonDocument.Parse("""
     AssertEqual("show-clip", Kind(ChatOverlayProtocol.ShowClip(new { clipId = "x" })), "show-clip envelope kind");
 }
 
+// Pictures: a dedicated image source shows them alone; the chat overlay shows them only when there is none
+{
+    var imageRoot = Path.Combine(Path.GetTempPath(), $"streamer-hub-images-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(imageRoot);
+    try
+    {
+        await using var imageServer = new ChatOverlayServer(imageRoot, new ChatOverlaySettings(), preferredPort: 0);
+        await imageServer.StartAsync();
+
+        async Task<ClientWebSocket> ConnectAsync(string query)
+        {
+            var client = new ClientWebSocket();
+            await client.ConnectAsync(new Uri(imageServer.WebSocketUrl + query), CancellationToken.None);
+            for (var i = 0; i < 4; i++) await ReceiveAsync(client); // app-version, hello, settings, disconnected
+            return client;
+        }
+        async Task<bool> GotShowImageAsync(ClientWebSocket client)
+        {
+            using var wait = new CancellationTokenSource(TimeSpan.FromMilliseconds(600));
+            try
+            {
+                var buffer = new byte[16 * 1024];
+                var result = await client.ReceiveAsync(buffer, wait.Token);
+                return Kind(Encoding.UTF8.GetString(buffer, 0, result.Count)) == "show-image";
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
+        using var chatOverlay = await ConnectAsync(string.Empty);
+        await imageServer.PublishShowImageAsync(new { imageUrl = "x" });
+        AssertTrue(await GotShowImageAsync(chatOverlay), "with no image source, the chat overlay shows the picture");
+
+        using var imageSource = await ConnectAsync("?target=image-overlay");
+        await imageServer.PublishShowImageAsync(new { imageUrl = "x" });
+        AssertTrue(await GotShowImageAsync(imageSource), "the image source shows the picture");
+        AssertTrue(!await GotShowImageAsync(chatOverlay), "the chat overlay does not draw it a second time");
+    }
+    finally
+    {
+        try { Directory.Delete(imageRoot, recursive: true); } catch { }
+    }
+}
+
 // Streamer chat slash commands: parsing, durations
 {
     var timeout = ChatCommandProcessor.Parse("/to @Bob 10m spamming links");
@@ -234,6 +280,7 @@ try
 
     using var socket = new ClientWebSocket();
     await socket.ConnectAsync(server.WebSocketUrl, CancellationToken.None);
+    AssertEqual("app-version", Kind(await ReceiveAsync(socket)), "overlay pages are told the app version first");
     await ReceiveAsync(socket);
     await ReceiveAsync(socket);
     AssertEqual("disconnected", Kind(await ReceiveAsync(socket)), "safe initial disconnected state");

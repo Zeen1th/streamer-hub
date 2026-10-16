@@ -65,6 +65,7 @@ async Task WebSocketConnectReceivesCurrentStateAsync()
     await using var fixture = await ServerFixture.StartAsync();
     using var socket = await fixture.ConnectAsync();
 
+    AssertEqual("app-version", Kind(await ReceiveAsync(socket)), "app version is sent first");
     AssertEqual("hello", Kind(await ReceiveAsync(socket)), "first websocket message");
     AssertEqual("settings", Kind(await ReceiveAsync(socket)), "settings bootstrap");
     AssertEqual("disconnected", Kind(await ReceiveAsync(socket)), "connection bootstrap");
@@ -228,6 +229,7 @@ static ChatMessage SampleMessage(string id) => new()
 
 static async Task DrainBootstrapAsync(ClientWebSocket socket)
 {
+    AssertEqual("app-version", Kind(await ReceiveAsync(socket)), "bootstrap app version");
     AssertEqual("hello", Kind(await ReceiveAsync(socket)), "bootstrap hello");
     AssertEqual("settings", Kind(await ReceiveAsync(socket)), "bootstrap settings");
     var state = Kind(await ReceiveAsync(socket));

@@ -19,6 +19,21 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.18',
+    en: {
+      added: [],
+      fixed: [
+        'Pictures and GIFs showed up twice in OBS when you had both the chat overlay and the image overlay added: once on the image overlay and again on top of the chat overlay. Now they appear only on the image overlay. If you have no image overlay in OBS, they still show on the chat overlay as before.',
+      ],
+    },
+    ar: {
+      added: [],
+      fixed: [
+        'كانت الصور والـ GIF تظهر مرتين في OBS إذا أضفت أوفرلاي الشات وأوفرلاي الصور معاً: مرة على أوفرلاي الصور ومرة فوق أوفرلاي الشات. الآن تظهر على أوفرلاي الصور فقط. وإذا لم يكن لديك أوفرلاي صور في OBS فتظهر على أوفرلاي الشات كما كانت.',
+      ],
+    },
+  },
+  {
     version: '0.4.17',
     en: {
       added: [

@@ -306,6 +306,7 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - **Dual Display Modes**:
   - **Auto Overlay Integration**: Automatically renders in existing `/chat-overlay.html` browser sources without requiring new OBS sources.
   - **Dedicated OBS Browser Source**: Standalone `/image-overlay.html` endpoint with 1-click copy URL button.
+  - **No double drawing**: `show-image` goes only to the dedicated image source when one is connected (`PublishShowImageAsync`); chat overlays show the picture only when there is no image source. Without this, a streamer with both sources in OBS saw every picture twice, once over the chat overlay (it surfaced after v0.4.14 made the shared pop-up layout work on every page).
   - **Native OBS File Copy**: Optional `obsImageDestinationPath` copies the image directly to a disk path for OBS Image Sources.
 - **Customizable Dynamics**: Screen positioning (`center`, `top-center`, `bottom-center`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `fullscreen`), animations (`bounce`, `fade`, `zoom`, `slide-up`, `slide-down`, `none`), scale slider (0.2x–3.0x), and auto-dismiss duration timer.
 
