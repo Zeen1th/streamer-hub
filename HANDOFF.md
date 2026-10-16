@@ -343,6 +343,13 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - **Pop-up layout is inline styles** (`src/overlay/overlayLayout.ts`) because the standalone image/clip page ships no stylesheet; the picture scene now uses it too (its Tailwind classes did nothing on that page).
 - **Not verified end to end**: the Helix call and the real Twitch mp4/embed playback need a live Twitch session; the overlay, editor, runner and picker are covered by tests and a browser run with a fake socket. The newer Twitch thumbnail format may not match the mp4 pattern, in which case the embed path is used.
 
+### 2.13 Clip command sub-action (`clip_create`) and Top clippers
+- Step "Twitch: Create a Clip for the Viewer" clips the live channel (`ITwitchClient.CreateClipAsync`, Helix `POST /clips`, then polls `GET /clips?id=` for up to ~12s so the link works). Needs the new **`clips:edit`** scope (`TwitchConstants.Scopes`): users connected before v0.4.15 must reconnect Twitch once, the host reports `MISSING_SCOPE` and the editor/log say so. `CHANNEL_OFFLINE` when not live.
+- Twitch credits every clip to the streamer's account, so attribution is ours: `sequenceStore.createClip` calls `statsStore.recordClip` (per-viewer `UserStats.clips`, session + all time, feed event `clip`) and returns the viewer's running total. Test runs (`source: 'test'`) are not recorded. Older saved stats have no `clips` field, so code reads it with `?? 0`.
+- Later steps can use `{clip_url}` and `{clip_count}` (set on the run context by the runner). On failure the step sends `clipCreateFailMessage` (default `DEFAULT_CLIP_FAIL_MESSAGE`) and stops the sequence. Studio -> Presets -> "Clip Command Preset" appends the step plus a chat reply; the user adds the `!clip` chat trigger and a cooldown.
+- Home: Leaderboard widget has a **Clips** tab ("Top clippers"), the Live Feed shows "made a clip".
+- Not verified end to end: the real Twitch call (needs a live stream and a reconnect with the new scope).
+
 ---
 
 ## 3. Communication Channels & RPC Reference

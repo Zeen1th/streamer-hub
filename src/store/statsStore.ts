@@ -58,6 +58,8 @@ interface StatsState {
   recordGift(event: TwitchGiftEvent): void;
   recordRedemption(event: ChannelPointsRedemption): void;
   recordWatchStreak(event: TwitchWatchStreakEvent): void;
+  /** A viewer made a clip with the clip command. Returns how many clips they have made in total (all time). */
+  recordClip(clip: { login: string; name?: string; url: string }): number;
   recordDuel(result: { winner: string; loser: string; kind: 'win' | 'no_winner' }): void;
   /** Starts a fresh "this stream" without touching all-time totals. */
   newStream(): void;
@@ -197,6 +199,17 @@ export const useStatsStore = create<StatsState>((set, get) => {
       s.session.totals.duels += 1;
       set({ rev: s.rev + 1, feed: addFeedEvent(s.feed, { kind: 'duel', at: now, who: winner, detail: loser }) });
       scheduleSave(get);
+    },
+
+    recordClip: ({ login, name, url }) => {
+      const now = Date.now();
+      const s = get();
+      const entry = bumpUser(s.allTime, login, name, { clips: 1 }, now);
+      bumpUser(s.session.users, login, name, { clips: 1 }, now);
+      s.session.totals.clips = (s.session.totals.clips ?? 0) + 1;
+      set({ rev: s.rev + 1, feed: addFeedEvent(s.feed, { kind: 'clip', at: now, who: name || login, detail: url }) });
+      scheduleSave(get);
+      return entry?.clips ?? 1;
     },
 
     newStream: () => {

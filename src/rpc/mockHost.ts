@@ -937,6 +937,11 @@ export class MockHost {
         this.respond(request, { ok: true, payload: _payload });
         break;
       }
+      case Channels.TwitchCreateClip: {
+        const id = `MockClip${Date.now().toString(36)}`;
+        this.respond(request, { ok: true, id, url: `https://clips.twitch.tv/${id}`, title: 'Mock clip' });
+        break;
+      }
       case Channels.ChatOverlayShowClip: {
         const clip = request.payload as ShowOverlayClipRequest | undefined;
         this.respond(request, {

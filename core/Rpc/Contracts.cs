@@ -216,6 +216,7 @@ public sealed record SequenceStep
     public string? ClipSelection { get; init; } // "top" | "random" | "recent"
     public string? ClipPeriod { get; init; } // "week" | "month" | "year" | "all"
     public int? ClipMaxSeconds { get; init; }
+    public string? ClipCreateFailMessage { get; init; } // reply when a Create Clip step fails
     public bool? ClipUseClipLength { get; init; } // show the whole clip instead of cutting it at ClipMaxSeconds
     public double? ClipVolume { get; init; }
     public string? ClipPosition { get; init; }

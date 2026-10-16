@@ -167,6 +167,7 @@ export type SequenceStepType =
   | 'obs_text'
   | 'obs_image'
   | 'obs_clip'
+  | 'clip_create'
   | 'duel'
   | 'duel_streamer'
   | 'poll'
@@ -361,6 +362,8 @@ export interface SequenceStep {
   clipMaxSeconds?: number;
   /** Show the whole clip, however long it is (ignores `clipMaxSeconds`). */
   clipUseClipLength?: boolean;
+  /** Create Clip step: what chat is told when the clip could not be made. */
+  clipCreateFailMessage?: string;
   /** 0 to 1. */
   clipVolume?: number;
   clipPosition?: OverlayPosition;
@@ -801,6 +804,7 @@ export const Channels = {
   TwitchModerationClear: 'twitch/moderation/clear',
   TwitchModerationDeleteMessage: 'twitch/moderation/delete-message',
   TwitchModerationShoutout: 'twitch/moderation/shoutout',
+  TwitchCreateClip: 'twitch/create-clip',
   ChatOverlayTestMessage: 'chat-overlay/test-message',
   ChatOverlayReload: 'chat-overlay/reload',
   ChatOverlaySetPreview: 'chat-overlay/set-preview',
@@ -994,6 +998,7 @@ export interface HostApi {
     request: { messageId: string };
     response: { ok: boolean; error?: string };
   };
+  [Channels.TwitchCreateClip]: { request: undefined; response: CreateClipResponse };
   [Channels.TwitchModerationShoutout]: {
     request: { target: string };
     response: { ok: boolean; error?: string };
@@ -1072,6 +1077,15 @@ export interface ShowOverlayClipRequest {
   size?: number;
   showCaption?: boolean;
   caption?: string;
+}
+
+export interface CreateClipResponse {
+  ok: boolean;
+  id?: string | null;
+  url?: string | null;
+  title?: string | null;
+  /** MISSING_SCOPE (reconnect Twitch), CHANNEL_OFFLINE, or a Twitch message. */
+  error?: string | null;
 }
 
 export interface ShowOverlayClipResponse {

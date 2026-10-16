@@ -1,7 +1,7 @@
 // Pure helpers behind the Home dashboard: per-viewer tallies (leaderboards), messages-per-minute, and the
 // event feed. The store (statsStore.ts) owns persistence; everything here is deterministic and unit tested.
 
-export type LeaderboardMetric = 'messages' | 'duelWins' | 'gifts' | 'redemptions';
+export type LeaderboardMetric = 'messages' | 'duelWins' | 'gifts' | 'redemptions' | 'clips';
 export type LeaderboardPeriod = 'stream' | 'allTime';
 
 export interface UserStats {
@@ -12,6 +12,8 @@ export interface UserStats {
   duelLosses: number;
   gifts: number;
   redemptions: number;
+  /** Clips this viewer made with the clip command. Missing on stats saved before it existed. */
+  clips: number;
   /** Channel points spent on redemptions. */
   points: number;
   lastSeen: number;
@@ -27,9 +29,10 @@ export interface StreamTotals {
   gifts: number;
   redemptions: number;
   duels: number;
+  clips?: number;
 }
 
-export type FeedKind = 'follow' | 'raid' | 'gift' | 'redeem' | 'duel' | 'streak';
+export type FeedKind = 'follow' | 'raid' | 'gift' | 'redeem' | 'duel' | 'streak' | 'clip';
 
 export interface FeedEvent {
   id: string;
@@ -71,10 +74,10 @@ export function isIgnoredUser(login: string, broadcasterLogin: string | undefine
 
 export function emptyUser(login: string, name?: string): UserStats {
   const key = userKey(login);
-  return { login: key, name: (name || login).trim().replace(/^@+/, '') || key, messages: 0, duelWins: 0, duelLosses: 0, gifts: 0, redemptions: 0, points: 0, lastSeen: 0 };
+  return { login: key, name: (name || login).trim().replace(/^@+/, '') || key, messages: 0, duelWins: 0, duelLosses: 0, gifts: 0, redemptions: 0, clips: 0, points: 0, lastSeen: 0 };
 }
 
-export type UserPatch = Partial<Pick<UserStats, 'messages' | 'duelWins' | 'duelLosses' | 'gifts' | 'redemptions' | 'points'>>;
+export type UserPatch = Partial<Pick<UserStats, 'messages' | 'duelWins' | 'duelLosses' | 'gifts' | 'redemptions' | 'clips' | 'points'>>;
 
 /** Adds the deltas in `patch` to a viewer's tally, creating the entry when needed. Mutates `users`. */
 export function bumpUser(users: UserStatsMap, login: string, name: string | undefined, patch: UserPatch, now: number): UserStats | null {
@@ -87,6 +90,7 @@ export function bumpUser(users: UserStatsMap, login: string, name: string | unde
   entry.duelLosses += patch.duelLosses ?? 0;
   entry.gifts += patch.gifts ?? 0;
   entry.redemptions += patch.redemptions ?? 0;
+  entry.clips = (entry.clips ?? 0) + (patch.clips ?? 0);
   entry.points += patch.points ?? 0;
   entry.lastSeen = now;
   return entry;
@@ -106,16 +110,16 @@ export function topUsers(
   isIgnored: (login: string) => boolean = () => false,
 ): RankedUser[] {
   const rows = Object.values(users)
-    .filter((u) => !isIgnored(u.login) && u[metric] > 0)
-    .sort((a, b) => b[metric] - a[metric] || b.lastSeen - a.lastSeen || a.login.localeCompare(b.login));
-  return rows.slice(0, Math.max(0, limit)).map((user, i) => ({ rank: i + 1, user, value: user[metric] }));
+    .filter((u) => !isIgnored(u.login) && (u[metric] ?? 0) > 0)
+    .sort((a, b) => (b[metric] ?? 0) - (a[metric] ?? 0) || b.lastSeen - a.lastSeen || a.login.localeCompare(b.login));
+  return rows.slice(0, Math.max(0, limit)).map((user, i) => ({ rank: i + 1, user, value: user[metric] ?? 0 }));
 }
 
 /** Keeps the all-time table bounded: drops the least valuable, least recent viewers once over `max`. */
 export function pruneUsers(users: UserStatsMap, max: number): void {
   const entries = Object.values(users);
   if (entries.length <= max) return;
-  const score = (u: UserStats) => u.messages + u.duelWins * 5 + u.gifts * 10 + u.redemptions * 3;
+  const score = (u: UserStats) => u.messages + u.duelWins * 5 + u.gifts * 10 + u.redemptions * 3 + (u.clips ?? 0) * 3;
   entries.sort((a, b) => score(a) - score(b) || a.lastSeen - b.lastSeen);
   for (const doomed of entries.slice(0, entries.length - max)) delete users[doomed.login];
 }

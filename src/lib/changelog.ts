@@ -19,6 +19,25 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.15',
+    en: {
+      added: [
+        'Clip command: a new sub-action, "Twitch: Create a Clip for the Viewer", clips your live stream when a viewer uses a command like !clip and credits the clip to that viewer. Twitch always files a clip under your own account, so Streamer Hub keeps the count: Home now has a Clips tab on the Leaderboard (Top clippers), and the Live Feed shows who made a clip. A later chat step can post the link with {clip_url} and the viewer\'s total with {clip_count}. Studio > Presets > Clip Command Preset builds it for you; add the !clip trigger and a cooldown.',
+        'Connect Twitch once again after updating so Twitch allows clipping. The clip command tells you if this is still needed.',
+        'GitHub release pages now show the same What\'s New text as the app.',
+      ],
+      fixed: [],
+    },
+    ar: {
+      added: [
+        'أمر المقطع: إجراء فرعي جديد اسمه "تويتش: إنشاء مقطع للمشاهد" يصنع مقطعاً من بثك المباشر عندما يستخدم مشاهد أمراً مثل !clip وينسب المقطع لذلك المشاهد. تويتش يحفظ كل مقطع على حسابك أنت، لذلك يحتفظ Streamer Hub بالعدد: في الرئيسية تبويب جديد "المقاطع" في لوحة المتصدرين (أكثر صنّاع المقاطع)، والأحداث المباشرة تُظهر من صنع مقطعاً. ويمكن لرسالة شات لاحقة نشر الرابط بـ {clip_url} وعدد مقاطع المشاهد بـ {clip_count}. من الاستوديو > القوالب > قالب أمر المقطع يُبنى لك؛ أضف المحفّز !clip ووقت انتظار.',
+        'اربط تويتش مرة أخرى بعد التحديث ليسمح تويتش بإنشاء المقاطع. أمر المقطع يخبرك إن كان ذلك ما زال مطلوباً.',
+        'صفحات الإصدارات على GitHub تعرض الآن نفس نص "ما الجديد" الموجود في التطبيق.',
+      ],
+      fixed: [],
+    },
+  },
+  {
     version: '0.4.14',
     en: {
       added: [

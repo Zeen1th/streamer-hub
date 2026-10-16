@@ -19,6 +19,7 @@ import type {
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 import {
+  DEFAULT_CLIP_FAIL_MESSAGE,
   executeSequence,
   extractCommandArguments,
   isSequenceOnCooldown,
@@ -33,6 +34,7 @@ import { useLogStore } from './logStore';
 import { useVoteStore } from './voteStore';
 import { useSettingsStore } from './settingsStore';
 import { useStatsStore } from './statsStore';
+import { userKey } from '../lib/stats';
 import { isShielded, protectedUserMessage } from '../lib/shield';
 import { shouldFireTimer, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../lib/sequenceTimers';
 import { insertIndexForIf, moveStepBlock, reorderStepBlock } from '../lib/stepGroups';
@@ -266,6 +268,13 @@ export const defaultStepForType = (type: SequenceStepType, options?: Partial<Seq
         imageAnimation: options?.imageAnimation ?? 'bounce',
         imageScale: options?.imageScale ?? 1.0,
         obsImageDestinationPath: options?.obsImageDestinationPath ?? '',
+        ...options,
+      };
+    case 'clip_create':
+      return {
+        id,
+        type: 'clip_create',
+        clipCreateFailMessage: options?.clipCreateFailMessage ?? DEFAULT_CLIP_FAIL_MESSAGE,
         ...options,
       };
     case 'obs_clip':
@@ -996,6 +1005,21 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
             return Boolean(res?.ok);
           } catch {
             return false;
+          }
+        },
+        createClip: async (ctx) => {
+          try {
+            const res = await rpc.invoke(Channels.TwitchCreateClip, undefined);
+            if (!res?.ok) return { ok: false, error: res?.error ?? 'FAILED' };
+            const login = ctx.userLogin || ctx.username;
+            const stats = useStatsStore.getState();
+            // A test run is not a real viewer: show what the count would be but keep it off the leaderboard.
+            const count = ctx.source === 'test'
+              ? (stats.allTime[userKey(login)]?.clips ?? 0) + 1
+              : stats.recordClip({ login, name: ctx.username, url: res.url ?? '' });
+            return { ok: true, url: res.url ?? '', count };
+          } catch (err) {
+            return { ok: false, error: err instanceof Error ? err.message : 'RPC_FAILED' };
           }
         },
         showObsClip: async (step) => {

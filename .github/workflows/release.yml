@@ -35,9 +35,12 @@ jobs:
       - name: Package Windows build
         shell: pwsh
         run: Compress-Archive -Path release/StreamerHub/* -DestinationPath release/StreamerHub-${{ github.ref_name }}-win-x64.zip
+      - name: Release notes from the in-app What's New
+        shell: pwsh
+        run: node scripts/release-notes.mjs '${{ github.ref_name }}' > release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release-notes.md
           files: |
             release/installer/StreamerHub-Setup-${{ github.ref_name }}.exe
             release/StreamerHub-${{ github.ref_name }}-win-x64.zip

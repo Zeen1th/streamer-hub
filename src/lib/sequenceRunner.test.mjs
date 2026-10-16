@@ -962,3 +962,66 @@ test('executeSequence clip step takes the channel named after the command and ne
   assert.deepEqual(channels, ['SomeStreamer']);
   assert.deepEqual(chats, ['done', 'done']);
 });
+
+test('clip_create credits the viewer and gives later steps {clip_url} and {clip_count}', async () => {
+  const seq = {
+    id: 'seq-clipcmd',
+    enabled: true,
+    name: 'Clip command',
+    triggerType: 'chat',
+    cooldownSeconds: 0,
+    steps: [
+      { id: 's1', type: 'clip_create' },
+      { id: 's2', type: 'chat', chatMessage: '@{username} clip #{clip_count}: {clip_url}' },
+    ],
+  };
+  const chats = [];
+  const askedFor = [];
+  const result = await executeSequence(
+    seq,
+    { username: 'Viewer1', userLogin: 'viewer1', source: 'chat' },
+    {
+      createClip: async (ctx) => {
+        askedFor.push(ctx.userLogin);
+        return { ok: true, url: 'https://clips.twitch.tv/AbC', count: 3 };
+      },
+      sendChatMessage: async (message) => {
+        chats.push(message);
+        return true;
+      },
+    },
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(askedFor, ['viewer1']);
+  assert.deepEqual(chats, ['@Viewer1 clip #3: https://clips.twitch.tv/AbC']);
+});
+
+test('clip_create that fails tells chat once and stops the sequence', async () => {
+  const seq = {
+    id: 'seq-clipfail',
+    enabled: true,
+    name: 'Clip command',
+    triggerType: 'chat',
+    cooldownSeconds: 0,
+    steps: [
+      { id: 's1', type: 'clip_create', clipCreateFailMessage: 'sorry @{username}, no clip' },
+      { id: 's2', type: 'chat', chatMessage: 'clip: {clip_url}' },
+    ],
+  };
+  const chats = [];
+  const result = await executeSequence(
+    seq,
+    { username: 'Viewer1', source: 'chat' },
+    {
+      createClip: async () => ({ ok: false, error: 'CHANNEL_OFFLINE' }),
+      sendChatMessage: async (message) => {
+        chats.push(message);
+        return true;
+      },
+    },
+  );
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(chats, ['sorry @Viewer1, no clip']);
+});

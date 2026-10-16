@@ -486,3 +486,105 @@ export function ClipStepEditor({ lang, value, onChange }: ClipStepEditorProps) {
     </div>
   );
 }
+
+const CREATE_TEXT = {
+  en: {
+    about: 'Clips the last moments of your live stream when a viewer uses the command. Twitch always credits a clip to your own account, so Streamer Hub credits the viewer: it counts their clips for the Top clippers leaderboard on Home.',
+    tokens: 'Use {clip_url} (the clip link), {clip_count} (how many clips this viewer has made) and {username} in a chat step after this one.',
+    failMessage: 'Chat message when the clip could not be made',
+    failHint: 'The sequence stops after this message. Common reasons: you are not live, or Twitch has not been allowed to clip yet.',
+    test: 'Create a test clip now',
+    testNote: 'This makes a real clip on your channel. It is not counted for any viewer.',
+    working: 'Creating (takes a few seconds)...',
+    made: 'Clip created',
+    MISSING_SCOPE: 'Twitch has not allowed clipping yet. Open Settings > Twitch and connect again once, then try again.',
+    CHANNEL_OFFLINE: 'You need to be live to make a clip.',
+  },
+  ar: {
+    about: 'يصنع مقطعاً من آخر لحظات بثك المباشر عندما يستخدم مشاهد الأمر. تويتش يحسب كل مقطع على حسابك أنت، لذلك Streamer Hub ينسب المقطع للمشاهد ويحسب مقاطعه للوحة أكثر صنّاع المقاطع في الرئيسية.',
+    tokens: 'استخدم {clip_url} (رابط المقطع) و {clip_count} (عدد مقاطع هذا المشاهد) و {username} في رسالة شات بعد هذه الخطوة.',
+    failMessage: 'رسالة الشات عندما يتعذّر إنشاء المقطع',
+    failHint: 'تتوقف السلسلة بعد هذه الرسالة. الأسباب الشائعة: أنت لست في بث مباشر، أو لم يُسمح لتويتش بإنشاء المقاطع بعد.',
+    test: 'أنشئ مقطعاً تجريبياً الآن',
+    testNote: 'هذا يصنع مقطعاً حقيقياً على قناتك، ولا يُحسب لأي مشاهد.',
+    working: 'جارٍ الإنشاء (يستغرق ثوانٍ)...',
+    made: 'تم إنشاء المقطع',
+    MISSING_SCOPE: 'لم يُسمح لتويتش بإنشاء المقاطع بعد. افتح الإعدادات > تويتش واربط حسابك مرة أخرى ثم جرّب من جديد.',
+    CHANNEL_OFFLINE: 'يجب أن تكون في بث مباشر لإنشاء مقطع.',
+  },
+} as const;
+
+interface ClipCreateEditorProps {
+  lang: 'en' | 'ar';
+  failMessage: string;
+  onFailMessageChange: (value: string) => void;
+}
+
+export function ClipCreateEditor({ lang, failMessage, onFailMessageChange }: ClipCreateEditorProps) {
+  const tx = CREATE_TEXT[lang];
+  const [working, setWorking] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
+
+  const runTest = async () => {
+    setWorking(true);
+    setResult(null);
+    try {
+      const res = await rpc.invoke(Channels.TwitchCreateClip, undefined);
+      if (res?.ok) {
+        setResult({ ok: true, text: tx.made, url: res.url ?? undefined });
+      } else {
+        const known = res?.error === 'MISSING_SCOPE' || res?.error === 'CHANNEL_OFFLINE' ? tx[res.error] : undefined;
+        setResult({ ok: false, text: known ?? res?.error ?? 'Failed' });
+      }
+    } catch (err) {
+      setResult({ ok: false, text: err instanceof Error ? err.message : 'Failed' });
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      <div className="rounded-md border border-violet-500/30 bg-violet-500/10 p-3 text-[11.5px] leading-relaxed text-violet-100/90">
+        <p>{tx.about}</p>
+        <p className="mt-1.5 text-violet-200/80">{tx.tokens}</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className={labelClass}>{tx.failMessage}</label>
+        <Input value={failMessage} onChange={(e) => onFailMessageChange(e.target.value)} className="h-9 text-[12.5px]" />
+        <p className="text-[11px] text-muted">{tx.failHint}</p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void runTest()}
+            disabled={working}
+            className="h-9 gap-1.5 text-violet-300 hover:text-violet-200 border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20"
+          >
+            <Clapperboard size={13} className={working ? 'animate-pulse' : ''} />
+            <span>{working ? tx.working : tx.test}</span>
+          </Button>
+          <span className="text-[11px] text-muted">{tx.testNote}</span>
+        </div>
+        {result && (
+          <p className={`text-[11.5px] ${result.ok ? 'text-emerald-300' : 'text-amber-300'}`}>
+            {result.text}
+            {result.url && (
+              <>
+                {' '}
+                <a href={result.url} target="_blank" rel="noreferrer" className="underline" dir="ltr">
+                  {result.url}
+                </a>
+              </>
+            )}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

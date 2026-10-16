@@ -1,6 +1,6 @@
 import { DEFAULT_PROTECTED_MESSAGES } from '../../lib/duelGameManager';
 import { shieldKey } from '../../lib/shield';
-import { replaceSequenceTokens } from '../../lib/sequenceRunner';
+import { DEFAULT_CLIP_FAIL_MESSAGE, replaceSequenceTokens } from '../../lib/sequenceRunner';
 import { attachedGameIndex } from '../../lib/stepGroups';
 import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../../lib/sequenceTimers';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -79,7 +79,7 @@ import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
 import { DurationPicker } from '../ui/DurationPicker';
 import { fieldDir } from '../../lib/textDirection';
-import { ClipStepEditor, clipSettingsFromStep, clipSettingsToStep } from './ClipStepEditor';
+import { ClipCreateEditor, ClipStepEditor, clipSettingsFromStep, clipSettingsToStep } from './ClipStepEditor';
 import type { ClipSettings } from './ClipStepEditor';
 
 export const EDGE_NEURAL_VOICES = [
@@ -647,6 +647,7 @@ const BRANCH_STEP_TYPES: Array<{
   },
   { key: 'counter', type: 'counter', en: 'Change a counter', ar: 'تعديل عدّاد' },
   { key: 'obs_image', type: 'obs_image', en: 'Show picture / GIF', ar: 'عرض صورة أو GIF' },
+  { key: 'clip_create', type: 'clip_create', en: 'Create a clip', ar: 'إنشاء مقطع' },
   { key: 'obs_clip', type: 'obs_clip', en: 'Show raider clip', ar: 'عرض مقطع الرايدر' },
   { key: 'obs_text', type: 'obs_text', en: 'Write OBS text file', ar: 'كتابة ملف نص OBS' },
   { key: 'mic_mute', type: 'mic_mute', en: 'Mute streamer mic', ar: 'كتم مايك الستريمر' },
@@ -929,6 +930,8 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
     'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none'
   >(step.imageAnimation ?? 'bounce');
   const [imageScale, setImageScale] = useState(step.imageScale ?? 1.0);
+  // Create Clip state
+  const [clipFailMessage, setClipFailMessage] = useState(step.clipCreateFailMessage ?? DEFAULT_CLIP_FAIL_MESSAGE);
   // OBS Clip state
   const [clip, setClip] = useState<ClipSettings>(() => clipSettingsFromStep(step));
   const [isPreviewingImage, setIsPreviewingImage] = useState(false);
@@ -1177,6 +1180,9 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
           imageScale,
         });
         break;
+      case 'clip_create':
+        saveWithShield({ clipCreateFailMessage: clipFailMessage.trim() });
+        break;
       case 'obs_clip':
         saveWithShield(clipSettingsToStep(clip));
         break;
@@ -1278,6 +1284,8 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   ? (lang === 'ar' ? 'OBS > إخراج ملف نصي' : 'OBS > Text File Output')
                   : step.type === 'obs_image'
                   ? (lang === 'ar' ? 'OBS > عرض صورة أو GIF' : 'OBS > Display Picture or GIF')
+                  : step.type === 'clip_create'
+                  ? (lang === 'ar' ? 'تويتش > إنشاء مقطع للمشاهد' : 'Twitch > Create a Clip for the Viewer')
                   : step.type === 'obs_clip'
                   ? (lang === 'ar' ? 'OBS > عرض مقطع من قناة الرايدر' : 'OBS > Show a Clip from the Raider')
                   : step.type === 'duel'
@@ -2223,6 +2231,11 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                 </Button>
               </div>
             </div>
+          )}
+
+          {/* CREATE CLIP */}
+          {step.type === 'clip_create' && (
+            <ClipCreateEditor lang={lang} failMessage={clipFailMessage} onFailMessageChange={setClipFailMessage} />
           )}
 
           {/* OBS CLIP */}
@@ -3418,6 +3431,24 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     });
   };
 
+  const handleAppendClipPreset = () => {
+    update(sequence.id, {
+      steps: [
+        ...sequence.steps,
+        {
+          id: crypto.randomUUID(),
+          type: 'clip_create',
+          clipCreateFailMessage: DEFAULT_CLIP_FAIL_MESSAGE,
+        },
+        {
+          id: crypto.randomUUID(),
+          type: 'chat',
+          chatMessage: '🎬 @{username} clipped that! Clip #{clip_count}: {clip_url}',
+        },
+      ],
+    });
+  };
+
   const handleAppendSmartTimeoutPreset = () => {
     update(sequence.id, {
       steps: [
@@ -3513,6 +3544,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
         const fileName = st.imagePath ? st.imagePath.split(/[/\\]/).pop() : 'image.png';
         return `${lang === 'ar' ? 'صورة OBS: عرض' : 'OBS Image: Show'} "${fileName}" (${st.imageDurationSeconds ?? 5}s, ${st.imagePosition ?? 'center'})`;
       }
+      case 'clip_create':
+        return lang === 'ar' ? 'إنشاء مقطع للمشاهد الذي استخدم الأمر' : 'Create a clip for the viewer who used the command';
       case 'obs_clip':
         return `${lang === 'ar' ? 'مقطع OBS: من' : 'OBS Clip: from'} ${st.clipChannel || '{target}'} (${st.clipMaxSeconds ?? 30}s max, ${st.clipPosition ?? 'center'})`;
       case 'duel': {
@@ -3659,6 +3692,14 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       desc: lang === 'ar' ? 'عرض صور ميمز أو GIFs أو تنبيهات على بث OBS عبر الأوفرلاي' : 'Show memes, GIFs, or alert pictures on OBS screen via overlay',
       icon: ImageIcon,
       color: 'text-pink-400',
+    },
+    {
+      id: 'clip_create',
+      type: 'clip_create' as SequenceStepType,
+      title: lang === 'ar' ? 'تويتش: إنشاء مقطع للمشاهد' : 'Twitch: Create a Clip for the Viewer',
+      desc: lang === 'ar' ? 'يصنع مقطعاً من البث المباشر وينسبه لمن استخدم الأمر لتتبع أكثر صنّاع المقاطع' : 'Clips the live stream and credits it to the viewer who used the command, for a Top clippers leaderboard',
+      icon: Clapperboard,
+      color: 'text-violet-400',
     },
     {
       id: 'obs_clip',
@@ -3857,6 +3898,20 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   <div>
                     <div className="font-medium text-white">{t(lang, 'sequence.presetRaidWelcome')}</div>
                     <div className="text-[10px] text-muted">{t(lang, 'sequence.presetRaidWelcomeDesc')}</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-start text-[12px] hover:bg-white/[0.06] transition-colors"
+                  onClick={() => {
+                    handleAppendClipPreset();
+                    setShowPresetsMenu(false);
+                  }}
+                >
+                  <Clapperboard size={14} className="text-violet-400 shrink-0" />
+                  <div>
+                    <div className="font-medium text-white">{t(lang, 'sequence.presetClip')}</div>
+                    <div className="text-[10px] text-muted">{t(lang, 'sequence.presetClipDesc')}</div>
                   </div>
                 </button>
                 <button
@@ -4737,6 +4792,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                       </button>
                       <button
                         type="button"
+                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-violet-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'clip_create');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <Clapperboard size={13} />
+                        <span>{t(lang, 'sequence.stepClipCreate')}</span>
+                      </button>
+                      <button
+                        type="button"
                         className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-fuchsia-400 transition-colors"
                         onClick={() => {
                           const ns = addStep(sequence.id, 'obs_clip');
@@ -4968,6 +5035,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                 <FileText size={13} className="text-amber-400 shrink-0" />
                               ) : st.type === 'obs_image' ? (
                                 <ImageIcon size={13} className="text-pink-400 shrink-0" />
+                              ) : st.type === 'clip_create' ? (
+                                <Clapperboard size={13} className="text-violet-400 shrink-0" />
                               ) : st.type === 'obs_clip' ? (
                                 <Clapperboard size={13} className="text-fuchsia-400 shrink-0" />
                               ) : st.type === 'duel' ? (
@@ -5360,6 +5429,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               >
                 <ImageIcon size={14} />
                 <span>{t(lang, 'sequence.stepObsImage')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-violet-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'clip_create');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <Clapperboard size={14} />
+                <span>{t(lang, 'sequence.stepClipCreate')}</span>
               </button>
               <button
                 type="button"

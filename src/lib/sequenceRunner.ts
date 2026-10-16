@@ -13,9 +13,15 @@ export interface SequenceExecutionContext {
   viewers?: number;
   streak?: number;
   broadcasterName?: string;
+  /** Set by a Create Clip step for the steps after it ({clip_url}, {clip_count}). */
+  clipUrl?: string;
+  clipCount?: number;
   /** Ids of the sequences that are calling this one (innermost last). Guards against loops. */
   callStack?: string[];
 }
+
+/** Chat reply when a Create Clip step fails and the sequence stops. */
+export const DEFAULT_CLIP_FAIL_MESSAGE = '@{username} could not clip that right now. Is the stream live?';
 
 /** A sequence may call another, which may call another... but no deeper than this. */
 export const MAX_SEQUENCE_CALL_DEPTH = 5;
@@ -42,6 +48,8 @@ export interface SequenceExecutionSinks {
   ) => Promise<boolean>;
   writeObsText?: (filePath: string, content: string) => Promise<boolean>;
   showObsImage?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<boolean>;
+  /** Makes a clip of the live channel and credits it to the viewer in `ctx`. `count` is that viewer's total clips. */
+  createClip?: (ctx: SequenceExecutionContext) => Promise<{ ok: boolean; url?: string; count?: number; error?: string }>;
   /** Plays a clip from `step.clipChannel` (tokens already resolved). `ok: false` (no clips, unknown channel, Twitch down) is logged and the sequence continues. */
   showObsClip?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<{ ok: boolean; durationSeconds?: number; error?: string }>;
   executeDuel?: (
@@ -111,6 +119,8 @@ export function replaceSequenceTokens(template: string, ctx: SequenceExecutionCo
     .replace(/\{raider\}/gi, raider)
     .replace(/\{viewers\}/gi, viewers)
     .replace(/\{streak\}/gi, streak)
+    .replace(/\{clip_url\}/gi, ctx.clipUrl ?? '')
+    .replace(/\{clip_count\}/gi, String(ctx.clipCount ?? 0))
     .replace(/\{streamer\}/gi, streamer)
     .replace(/\{broadcaster\}/gi, streamer);
 }
@@ -520,10 +530,29 @@ export async function executeSequence(
           break;
         }
 
+        case 'clip_create': {
+          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Create a clip for ${ctx.username}`);
+          if (!sinks.createClip) break;
+          const made = await sinks.createClip(ctx);
+          if (!made.ok) {
+            const why = made.error === 'MISSING_SCOPE'
+              ? 'Twitch has not allowed clipping yet. Reconnect Twitch once in Settings.'
+              : made.error === 'CHANNEL_OFFLINE'
+                ? 'the channel is offline'
+                : made.error ?? 'unknown';
+            log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: Clip not created (${why})`);
+            const failMessage = replaceSequenceTokens(step.clipCreateFailMessage ?? DEFAULT_CLIP_FAIL_MESSAGE, ctx);
+            if (failMessage.trim() && sinks.sendChatMessage) await sinks.sendChatMessage(failMessage);
+            return { ok: false, executedSteps: executedCount, error: `Clip not created: ${why}` };
+          }
+          ctx = { ...ctx, clipUrl: made.url ?? '', clipCount: made.count ?? 1 };
+          break;
+        }
+
         case 'obs_clip': {
           const channel = extractTargetUsername(replaceSequenceTokens(step.clipChannel ?? '{target}', ctx));
           if (!channel) {
-            log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Show clip skipped, no channel to take it from`);
+            log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Show clip skipped, no channel to take it from (channel field "${step.clipChannel ?? '{target}'}", source ${ctx.source}, input "${ctx.userInput ?? ''}", raider "${ctx.raider ?? ''}")`);
             break;
           }
           log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Show clip from "${channel}"`);

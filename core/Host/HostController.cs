@@ -1178,6 +1178,14 @@ public sealed class HostController : IDisposable
             var result = await _twitch.SendShoutoutAsync(target, ct).ConfigureAwait(false);
             return new { ok = result.Ok, error = result.Error };
         });
+        _dispatcher.Register(Channels.TwitchCreateClip, async (_, ct) =>
+        {
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, id = (string?)null, url = (string?)null, title = (string?)null, error = (string?)"TWITCH IS NOT CONNECTED" };
+            var made = await _twitch.CreateClipAsync(ct).ConfigureAwait(false);
+            if (made.Ok) Log("obs-ok", $"Clip created: {made.Url}");
+            else Log("obs-error", $"Clip failed: {made.Error}");
+            return new { ok = made.Ok, id = made.Id, url = made.Url, title = made.Title, error = made.Error };
+        });
         _dispatcher.Register(Channels.ChatOverlayTestMessage, async (payload, ct) =>
         {
             var message = Json.Deserialize<ChatMessage>(payload ?? default);

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Gem, Gift, Heart, Radio, Rocket, Swords, Flame } from 'lucide-react';
+import { Clapperboard, Gem, Gift, Heart, Radio, Rocket, Swords, Flame } from 'lucide-react';
 import { useStatsStore } from '../../../../store/statsStore';
 import { formatAgo, type FeedEvent, type FeedKind } from '../../../../lib/stats';
 import { useNow } from '../../../../lib/useNow';
@@ -14,6 +14,7 @@ const KIND: Record<FeedKind, { icon: ReactNode; tone: string }> = {
   redeem: { icon: <Gem size={13} />, tone: 'text-cyan-300 bg-cyan-500/15' },
   duel: { icon: <Swords size={13} />, tone: 'text-orange-300 bg-orange-500/15' },
   streak: { icon: <Flame size={13} />, tone: 'text-emerald-300 bg-emerald-500/15' },
+  clip: { icon: <Clapperboard size={13} />, tone: 'text-violet-300 bg-violet-500/15' },
 };
 
 function describe(event: FeedEvent, h: HomeText): string {
@@ -30,6 +31,8 @@ function describe(event: FeedEvent, h: HomeText): string {
       return h('feed.duel', { x: event.detail });
     case 'streak':
       return h('feed.streak', { n: event.detail });
+    case 'clip':
+      return h('feed.clip');
   }
 }
 

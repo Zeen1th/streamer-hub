@@ -18,7 +18,7 @@ import { Avatar } from '../Avatar';
 import { useHomeText } from '../homeText';
 import { WidgetCard, type WidgetProps } from '../WidgetCard';
 
-const METRICS: LeaderboardMetric[] = ['messages', 'duelWins', 'gifts', 'redemptions'];
+const METRICS: LeaderboardMetric[] = ['messages', 'duelWins', 'gifts', 'redemptions', 'clips'];
 
 const MEDAL = ['bg-amber-400/90 text-amber-950', 'bg-slate-300/90 text-slate-900', 'bg-orange-400/80 text-orange-950'];
 const BAR = ['bg-amber-400/70', 'bg-slate-300/60', 'bg-orange-400/60'];

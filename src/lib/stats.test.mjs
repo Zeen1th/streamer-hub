@@ -100,3 +100,17 @@ test('leaderboard chat line lists the top five with medals and stays short', () 
   assert.ok(!line.includes('User6'));
   assert.ok(line.length <= 480);
 });
+
+test('clips are counted per viewer, rank the Top clippers board, and old saved stats without clips still work', () => {
+  const users = {
+    // saved by an older version: no clips field at all
+    legacy: { login: 'legacy', name: 'Legacy', messages: 4, duelWins: 0, duelLosses: 0, gifts: 0, redemptions: 0, points: 0, lastSeen: 1 },
+  };
+  bumpUser(users, 'fan', 'Fan', { clips: 1 }, 10);
+  bumpUser(users, 'fan', 'Fan', { clips: 1 }, 20);
+  bumpUser(users, 'legacy', 'Legacy', { clips: 1 }, 30);
+  assert.equal(users.fan.clips, 2);
+  assert.equal(users.legacy.clips, 1);
+  assert.deepEqual(topUsers(users, 'clips', 5).map((r) => [r.user.login, r.value]), [['fan', 2], ['legacy', 1]]);
+  assert.deepEqual(topUsers({ legacy: users.legacy, other: { ...users.legacy, login: 'other', clips: undefined } }, 'clips', 5).map((r) => r.user.login), ['legacy']);
+});
