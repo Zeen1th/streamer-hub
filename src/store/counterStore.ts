@@ -102,7 +102,7 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
       } catch {
       }
 
-      const title = renderTemplate(counter.titleTemplate, counter.count, null, currentTitle).trim();
+      const title = renderTemplate(counter.titleTemplate, counter.count, null, currentTitle, counter.name).trim();
       if (!title) return;
       const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
       if (!result.ok) log('system', counter.name + ' · ' + (result.error ?? 'TITLE UPDATE FAILED'));
@@ -138,7 +138,7 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
       return;
     }
     set((s) => ({ obsStatus: { ...s.obsStatus, [id]: { state: 'writing', message: null, at: null } } }));
-    const content = renderTemplate(counter.obs.template, counter.count, get().lastTriggerUser[id] ?? null);
+    const content = renderTemplate(counter.obs.template, counter.count, get().lastTriggerUser[id] ?? null, null, counter.name);
     rpc
       .invoke(Channels.ObsWrite, { filePath: counter.obs.filePath, content })
       .then((result) => {
@@ -437,7 +437,7 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
             if (titleRes.ok && titleRes.title) currentTitle = titleRes.title;
           } catch {
           }
-          const title = renderTemplate(template, counter.count, null, currentTitle).trim();
+          const title = renderTemplate(template, counter.count, null, currentTitle, counter.name).trim();
           if (!title) return;
           const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
           if (!result.ok) throw new Error(result.error ?? 'TITLE UPDATE FAILED');

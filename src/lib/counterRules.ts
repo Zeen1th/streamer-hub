@@ -60,19 +60,36 @@ export function cooldownRemainingSeconds(
   return remaining > 0 ? remaining : null;
 }
 
-export function renderTemplate(template: string, count: number, username: string | null, currentTitle?: string | null): string {
+/**
+ * Fills a counter's text. {count} and {counter} are both the number, {name} is the counter's name,
+ * {username} the last person who changed it; {title} / {current_title} the streamer's own title (titles only).
+ */
+export function renderTemplate(
+  template: string,
+  count: number,
+  username: string | null,
+  currentTitle?: string | null,
+  counterName?: string | null,
+): string {
   const base = currentTitle ? extractBaseTitle(currentTitle, template) : '';
   return template
     .replaceAll('{count}', String(count))
+    .replaceAll('{counter}', String(count))
+    .replaceAll('{name}', counterName ?? '')
     .replaceAll('{username}', username ?? '')
     .replaceAll('{current_title}', base)
     .replaceAll('{title}', base);
 }
 
+/** {count} or its alias {counter}. */
+const COUNT_TOKEN = /\{count(?:er)?\}/;
+
 function toTokenPattern(str: string): string {
   return str
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     .replace(/\\\{count\\\}/g, '\\d+')
+    .replace(/\\\{counter\\\}/g, '\\d+')
+    .replace(/\\\{name\\\}/g, '.+?')
     .replace(/\\\{username\\\}/g, '\\S+')
     .replace(/\s+/g, '\\s*');
 }
@@ -176,12 +193,12 @@ export function hasCounterPattern(rawTitle: string, template?: string | null): b
   if (titleIdx !== -1) {
     const rawPrefix = normalized.slice(0, titleIdx);
     const rawSuffix = normalized.slice(titleIdx + '{title}'.length);
-    if (rawSuffix.includes('{count}')) {
+    if (COUNT_TOKEN.test(rawSuffix)) {
       counterPart = rawSuffix;
-    } else if (rawPrefix.includes('{count}')) {
+    } else if (COUNT_TOKEN.test(rawPrefix)) {
       counterPart = rawPrefix;
     }
-  } else if (normalized.includes('{count}')) {
+  } else if (COUNT_TOKEN.test(normalized)) {
     counterPart = normalized;
   }
 

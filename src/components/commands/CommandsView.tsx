@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronRight, Redo2, Undo2, Copy, FolderOpen, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Trash2, TriangleAlert, Tv, X } from 'lucide-react';
+import { Check, ChevronRight, Redo2, Undo2, Copy, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Trash2, TriangleAlert, Tv, X } from 'lucide-react';
 import type { CounterAction, PermissionLevel } from '../../rpc/contracts';
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
@@ -30,7 +30,6 @@ import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Switch } from '../ui/Switch';
 import { DurationPicker } from '../ui/DurationPicker';
-import { FeatureKeybindEditor } from '../tools/settings/FeatureKeybindEditor';
 import { CounterActionsGridView } from './CounterActionsGridView';
 import { AiReplyStudioView } from './AiReplyStudioView';
 import { ReplyStudioView } from './ReplyStudioView';
@@ -1313,40 +1312,15 @@ function CounterInspector({
   const resetManual = useCounterStore((s) => s.resetManual);
   const updateObs = useCounterStore((s) => s.updateObs);
   const updateTitle = useCounterStore((s) => s.updateTitle);
-  const applyTitle = useCounterStore((s) => s.applyTitle);
-  const detachTitle = useCounterStore((s) => s.detachTitle);
   const sync = useCounterStore((s) => s.configSync);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
   const [currentTitle, setCurrentTitle] = useState<string | null>(null);
-  const [applyStatus, setApplyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!counter?.titleEnabled) return;
     rpc.invoke(Channels.TwitchGetTitle).then((result) => setCurrentTitle(result.title ?? null)).catch(() => undefined);
   }, [counter?.id, counter?.titleEnabled]);
-
-  const handleApplyTitle = async () => {
-    if (!counter) return;
-    setApplyStatus(lang === 'ar' ? 'جارٍ التطبيق...' : 'Applying...');
-    const ok = await applyTitle(counter.id);
-    setApplyStatus(ok ? (lang === 'ar' ? 'تم تطبيق العنوان' : 'Title applied') : (lang === 'ar' ? 'تعذر تطبيق العنوان' : 'Could not apply title'));
-    if (ok) {
-      rpc.invoke(Channels.TwitchGetTitle).then((res) => setCurrentTitle(res.title ?? null)).catch(() => undefined);
-      setTimeout(() => setApplyStatus(null), 3000);
-    }
-  };
-
-  const handleDetachTitle = async () => {
-    if (!counter) return;
-    setApplyStatus(lang === 'ar' ? 'جارٍ الإزالة...' : 'Detaching...');
-    const ok = await detachTitle(counter.id);
-    setApplyStatus(ok ? t(lang, 'workspace.detachedTitle') : (lang === 'ar' ? 'تعذر إزالة العداد' : 'Failed to detach'));
-    if (ok) {
-      rpc.invoke(Channels.TwitchGetTitle).then((res) => setCurrentTitle(res.title ?? null)).catch(() => undefined);
-      setTimeout(() => setApplyStatus(null), 3000);
-    }
-  };
 
   if (!counter) return null;
   const primaryCommand = counter.commands.increase.commandName;
@@ -1378,7 +1352,7 @@ function CounterInspector({
           <div className="flex items-center justify-between">
             <div className="ui-label">{t(lang, 'workspace.counterActions')}</div>
             <span className="rounded-[3px] border border-indigo-500/30 bg-indigo-500/15 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-[#a5b4fc]">
-              3 Actions
+              {t(lang, 'workspace.actionsPill')}
             </span>
           </div>
           <Button
@@ -1463,85 +1437,15 @@ function CounterInspector({
           />
         </div>
 
-        <MoreSettings label={t(lang, 'workspace.moreSettings')}>
-          {counter.obs.enabled && (
-            <div className="space-y-1.5">
-              <div className="ui-label">{t(lang, 'workspace.obsTextFile')}</div>
-              <div className="flex gap-1">
-                <Input
-                  dir="ltr"
-                  className="font-mono text-[10px]"
-                  value={counter.obs.filePath}
-                  onChange={(event) => updateObs(counter.id, { filePath: event.target.value })}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  aria-label={t(lang, 'workspace.browse')}
-                  onClick={async () => {
-                    const result = await rpc.invoke(Channels.DialogSaveFile, {
-                      defaultName: `${counter.name.toLowerCase().replace(/\s+/g, '-')}.txt`,
-                    });
-                    if (result.path) updateObs(counter.id, { filePath: result.path });
-                  }}
-                >
-                  <FolderOpen size={12} />
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {counter.titleEnabled && (
-            <div className="space-y-1.5">
-              <div className="ui-label">{t(lang, 'workspace.streamTitle')}</div>
-              <div className="flex gap-1">
-                <Input
-                  dir="auto"
-                  className="flex-1 font-mono text-[10px]"
-                  value={counter.titleTemplate ?? ''}
-                  placeholder={`{title} | ${counter.name}: {count}`}
-                  onChange={(event) => updateTitle(counter.id, { titleTemplate: event.target.value })}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleApplyTitle}
-                  disabled={!counter.titleTemplate?.trim()}
-                  title={t(lang, 'workspace.applyTitle')}
-                >
-                  {t(lang, 'workspace.applyTitle')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleDetachTitle}
-                  title={t(lang, 'workspace.detachTitle')}
-                >
-                  {t(lang, 'workspace.detachTitle')}
-                </Button>
-              </div>
-              {applyStatus && <span className="block font-mono text-[10px] text-accent-text">{applyStatus}</span>}
-              {currentTitle && (
-                <div className="flex items-center justify-between font-mono text-[10px] text-muted">
-                  <span className="truncate">
-                    {t(lang, 'workspace.liveTwitchTitle')}: <strong className="text-ink">{currentTitle}</strong>
-                  </span>
-                </div>
-              )}
-              {!counter.titleTemplate?.includes('{title}') && !counter.titleTemplate?.includes('{current_title}') && (
-                <span className="block font-sans text-[10px] text-muted">
-                  {t(lang, 'workspace.titlePlaceholderHint')}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Global Keybinds */}
-          <div className="space-y-1.5">
-            <div className="ui-label">{t(lang, 'workspace.keybind')}</div>
-            <FeatureKeybindEditor lang={lang} targetType="counter" targetId={counter.id} />
-          </div>
-        </MoreSettings>
+        <button
+          type="button"
+          onClick={() => onConfigureActions?.(counter.id)}
+          className="w-full rounded-[4px] border border-dashed border-[#3d4856] px-3 py-2 text-start font-sans text-[11px] text-muted hover:border-accent hover:text-ink"
+        >
+          {lang === 'ar'
+            ? 'الملف والنص والعنوان واختصار لوحة المفاتيح تُضبط داخل صفحة العدّاد ←'
+            : 'The file, its text, the title and the keyboard shortcut are set inside the counter page →'}
+        </button>
       </div>
 
       <InspectorFooter

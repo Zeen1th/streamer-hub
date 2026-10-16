@@ -19,6 +19,23 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.22',
+    en: {
+      added: [
+        'A counter\'s settings are now all inside the counter. Open a counter and a new "Writes to" section holds the OBS text file, the Twitch stream title and the keyboard shortcut, instead of a hidden "More settings" in the side panel.',
+        'You can now choose exactly what the counter writes to its OBS text file. Type your own text, for example "The deaths counter are: {counter}", with clickable pieces ({count} or {counter} for the number, {name} for the counter\'s name, {username} for the last person who changed it), ready-made examples, and a live preview of what will be written. A new line in the box is a new line in the file. The stream title text accepts the same pieces. Counters you already have keep their current text.',
+      ],
+      fixed: [],
+    },
+    ar: {
+      added: [
+        'أصبحت كل إعدادات العدّاد داخل العدّاد نفسه. افتح أي عدّاد وستجد قسماً جديداً "يكتب إلى" يضم الملف النصي لـ OBS وعنوان البث على تويتش واختصار لوحة المفاتيح، بدل "المزيد من الإعدادات" المخفية في اللوحة الجانبية.',
+        'يمكنك الآن اختيار ما يكتبه العدّاد في ملفه النصي بالضبط. اكتب نصك الخاص، مثلاً "عدّاد الوفيات هو: {counter}"، مع أجزاء قابلة للضغط ({count} أو {counter} للرقم، و {name} لاسم العدّاد، و {username} لآخر شخص غيّره)، وأمثلة جاهزة، ومعاينة مباشرة لما سيُكتب. السطر الجديد في الصندوق سطر جديد في الملف. ونص عنوان البث يقبل الأجزاء نفسها. العدّادات الموجودة عندك تحتفظ بنصها الحالي.',
+      ],
+      fixed: [],
+    },
+  },
+  {
     version: '0.4.21',
     en: {
       added: [

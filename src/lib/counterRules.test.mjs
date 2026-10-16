@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hasCounterPattern, MAX_COUNTER_VALUE, parseCommand, parseCounterValue, renderTemplate, stripCounterFromTitle } from './counterRules.ts';
+import { extractBaseTitle, hasCounterPattern, MAX_COUNTER_VALUE, parseCommand, parseCounterValue, renderTemplate, stripCounterFromTitle } from './counterRules.ts';
 
 test('parses Arabic counter commands', () => {
   assert.deepEqual(parseCommand('!زد', 'زد'), { argument: '' });
@@ -110,4 +110,18 @@ test('parseCounterValue refuses anything that is not a whole, non-negative, sane
   for (const bad of ['', '   ', 'abc', '-5', '+5', '5.5', '1e3', '6000x', 'x6000', String(MAX_COUNTER_VALUE + 1), '99999999999999999999']) {
     assert.equal(parseCounterValue(bad), null, `"${bad}" is not a value`);
   }
+});
+
+test('counter text can use {count}, {counter} (the number), {name} and {username}', () => {
+  assert.equal(renderTemplate('{counter}', 6000, null), '6000');
+  assert.equal(renderTemplate('The deaths counter are: {counter}', 12, null), 'The deaths counter are: 12');
+  assert.equal(renderTemplate('{name}: {count}', 7, null, null, 'Deaths'), 'Deaths: 7');
+  assert.equal(renderTemplate('{count} by {username}', 3, 'Basil'), '3 by Basil');
+  assert.equal(renderTemplate('Line one\n{count}', 3, null), 'Line one\n3');
+});
+
+test('a title written with {counter} or {name} is recognised, so the streamer title is not compounded', () => {
+  assert.equal(extractBaseTitle('Chill stream | Deaths: 7', '{title} | Deaths: {counter}'), 'Chill stream');
+  assert.equal(extractBaseTitle('Chill stream | Deaths: 12', '{title} | {name}: {count}'), 'Chill stream');
+  assert.equal(hasCounterPattern('Chill stream | Deaths: 7', '{title} | Deaths: {counter}'), true);
 });

@@ -9,6 +9,7 @@ import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
 import { Field } from '../ui/Field';
+import { CounterOutputsSection } from './CounterOutputsSection';
 
 interface CounterActionsGridViewProps {
   counter: Counter;
@@ -386,6 +387,9 @@ export function CounterActionsGridView({
           ))}
           <SetCommandCard counter={counter} lang={lang} />
         </div>
+
+        {/* Where this counter writes its value, and exactly what it writes */}
+        <CounterOutputsSection counter={counter} lang={lang} />
 
         {/* Bottom Helper Info */}
         <div className="mt-6 rounded-lg border border-rule bg-surface-3 p-4 text-[12px] text-muted shadow-sm">
