@@ -346,6 +346,7 @@ export function CommandsView() {
     if (!id) return;
     store.updateName(id, `${source.name} copy`);
     (['increase', 'decrease', 'reset'] as CounterAction[]).forEach((action) => store.updateCommand(id, action, source.commands[action]));
+    if (source.commands.set) store.updateSetCommand(id, source.commands.set);
     store.updateObs(id, source.obs);
     store.updateTitle(id, { titleEnabled: source.titleEnabled, titleTemplate: source.titleTemplate });
     setSelected([`counter:${id}`]);
@@ -898,6 +899,7 @@ function CommandContextMenu({
       if (!id) return;
       store.updateName(id, `${source.name} copy`);
       (['increase', 'decrease', 'reset'] as CounterAction[]).forEach((action) => store.updateCommand(id, action, source.commands[action]));
+      if (source.commands.set) store.updateSetCommand(id, source.commands.set);
       store.updateObs(id, source.obs);
       store.updateTitle(id, { titleEnabled: source.titleEnabled, titleTemplate: source.titleTemplate });
       setSelected([`counter:${id}`]);

@@ -19,6 +19,25 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.21',
+    en: {
+      added: [
+        'Counters can now be set to an exact number from chat. In a counter\'s Actions page there is a new "Set to a number" command: turn it on, pick the word (for example !set), and typing !set 6000 makes the counter exactly 6000. It is off by default and limited to mods, and you can change who may use it and add a cooldown. Only whole numbers work (Arabic digits like ٦٠٠٠ and 6,000 are fine); anything else is ignored.',
+      ],
+      fixed: [
+        'Ctrl+Z (undo) and Ctrl+Y (redo) did nothing while the keyboard was on the Arabic layout. They now work on any layout, and so do the Ctrl + / Ctrl - / Ctrl 0 zoom shortcuts and undo in the chat overlay editor and the reply box.',
+      ],
+    },
+    ar: {
+      added: [
+        'يمكن الآن تعيين العدّاد إلى رقم محدد من الشات. في صفحة إجراءات العدّاد أمر جديد "تعيين إلى رقم": فعّله واختر الكلمة (مثلاً !set)، وكتابة !set 6000 تجعل العدّاد 6000 بالضبط. هو متوقف افتراضياً ومخصص للمشرفين، ويمكنك تغيير من يستطيع استخدامه وإضافة وقت انتظار. تعمل الأرقام الصحيحة فقط (والأرقام العربية مثل ٦٠٠٠ و 6,000 مقبولة)، وأي شيء آخر يُتجاهل.',
+      ],
+      fixed: [
+        'كان Ctrl+Z (تراجع) و Ctrl+Y (إعادة) لا يعملان عندما تكون لوحة المفاتيح على اللغة العربية. الآن يعملان على أي لغة، وكذلك اختصارات التكبير Ctrl + / Ctrl - / Ctrl 0 والتراجع في محرر أوفرلاي الشات وصندوق الرد.',
+      ],
+    },
+  },
+  {
     version: '0.4.20',
     en: {
       added: [

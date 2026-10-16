@@ -50,10 +50,19 @@ export interface CounterCommandConfig {
   cooldownSeconds: number;
 }
 
+/** The optional "set to a number" command (for example `!set 6000`). Off by default; counters saved before it existed have none. */
+export interface CounterSetCommandConfig {
+  enabled: boolean;
+  commandName: string;
+  permission: PermissionLevel;
+  cooldownSeconds: number;
+}
+
 export interface CounterConfig {
   increase: CounterCommandConfig;
   decrease: CounterCommandConfig;
   reset: CounterCommandConfig;
+  set?: CounterSetCommandConfig;
 }
 
 export interface Counter {

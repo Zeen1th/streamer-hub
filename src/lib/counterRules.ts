@@ -19,6 +19,25 @@ export function parseCommand(message: string, commandName: string): { argument: 
   return null;
 }
 
+/** The highest value a counter can be set to by a command. */
+export const MAX_COUNTER_VALUE = 999_999_999;
+
+/**
+ * The number in "!set 6000": the first word of the argument, as whole digits. Arabic-Indic and Persian digits
+ * work too (a bilingual chat types ٦٠٠٠), and thousands separators are ignored (6,000 or ٦٬٠٠٠).
+ * Anything else (no number, negative, decimal, too large) is not a value and returns null.
+ */
+export function parseCounterValue(argument: string): number | null {
+  const first = argument.trim().split(/\s+/)[0] ?? '';
+  const digits = first
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06f0-\u06f9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[,\u060c\u066c_]/g, '');
+  if (!/^\d+$/.test(digits)) return null;
+  const value = Number(digits);
+  return Number.isSafeInteger(value) && value <= MAX_COUNTER_VALUE ? value : null;
+}
+
 export function userRank(message: ChatMessage): number {
   if (message.isBroadcaster) return PERMISSION_RANK.broadcaster;
   if (message.isMod) return PERMISSION_RANK.mod;

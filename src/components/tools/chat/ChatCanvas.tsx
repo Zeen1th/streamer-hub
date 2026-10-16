@@ -24,6 +24,7 @@ import { useSettingsStore } from '../../../store/settingsStore';
 import { t } from '../../../i18n/translations';
 import { Button } from '../../ui/Button';
 import { editSampleMessages } from './sampleMessages';
+import { shortcutKey } from '../../../lib/shortcutKey';
 
 export type CanvasMode = 'preview' | 'edit';
 
@@ -191,7 +192,7 @@ export function ChatCanvas({
       const target = event.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
 
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+      if ((event.ctrlKey || event.metaKey) && shortcutKey(event) === 'z') {
         event.preventDefault();
         if (event.shiftKey) onRedo();
         else onUndo();

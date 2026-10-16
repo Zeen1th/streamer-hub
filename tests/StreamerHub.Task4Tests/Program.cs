@@ -73,6 +73,20 @@ using (var release = JsonDocument.Parse("""
     AssertEqual("show-clip", Kind(ChatOverlayProtocol.ShowClip(new { clipId = "x" })), "show-clip envelope kind");
 }
 
+// Counter "set to a number" command: survives a save and load, and counters saved before it existed load as off
+{
+    var withSet = new Counter { Id = "c1", Name = "Deaths", Commands = new CounterConfig { Set = new CounterSetCommandConfig { Enabled = true, CommandName = "set", Permission = "broadcaster", CooldownSeconds = 5 } } };
+    var reloaded = JsonSerializer.Deserialize<Counter>(JsonSerializer.Serialize(withSet, Json.Options), Json.Options)!;
+    AssertTrue(reloaded.Commands.Set.Enabled, "set command stays enabled after a round trip");
+    AssertEqual("set", reloaded.Commands.Set.CommandName, "set command name after a round trip");
+    AssertEqual("broadcaster", reloaded.Commands.Set.Permission, "set command rank after a round trip");
+    AssertEqual(5, reloaded.Commands.Set.CooldownSeconds, "set command cooldown after a round trip");
+
+    var old = JsonSerializer.Deserialize<Counter>("""{"id":"c0","name":"Old","count":3,"commands":{"increase":{"commandName":"deaths","permission":"everyone","cooldownSeconds":10}}}""", Json.Options)!;
+    AssertTrue(!old.Commands.Set.Enabled, "a counter saved before the set command existed has it off");
+    AssertEqual("mod", old.Commands.Set.Permission, "the set command is mods-only until chosen otherwise");
+}
+
 // Pictures: a dedicated image source shows them alone; the chat overlay shows them only when there is none
 {
     var imageRoot = Path.Combine(Path.GetTempPath(), $"streamer-hub-images-{Guid.NewGuid():N}");

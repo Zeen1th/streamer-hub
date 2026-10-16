@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hasCounterPattern, parseCommand, renderTemplate, stripCounterFromTitle } from './counterRules.ts';
+import { hasCounterPattern, MAX_COUNTER_VALUE, parseCommand, parseCounterValue, renderTemplate, stripCounterFromTitle } from './counterRules.ts';
 
 test('parses Arabic counter commands', () => {
   assert.deepEqual(parseCommand('!زد', 'زد'), { argument: '' });
@@ -92,4 +92,22 @@ test('strips counter cleanly when streamer stops using it', () => {
 
   // When live title doesn't have counter, keeps the title clean
   assert.equal(stripCounterFromTitle('Just Chatting', template), 'Just Chatting');
+});
+
+test('parseCounterValue reads the number after the set command, including Arabic digits and separators', () => {
+  assert.equal(parseCounterValue('6000'), 6000);
+  assert.equal(parseCounterValue('  6000  '), 6000);
+  assert.equal(parseCounterValue('6000 please'), 6000);
+  assert.equal(parseCounterValue('0'), 0);
+  assert.equal(parseCounterValue('6,000'), 6000);
+  assert.equal(parseCounterValue('٦٠٠٠'), 6000);
+  assert.equal(parseCounterValue('٦٬٠٠٠'), 6000);
+  assert.equal(parseCounterValue('۶۰۰۰'), 6000);
+  assert.equal(parseCounterValue(String(MAX_COUNTER_VALUE)), MAX_COUNTER_VALUE);
+});
+
+test('parseCounterValue refuses anything that is not a whole, non-negative, sane number', () => {
+  for (const bad of ['', '   ', 'abc', '-5', '+5', '5.5', '1e3', '6000x', 'x6000', String(MAX_COUNTER_VALUE + 1), '99999999999999999999']) {
+    assert.equal(parseCounterValue(bad), null, `"${bad}" is not a value`);
+  }
 });

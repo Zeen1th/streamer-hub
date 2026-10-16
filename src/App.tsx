@@ -36,6 +36,7 @@ import { useAlertCompressorStore } from './store/alertCompressorStore';
 import { AutoUpdateToast } from './components/updates/AutoUpdateToast';
 import { UndoToast } from './components/undo/UndoToast';
 import { undoManager } from './store/undoStore';
+import { shortcutKey } from './lib/shortcutKey';
 import { useEmoteStore } from './store/emoteStore';
 import { useGiftStore } from './store/giftStore';
 import { WhatsNewDialog } from './components/updates/WhatsNewDialog';
@@ -121,13 +122,14 @@ export default function App() {
   useEffect(() => {
     const handleZoomHotkeys = (e: KeyboardEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
-      if (e.key === '=' || e.key === '+') {
+      const key = shortcutKey(e);
+      if (key === '=' || key === '+') {
         e.preventDefault();
         useSettingsStore.getState().adjustScale(0.05);
-      } else if (e.key === '-' || e.key === '_') {
+      } else if (key === '-' || key === '_') {
         e.preventDefault();
         useSettingsStore.getState().adjustScale(-0.05);
-      } else if (e.key === '0') {
+      } else if (key === '0') {
         e.preventDefault();
         useSettingsStore.getState().resetScale();
       }
@@ -143,7 +145,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      const key = e.key.toLowerCase();
+      // by physical key too, so it works with an Arabic keyboard layout
+      const key = shortcutKey(e);
       const undo = key === 'z' && !e.shiftKey;
       const redo = key === 'y' || (key === 'z' && e.shiftKey);
       if (!undo && !redo) return;

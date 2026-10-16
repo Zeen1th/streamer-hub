@@ -10,11 +10,24 @@ public sealed record CounterCommandConfig
     public int CooldownSeconds { get; init; } = 10;
 }
 
+/// <summary>
+/// The optional "set to a number" command (for example "!set 6000"). Off by default and limited to mods, because it
+/// lets chat jump the counter to any value.
+/// </summary>
+public sealed record CounterSetCommandConfig
+{
+    public bool Enabled { get; init; }
+    public string CommandName { get; init; } = "set";
+    public string Permission { get; init; } = "mod";
+    public int CooldownSeconds { get; init; }
+}
+
 public sealed record CounterConfig
 {
     public CounterCommandConfig Increase { get; init; } = new();
     public CounterCommandConfig Decrease { get; init; } = new() { CommandName = "deathsdown" };
     public CounterCommandConfig Reset { get; init; } = new() { CommandName = "deathsreset", CooldownSeconds = 0 };
+    public CounterSetCommandConfig Set { get; init; } = new();
 }
 
 public sealed record Counter

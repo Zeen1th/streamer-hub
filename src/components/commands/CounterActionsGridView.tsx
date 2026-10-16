@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ArrowLeft, ChevronLeft, FileText, Hash, Minus, Plus, RotateCcw, Tv } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, FileText, Hash, Minus, Plus, RotateCcw, Tv, Target } from 'lucide-react';
 import type { Counter, CounterAction, PermissionLevel } from '../../rpc/contracts';
 import { useCounterStore } from '../../store/counterStore';
 import { t } from '../../i18n/translations';
@@ -7,6 +7,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
+import { Switch } from '../ui/Switch';
 import { Field } from '../ui/Field';
 
 interface CounterActionsGridViewProps {
@@ -176,6 +177,93 @@ function ActionGridCard({
   );
 }
 
+/** The optional "!set 6000" command: the counter jumps to the number typed after it. Off until the streamer turns it on. */
+function SetCommandCard({ counter, lang }: { counter: Counter; lang: 'en' | 'ar' }) {
+  const updateSetCommand = useCounterStore((s) => s.updateSetCommand);
+  const slug = counter.commands.increase.commandName || 'counter';
+  const command = counter.commands.set ?? { enabled: false, commandName: `${slug}set`, permission: 'mod' as PermissionLevel, cooldownSeconds: 0 };
+  const rankOptions: SegmentedOption<PermissionLevel>[] = RANKS.map((value) => ({ value, label: t(lang, `ranks.${value}`) }));
+  const cooldownDisplay = command.cooldownSeconds === 0 ? t(lang, 'workspace.off') : `${command.cooldownSeconds}s`;
+
+  return (
+    <div className={`flex flex-col rounded-lg border bg-surface-3 p-5 text-start shadow-sm transition-all ${command.enabled ? 'border-accent/50' : 'border-rule'}`}>
+      <div className="flex items-start justify-between gap-3 border-b border-rule/50 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex size-9 items-center justify-center rounded-md border border-rule bg-surface-2 text-ink shadow-xs">
+            <Target size={17} className="text-accent-text" />
+          </div>
+          <div>
+            <h3 className="font-sans text-[14px] font-bold tracking-tight text-ink">{t(lang, 'workspace.actionSet')}</h3>
+            <p className="font-sans text-[11px] text-muted">{t(lang, 'workspace.actionSetDesc')}</p>
+          </div>
+        </div>
+        <Switch checked={command.enabled} onChange={(enabled) => updateSetCommand(counter.id, { enabled })} label={t(lang, 'workspace.setEnabled')} />
+      </div>
+
+      {command.enabled ? (
+        <div className="mt-5 flex-1 space-y-5">
+          <Field
+            label={t(lang, 'workspace.triggerWord')}
+            hint={t(lang, 'config.commandHint', { name: command.commandName || '…' })}
+            error={command.commandName === '' ? t(lang, 'config.commandRequired') : undefined}
+          >
+            <div className="relative">
+              <span aria-hidden dir="ltr" className="absolute start-3 top-1/2 -translate-y-1/2 font-mono text-base font-bold text-accent-text">
+                !
+              </span>
+              <Input
+                dir="auto"
+                className="h-9 ps-8 font-sans text-[13px] font-bold uppercase tracking-wide"
+                value={command.commandName}
+                onChange={(event) =>
+                  updateSetCommand(counter.id, { commandName: event.target.value.toLowerCase().replace(/[^\p{L}\p{N}_]/gu, '').slice(0, 20) })
+                }
+                placeholder="set"
+                maxLength={20}
+                spellCheck={false}
+              />
+            </div>
+          </Field>
+
+          <Field label={t(lang, 'workspace.who')}>
+            <SegmentedControl
+              name={`${counter.id}-set-permission`}
+              value={command.permission}
+              options={rankOptions}
+              onChange={(permission) => updateSetCommand(counter.id, { permission })}
+            />
+          </Field>
+
+          <Field label={t(lang, 'workspace.cooldown')}>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between font-mono text-[11px] text-muted">
+                <span className="font-bold text-ink">{cooldownDisplay}</span>
+                <span>300s</span>
+              </div>
+              <Slider
+                ariaLabel={`${t(lang, 'workspace.actionSet')} ${t(lang, 'workspace.cooldown')}`}
+                min={0}
+                max={300}
+                step={5}
+                value={command.cooldownSeconds}
+                onChange={(cooldownSeconds) => updateSetCommand(counter.id, { cooldownSeconds })}
+              />
+            </div>
+          </Field>
+        </div>
+      ) : (
+        <p className="mt-5 flex-1 font-sans text-[12px] text-muted">{t(lang, 'workspace.setOff')}</p>
+      )}
+
+      <div className="mt-5 border-t border-hair pt-3 text-[11px] text-muted">
+        <code dir="ltr" className="font-mono font-bold text-accent-text">!{command.commandName || '…'} 6000</code>
+        <span className="ms-1 font-sans">➔ {counter.name} = 6000</span>
+        {command.enabled && <p className="mt-1.5 font-sans">{t(lang, 'workspace.setExample', { cmd: command.commandName || 'set' })}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function CounterActionsGridView({
   counter,
   onBack,
@@ -291,11 +379,12 @@ export function CounterActionsGridView({
           </div>
         </div>
 
-        {/* 3-Card Actions Grid */}
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+        {/* Actions grid: +1, -1, reset, and the optional set-to-a-number command */}
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 2xl:grid-cols-4">
           {(['increase', 'decrease', 'reset'] as CounterAction[]).map((action) => (
             <ActionGridCard key={action} counter={counter} action={action} lang={lang} />
           ))}
+          <SetCommandCard counter={counter} lang={lang} />
         </div>
 
         {/* Bottom Helper Info */}
@@ -304,7 +393,7 @@ export function CounterActionsGridView({
             💡 {t(lang, 'workspace.counterCommand')}
           </div>
           <p>
-            Whenever viewers or moderators type any of these 3 commands in your Twitch chat, the counter automatically updates its value, writes to your configured OBS text file, and updates your live Twitch stream title.
+            Whenever viewers or moderators type one of these commands in your Twitch chat, the counter automatically updates its value, writes to your configured OBS text file, and updates your live Twitch stream title.
           </p>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { insertReplyToken } from '../../../lib/autoReplyRules';
 import { fieldDir } from '../../../lib/textDirection';
+import { shortcutKey } from '../../../lib/shortcutKey';
 
 interface Token {
   token: string;
@@ -45,7 +46,7 @@ export function ReplyComposer({ value, placeholder, tokens, onChange, onUndo }: 
         placeholder={placeholder}
         onChange={(event) => onChange(event.currentTarget.value)}
         onKeyDown={(event) => {
-          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+          if ((event.ctrlKey || event.metaKey) && shortcutKey(event) === 'z') {
             event.preventDefault();
             onUndo();
           }

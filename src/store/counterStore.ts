@@ -4,6 +4,7 @@ import type {
   Counter,
   CounterAction,
   CounterCommandConfig,
+  CounterSetCommandConfig,
   LogKind,
   ObsOutputConfig,
 } from '../rpc/contracts';
@@ -13,6 +14,7 @@ import {
   cooldownRemainingSeconds,
   hasPermission,
   parseCommand,
+  parseCounterValue,
   renderTemplate,
   stripCounterFromTitle,
 } from '../lib/counterRules';
@@ -34,7 +36,7 @@ interface ObsStatus {
 interface CounterStoreState {
   counters: Counter[];
   selectedId: string | null;
-  lastTriggerAt: Record<string, Partial<Record<CounterAction, number>>>;
+  lastTriggerAt: Record<string, Partial<Record<CounterAction | 'set', number>>>;
   lastTriggerUser: Record<string, string | null>;
   obsStatus: Record<string, ObsStatus>;
   configSync: { state: 'idle' | 'syncing' | 'saved' | 'error'; at: string | null };
@@ -46,6 +48,8 @@ interface CounterStoreState {
   removeCounter(id: string): void;
   updateName(id: string, name: string): void;
   updateCommand(id: string, action: CounterAction, patch: Partial<CounterCommandConfig>): void;
+  /** The optional "!set 6000" command. */
+  updateSetCommand(id: string, patch: Partial<CounterSetCommandConfig>): void;
   updateObs(id: string, patch: Partial<ObsOutputConfig>): void;
   updateTitle(id: string, patch: { titleEnabled?: boolean; titleTemplate?: string }): void;
   applyTitle(id: string): Promise<boolean>;
@@ -58,6 +62,12 @@ interface CounterStoreState {
   handleChatMessage(message: ChatMessage): void;
   testWrite(id: string): void;
   flushPending(): Promise<void>;
+}
+
+/** What a counter's "set" command looks like before the streamer has touched it (older counters have none saved). */
+function defaultSetCommand(counter: Counter): CounterSetCommandConfig {
+  const slug = counter.commands.increase.commandName || 'counter';
+  return { enabled: false, commandName: `${slug}set`, permission: 'mod', cooldownSeconds: 0 };
 }
 
 const COMMAND_LABELS: Record<CounterAction, string> = {
@@ -163,6 +173,33 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
       });
   };
 
+  const applySet = (id: string, username: string | null, argument: string): boolean => {
+    const counter = get().counters.find((c) => c.id === id);
+    const command = counter?.commands.set;
+    if (!counter || !command?.enabled) return false;
+    const now = Date.now();
+    const lastAt = get().lastTriggerAt[counter.id]?.set ?? null;
+    const remaining = cooldownRemainingSeconds(now, lastAt, command.cooldownSeconds);
+    if (remaining !== null) {
+      log('cooldown-denied', counter.name + ' · ' + tr('log.cooldown', { user: username ?? 'STREAMER', s: remaining }), username ?? undefined);
+      return false;
+    }
+    const value = parseCounterValue(argument);
+    if (value === null) {
+      // Not a number: leave the counter alone and do not use up the cooldown.
+      log('system', `${counter.name} · ${tr('log.setNeedsNumber', { cmd: command.commandName })}`.slice(0, 120), username ?? undefined);
+      return false;
+    }
+    set((s) => ({
+      counters: s.counters.map((c) => (c.id === id ? { ...c, count: value } : c)),
+      lastTriggerUser: { ...s.lastTriggerUser, [id]: username },
+      lastTriggerAt: { ...s.lastTriggerAt, [id]: { ...s.lastTriggerAt[id], set: now } },
+    }));
+    log('trigger', `${counter.name} · ${tr('log.triggeredSet', { user: username ?? '', cmd: command.commandName, n: value })}`.slice(0, 120), username ?? undefined, value);
+    syncCount(id, 'chat');
+    return true;
+  };
+
   const applyAction = (
     id: string,
     action: CounterAction,
@@ -261,6 +298,7 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
           increase: { commandName: slug, permission: 'everyone', cooldownSeconds: 10 },
           decrease: { commandName: `${slug}down`, permission: 'everyone', cooldownSeconds: 10 },
           reset: { commandName: `${slug}reset`, permission: 'everyone', cooldownSeconds: 0 },
+          set: { enabled: false, commandName: `${slug}set`, permission: 'mod', cooldownSeconds: 0 },
         },
         obs: { enabled: false, filePath: '', template: `${name}: {count}` },
         titleEnabled: false,
@@ -332,6 +370,16 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
       set((s) => ({
         counters: s.counters.map((c) =>
           c.id === id ? { ...c, commands: { ...c.commands, [action]: { ...c.commands[action], ...patch } } } : c,
+        ),
+      }));
+      const counter = get().counters.find((c) => c.id === id);
+      if (counter) persistCounter(counter);
+    },
+
+    updateSetCommand: (id, patch) => {
+      set((s) => ({
+        counters: s.counters.map((c) =>
+          c.id === id ? { ...c, commands: { ...c.commands, set: { ...defaultSetCommand(c), ...c.commands.set, ...patch } } } : c,
         ),
       }));
       const counter = get().counters.find((c) => c.id === id);
@@ -481,6 +529,22 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
             return;
           }
           applyAction(counter.id, action, 'chat', message.username, parsed.argument);
+          return;
+        }
+
+        const setCommand = counter.commands.set;
+        if (setCommand?.enabled && setCommand.commandName) {
+          const parsed = parseCommand(message.message, setCommand.commandName);
+          if (!parsed) continue;
+          if (!hasPermission(message, setCommand.permission)) {
+            log(
+              'permission-denied',
+              `${counter.name} · ${tr('log.below', { user: message.username, rank: tr(RANK_KEYS[setCommand.permission]) })}`,
+              message.username,
+            );
+            return;
+          }
+          applySet(counter.id, message.username, parsed.argument);
           return;
         }
       }
