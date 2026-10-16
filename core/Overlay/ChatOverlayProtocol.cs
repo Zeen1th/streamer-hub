@@ -15,6 +15,13 @@ public static class ChatOverlayProtocol
     public static string Settings(ChatOverlaySettings settings) =>
         Serialize("settings", settings);
 
+    /// <summary>
+    /// The app version, sent first to every overlay page. A page loaded before an update keeps running its old
+    /// code after the app restarts (the socket just reconnects), so a page whose own build differs reloads itself.
+    /// </summary>
+    public static string AppVersion(string version) =>
+        Serialize("app-version", new { version });
+
     public static string Connected() => Serialize("connected", new { connected = true });
 
     public static string Disconnected() => Serialize("disconnected", new { connected = false });

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { ShowOverlayClipPayload, ShowOverlayImagePayload } from './rpc/contracts';
 import { ClipOverlayScene } from './overlay/ClipOverlayScene';
 import { ImageOverlayScene } from './overlay/ImageOverlayScene';
+import { reloadIfStale } from './lib/overlayVersion';
 
 interface OverlayEnvelope {
   v: number;
@@ -50,6 +51,8 @@ function DedicatedImageOverlayApp() {
           } else if (envelope.kind === 'show-clip' && envelope.payload) {
             setImage(null);
             setClip({ ...(envelope.payload as ShowOverlayClipPayload) });
+          } else if (envelope.kind === 'app-version') {
+            reloadIfStale((envelope.payload as { version?: string } | undefined)?.version);
           } else if (envelope.kind === 'hide-image') {
             setImage(null);
             setClip(null);

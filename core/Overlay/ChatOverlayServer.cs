@@ -602,6 +602,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         _clients[id] = client;
         try
         {
+            await client.SendAsync(ChatOverlayProtocol.AppVersion(AppVersion), cancellationToken).ConfigureAwait(false);
             if (string.Equals(target, "vote-overlay", StringComparison.OrdinalIgnoreCase))
             {
                 PollState poll;
@@ -1101,6 +1102,9 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
 
         return allowed;
     }
+
+    private static readonly string AppVersion =
+        typeof(ChatOverlayServer).Assembly.GetName().Version?.ToString(3) ?? string.Empty;
 
     private static string InjectRecoveryRegistration(string html)
     {

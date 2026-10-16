@@ -1,10 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import pkg from './package.json' with { type: 'json' };
+
+const appVersion = pkg.version;
 
 export default defineConfig({
   base: './',
   plugins: [react(), tailwindcss()],
+  // The overlay pages compare this with the version the app reports (src/lib/overlayVersion.ts).
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   build: {
     target: 'chrome120',
     outDir: 'dist',

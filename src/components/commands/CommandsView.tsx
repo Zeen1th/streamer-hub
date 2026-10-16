@@ -1030,11 +1030,13 @@ function CommandInspector({
     const startX = e.clientX;
     const startWidth = useToolStore.getState().inspectorWidth;
     const container = workspaceRef.current;
+    // In a right-to-left layout the inspector sits on the left, so dragging right makes it wider.
+    const rtl = getComputedStyle(e.currentTarget).direction === 'rtl';
     setIsDragging(true);
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault();
-      const deltaX = startX - moveEvent.clientX;
+      const deltaX = rtl ? moveEvent.clientX - startX : startX - moveEvent.clientX;
       const targetWidth = startWidth + deltaX;
       const containerWidth = container?.getBoundingClientRect().width;
       setInspectorWidth(clampInspectorWidth(targetWidth, containerWidth));
@@ -1058,12 +1060,13 @@ function CommandInspector({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const containerWidth = workspaceRef.current?.getBoundingClientRect().width;
+    const rtl = getComputedStyle(e.currentTarget).direction === 'rtl';
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      setInspectorWidth(clampInspectorWidth(inspectorWidth + 16, containerWidth));
+      setInspectorWidth(clampInspectorWidth(inspectorWidth + (rtl ? -16 : 16), containerWidth));
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
-      setInspectorWidth(clampInspectorWidth(inspectorWidth - 16, containerWidth));
+      setInspectorWidth(clampInspectorWidth(inspectorWidth + (rtl ? 16 : -16), containerWidth));
     } else if (e.key === 'Home') {
       e.preventDefault();
       setInspectorWidth(DEFAULT_INSPECTOR_WIDTH);

@@ -32,7 +32,6 @@ function ChatViewInner({ target }: { target: ChatTarget }) {
   const containerRef = useRef<HTMLElement | null>(null);
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
-  const isRtl = lang === 'ar';
   const [mode, setMode] = useState<CanvasMode>('preview');
   const [selectedPart, setSelectedPart] = useState<ChatOverlayPart | null>(null);
   const { undo, redo, canUndo, canRedo } = useSettingsHistory();
@@ -73,11 +72,13 @@ function ChatViewInner({ target }: { target: ChatTarget }) {
     const startX = e.clientX;
     const startWidth = inspectorWidth;
     const container = containerRef.current;
+    // Follow the real layout direction (the inspector is on the left when it is right-to-left), not the language.
+    const rtl = getComputedStyle(e.currentTarget).direction === 'rtl';
     setIsDragging(true);
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault();
-      const deltaX = isRtl ? (moveEvent.clientX - startX) : (startX - moveEvent.clientX);
+      const deltaX = rtl ? (moveEvent.clientX - startX) : (startX - moveEvent.clientX);
       const targetWidth = startWidth + deltaX;
       const containerWidth = container?.getBoundingClientRect().width;
       const clamped = clampChatInspectorWidth(targetWidth, containerWidth);
@@ -107,12 +108,13 @@ function ChatViewInner({ target }: { target: ChatTarget }) {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const step = 16;
+    const rtl = getComputedStyle(e.currentTarget).direction === 'rtl';
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      updateWidth(isRtl ? inspectorWidth - step : inspectorWidth + step);
+      updateWidth(rtl ? inspectorWidth - step : inspectorWidth + step);
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
-      updateWidth(isRtl ? inspectorWidth + step : inspectorWidth - step);
+      updateWidth(rtl ? inspectorWidth + step : inspectorWidth - step);
     } else if (e.key === 'Home') {
       e.preventDefault();
       updateWidth(DEFAULT_CHAT_INSPECTOR_WIDTH);

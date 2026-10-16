@@ -529,7 +529,7 @@ export function formatBidiText(text: string, isRtl: boolean): string {
   return `\u2067${text}\u2069`;
 }
 
-export const DEFAULT_CHAT_INSPECTOR_WIDTH = 420;
+export const DEFAULT_CHAT_INSPECTOR_WIDTH = 520;
 export const MIN_CHAT_INSPECTOR_WIDTH = 320;
 export const MAX_CHAT_INSPECTOR_WIDTH = 680;
 

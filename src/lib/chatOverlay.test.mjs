@@ -263,12 +263,12 @@ test('wraps RTL text in directional isolates', () => {
 
 // --- Chat Inspector Width --------------------------------------------------
 
-test('clampChatInspectorWidth defaults to 420px for invalid inputs', () => {
-  assert.equal(DEFAULT_CHAT_INSPECTOR_WIDTH, 420);
-  assert.equal(clampChatInspectorWidth(NaN), 420);
-  assert.equal(clampChatInspectorWidth(undefined), 420);
-  assert.equal(clampChatInspectorWidth(null), 420);
-  assert.equal(clampChatInspectorWidth('hello'), 420);
+test('clampChatInspectorWidth defaults to 520px for invalid inputs', () => {
+  assert.equal(DEFAULT_CHAT_INSPECTOR_WIDTH, 520);
+  assert.equal(clampChatInspectorWidth(NaN), 520);
+  assert.equal(clampChatInspectorWidth(undefined), 520);
+  assert.equal(clampChatInspectorWidth(null), 520);
+  assert.equal(clampChatInspectorWidth('hello'), 520);
 });
 
 test('clampChatInspectorWidth clamps values to minimum and maximum bounds', () => {

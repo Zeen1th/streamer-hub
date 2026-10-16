@@ -19,6 +19,27 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.17',
+    en: {
+      added: [
+        'OBS overlays now update themselves. After an app update, OBS used to keep showing the old chat overlay until you refreshed the source by hand, so new fixes did not appear. Now every overlay page (chat, OBS chat dock, votes, pictures and clips) reloads on its own when the app has a new version. One last manual refresh is needed after this update (in OBS: right-click the source > Properties > Refresh cache of current page, or press Reload OBS in the app); from then on it is automatic.',
+        'The settings side panels start wider by default (Commands and Chat). If you already dragged one to your own width, that width is kept.',
+      ],
+      fixed: [
+        'With the app in Arabic, dragging the chat settings panel to the left made it narrower instead of wider. Dragging now always follows the arrow: pulling toward the middle makes it wider.',
+      ],
+    },
+    ar: {
+      added: [
+        'أوفرلاي OBS يتحدّث الآن تلقائياً. بعد تحديث التطبيق كان OBS يبقى يعرض الأوفرلاي القديم حتى تحدّث المصدر يدوياً، فلا تظهر الإصلاحات الجديدة. الآن كل صفحات الأوفرلاي (الشات، شات OBS، التصويت، الصور والمقاطع) تعيد التحميل وحدها عندما يكون للتطبيق إصدار جديد. تحتاج تحديثاً يدوياً أخيراً بعد هذا التحديث (في OBS: كليك يمين على المصدر > Properties > Refresh cache of current page، أو اضغط Reload OBS في التطبيق)، وبعدها يصبح تلقائياً.',
+        'اللوحات الجانبية للإعدادات (الأوامر والشات) تبدأ الآن أعرض بشكل افتراضي. وإذا كنت قد سحبت إحداها إلى عرضك الخاص فيبقى كما هو.',
+      ],
+      fixed: [
+        'عندما يكون التطبيق بالعربية كان سحب لوحة إعدادات الشات إلى اليسار يجعلها أضيق بدل أن تصبح أعرض. الآن السحب يتبع اتجاه يدك دائماً: السحب نحو المنتصف يجعلها أعرض.',
+      ],
+    },
+  },
+  {
     version: '0.4.16',
     en: {
       added: [

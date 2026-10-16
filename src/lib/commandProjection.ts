@@ -225,7 +225,7 @@ export function clampMenuPosition(
   };
 }
 
-export const DEFAULT_INSPECTOR_WIDTH = 298;
+export const DEFAULT_INSPECTOR_WIDTH = 380;
 export const MIN_INSPECTOR_WIDTH = 240;
 export const MAX_INSPECTOR_WIDTH = 640;
 

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { PollState } from './rpc/contracts';
 import { createInitialPoll } from './lib/voteRules';
 import { VoteScene } from './overlay/VoteScene';
+import { reloadIfStale } from './lib/overlayVersion';
 
 interface OverlayEnvelope {
   v: number;
@@ -44,6 +45,8 @@ function VoteOverlayApp() {
           const envelope = JSON.parse(event.data) as Partial<OverlayEnvelope>;
           if (envelope.kind === 'vote-state' && envelope.payload) {
             setPoll(envelope.payload as PollState);
+          } else if (envelope.kind === 'app-version') {
+            reloadIfStale((envelope.payload as { version?: string } | undefined)?.version);
           }
         } catch {
           // ignore malformed payloads

@@ -33,9 +33,11 @@ import type { ChatMessage, ChatOverlaySettings, EmoteRange, TwitchGiftEvent } fr
 import { DEFAULT_CHAT_OVERLAY_SETTINGS } from './lib/chatOverlay';
 import { resolveFontStack } from './overlay/tokens';
 import { loadSavedDockSettings, type ObsChatDockSettings } from './store/obsChatStore';
+import { reloadIfStale } from './lib/overlayVersion';
 
 type EnvelopeKind =
   | 'hello'
+  | 'app-version'
   | 'chat-message'
   | 'settings'
   | 'connected'
@@ -49,6 +51,7 @@ type EnvelopeKind =
 
 const KNOWN_KINDS: readonly EnvelopeKind[] = [
   'hello',
+  'app-version',
   'chat-message',
   'settings',
   'connected',
@@ -213,6 +216,10 @@ function ObsChatDockApp() {
         if (!envelope) return;
 
         switch (envelope.kind) {
+          case 'app-version': {
+            reloadIfStale((envelope.payload as { version?: string } | undefined)?.version);
+            break;
+          }
           case 'hello': {
             const payload = envelope.payload as HelloPayload;
             const norm = normalizeChatOverlaySettings(payload.settings);
