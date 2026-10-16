@@ -82,36 +82,63 @@ using (var release = JsonDocument.Parse("""
         await using var imageServer = new ChatOverlayServer(imageRoot, new ChatOverlaySettings(), preferredPort: 0);
         await imageServer.StartAsync();
 
+        var inbox = new Dictionary<ClientWebSocket, List<string>>();
+        ClientWebSocket Listen(ClientWebSocket client)
+        {
+            // A background reader keeps every message; "nothing arrived" is then a plain check, not a cancelled read
+            // (cancelling a read aborts a ClientWebSocket).
+            var kinds = new List<string>();
+            inbox[client] = kinds;
+            _ = Task.Run(async () =>
+            {
+                var buffer = new byte[16 * 1024];
+                try
+                {
+                    while (client.State == WebSocketState.Open)
+                    {
+                        var result = await client.ReceiveAsync(buffer, CancellationToken.None);
+                        if (result.MessageType == WebSocketMessageType.Close) break;
+                        lock (kinds) kinds.Add(Kind(Encoding.UTF8.GetString(buffer, 0, result.Count)));
+                    }
+                }
+                catch (WebSocketException)
+                {
+                }
+            });
+            return client;
+        }
         async Task<ClientWebSocket> ConnectAsync(string query)
         {
             var client = new ClientWebSocket();
             await client.ConnectAsync(new Uri(imageServer.WebSocketUrl + query), CancellationToken.None);
             for (var i = 0; i < 4; i++) await ReceiveAsync(client); // app-version, hello, settings, disconnected
-            return client;
+            return Listen(client);
         }
-        async Task<bool> GotShowImageAsync(ClientWebSocket client)
+        async Task<bool> GotAsync(ClientWebSocket client, string kind)
         {
-            using var wait = new CancellationTokenSource(TimeSpan.FromMilliseconds(600));
-            try
-            {
-                var buffer = new byte[16 * 1024];
-                var result = await client.ReceiveAsync(buffer, wait.Token);
-                return Kind(Encoding.UTF8.GetString(buffer, 0, result.Count)) == "show-image";
-            }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
+            await Task.Delay(500);
+            var kinds = inbox[client];
+            lock (kinds) return kinds.Remove(kind);
         }
 
         using var chatOverlay = await ConnectAsync(string.Empty);
         await imageServer.PublishShowImageAsync(new { imageUrl = "x" });
-        AssertTrue(await GotShowImageAsync(chatOverlay), "with no image source, the chat overlay shows the picture");
+        AssertTrue(await GotAsync(chatOverlay, "show-image"), "with no image source, the chat overlay shows the picture");
 
         using var imageSource = await ConnectAsync("?target=image-overlay");
         await imageServer.PublishShowImageAsync(new { imageUrl = "x" });
-        AssertTrue(await GotShowImageAsync(imageSource), "the image source shows the picture");
-        AssertTrue(!await GotShowImageAsync(chatOverlay), "the chat overlay does not draw it a second time");
+        AssertTrue(await GotAsync(imageSource, "show-image"), "the image source shows the picture");
+        AssertTrue(!await GotAsync(chatOverlay, "show-image"), "the chat overlay does not draw it a second time");
+
+        // Clips: the image source stands in until a dedicated clip source connects, then only that one plays them
+        await imageServer.PublishShowClipAsync(new { clipId = "c" });
+        AssertTrue(await GotAsync(imageSource, "show-clip"), "with no clip source, the image source plays the clip");
+        AssertTrue(!await GotAsync(chatOverlay, "show-clip"), "the chat overlay never plays clips");
+
+        using var clipSource = await ConnectAsync("?target=clip-overlay");
+        await imageServer.PublishShowClipAsync(new { clipId = "c" });
+        AssertTrue(await GotAsync(clipSource, "show-clip"), "the clip source plays the clip");
+        AssertTrue(!await GotAsync(imageSource, "show-clip"), "the image source does not play it a second time");
     }
     finally
     {

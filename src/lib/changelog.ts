@@ -19,6 +19,21 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.19',
+    en: {
+      added: [
+        'Clips now have their own OBS browser source (Clip Overlay), separate from the pictures and GIFs source. Add http://127.0.0.1:49178/clip-overlay.html as a Browser Source in OBS (1920 x 1080) and turn on "Control audio via OBS" to hear clips. You can now place and layer clips independently, for example above your chat. The URL is in Settings > OBS and in the clip sub-action editor. Until you add it, clips keep playing on the pictures and GIFs source, so nothing you set up breaks.',
+      ],
+      fixed: [],
+    },
+    ar: {
+      added: [
+        'أصبح للمقاطع مصدر متصفح خاص بها في OBS (أوفرلاي المقاطع)، منفصل عن مصدر الصور والـ GIF. أضف الرابط http://127.0.0.1:49178/clip-overlay.html كـ Browser Source في OBS بدقة 1920 × 1080 وفعّل "Control audio via OBS" لسماع المقاطع. يمكنك الآن ترتيب المقاطع ووضعها بشكل مستقل، مثلاً فوق الشات. الرابط في الإعدادات > OBS وفي نافذة إجراء المقطع. وإلى أن تضيفه تستمر المقاطع بالعمل على مصدر الصور والـ GIF، فلا ينكسر شيء مما أعددته.',
+      ],
+      fixed: [],
+    },
+  },
+  {
     version: '0.4.18',
     en: {
       added: [],

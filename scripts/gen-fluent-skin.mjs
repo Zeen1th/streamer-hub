@@ -21,7 +21,7 @@ function walk(dir, out = []) {
 }
 
 // Overlay/OBS pages have their own themes and never load index.css
-const files = walk(path.join(root, 'src')).filter((f) => !/[\/](overlay|obs-chat|chat-overlay|image-overlay|vote-overlay)/.test(f));
+const files = walk(path.join(root, 'src')).filter((f) => !/[\/](overlay|obs-chat|chat-overlay|image-overlay|clip-overlay|vote-overlay)/.test(f));
 
 function hexToRgb(hex) {
   let h = hex.slice(1);

@@ -21,6 +21,7 @@ export default defineConfig({
         obsChat: 'src/obs-chat.html',
         voteOverlay: 'src/vote-overlay.html',
         imageOverlay: 'src/image-overlay.html',
+        clipOverlay: 'src/clip-overlay.html',
       },
     },
   },

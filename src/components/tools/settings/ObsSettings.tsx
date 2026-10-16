@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   BarChart3,
   Check,
+  Clapperboard,
   Copy,
   ExternalLink,
   Eye,
@@ -309,6 +310,15 @@ export function ObsSettings() {
                 dim: '1920 × 1080 px',
                 icon: ImageIcon,
                 color: 'text-pink-400',
+              },
+              {
+                id: 'clips',
+                name: t(lang, 'settings.obsClipOverlay'),
+                url: 'http://127.0.0.1:49178/clip-overlay.html',
+                hint: t(lang, 'settings.obsClipOverlayHint'),
+                dim: '1920 × 1080 px',
+                icon: Clapperboard,
+                color: 'text-fuchsia-400',
               },
               {
                 id: 'chat',

@@ -101,6 +101,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     public Uri VoteOverlayUrl { get; private set; } = null!;
 
     public Uri ImageOverlayUrl { get; private set; } = null!;
+    public Uri ClipOverlayUrl { get; private set; } = null!;
 
     public Uri WebSocketUrl { get; private set; } = null!;
 
@@ -136,6 +137,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                     DockUrl = new Uri($"http://127.0.0.1:{port}/obs-chat.html");
                     VoteOverlayUrl = new Uri($"http://127.0.0.1:{port}/vote-overlay.html");
                     ImageOverlayUrl = new Uri($"http://127.0.0.1:{port}/image-overlay.html");
+                    ClipOverlayUrl = new Uri($"http://127.0.0.1:{port}/clip-overlay.html");
                     WebSocketUrl = new Uri($"ws://127.0.0.1:{port}/ws");
                     _listener = listener;
                     _serverCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -243,11 +245,15 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         await BroadcastAsync(ChatOverlayProtocol.ShowImage(payload), hasImageSource ? "image-overlay" : null, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Clips only go to the image/clip browser source; the chat overlay has no player.</summary>
+    /// <summary>
+    /// Clips play on their own browser source. Setups made before it existed added the image source for clips, so
+    /// when no clip source is connected the clip goes there instead of being lost. The chat overlay has no player.
+    /// </summary>
     public async Task PublishShowClipAsync(object payload, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(payload);
-        await BroadcastAsync(ChatOverlayProtocol.ShowClip(payload), "image-overlay", cancellationToken).ConfigureAwait(false);
+        var hasClipSource = _clients.Values.Any(c => string.Equals(c.Target, "clip-overlay", StringComparison.OrdinalIgnoreCase));
+        await BroadcastAsync(ChatOverlayProtocol.ShowClip(payload), hasClipSource ? "clip-overlay" : "image-overlay", cancellationToken).ConfigureAwait(false);
     }
 
     public async Task PublishHideImageAsync(CancellationToken cancellationToken = default)
@@ -581,6 +587,9 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                         target = "vote-overlay";
                     else if (string.Equals(val, "image-overlay", StringComparison.OrdinalIgnoreCase) || string.Equals(val, "images", StringComparison.OrdinalIgnoreCase))
                         target = "image-overlay";
+
+                    else if (string.Equals(val, "clip-overlay", StringComparison.OrdinalIgnoreCase) || string.Equals(val, "clips", StringComparison.OrdinalIgnoreCase))
+                        target = "clip-overlay";
                 }
                 else if ((string.Equals(key, "id", StringComparison.OrdinalIgnoreCase) ||
                           string.Equals(key, "overlayId", StringComparison.OrdinalIgnoreCase)) &&
@@ -601,6 +610,10 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         else if (context.Request.Url?.AbsolutePath.Contains("image-overlay", StringComparison.OrdinalIgnoreCase) == true)
         {
             target = "image-overlay";
+        }
+        else if (context.Request.Url?.AbsolutePath.Contains("clip-overlay", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            target = "clip-overlay";
         }
 
         var id = Guid.NewGuid();
@@ -742,6 +755,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         var isDockEntry = requestPath is "/obs-chat" or "/obs-chat.html" or "/streamer-chat" or "/streamer-chat.html";
         var isVoteOverlayEntry = requestPath is "/vote-overlay" or "/vote-overlay.html";
         var isImageOverlayEntry = requestPath is "/image-overlay" or "/image-overlay.html";
+        var isClipOverlayEntry = requestPath is "/clip-overlay" or "/clip-overlay.html";
         var relativePath = isOverlayEntry
             ? OverlayEntryPath()
             : isDockEntry
@@ -750,8 +764,10 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                     ? VoteOverlayEntryPath()
                     : isImageOverlayEntry
                         ? ImageOverlayEntryPath()
+                        : isClipOverlayEntry
+                            ? ClipOverlayEntryPath()
                         : Uri.UnescapeDataString(requestPath.TrimStart('/')).Replace('\\', '/');
-        if (!isOverlayEntry && !isDockEntry && !isVoteOverlayEntry && !isImageOverlayEntry && !_allowedAssetPaths.Contains(relativePath))
+        if (!isOverlayEntry && !isDockEntry && !isVoteOverlayEntry && !isImageOverlayEntry && !isClipOverlayEntry && !_allowedAssetPaths.Contains(relativePath))
         {
             _allowedAssetPaths = LoadOverlayAssetAllowlist();
             if (!_allowedAssetPaths.Contains(relativePath))
@@ -774,7 +790,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         response.ContentType = ContentTypeFor(fullPath);
         response.Headers[HttpResponseHeader.CacheControl] = "no-store";
         response.Headers["X-Content-Type-Options"] = "nosniff";
-        var bytes = (isOverlayEntry || isDockEntry || isVoteOverlayEntry || isImageOverlayEntry)
+        var bytes = (isOverlayEntry || isDockEntry || isVoteOverlayEntry || isImageOverlayEntry || isClipOverlayEntry)
             ? Encoding.UTF8.GetBytes(InjectRecoveryRegistration(await File.ReadAllTextAsync(fullPath, cancellationToken).ConfigureAwait(false)))
             : await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
         response.ContentLength64 = bytes.Length;
@@ -848,6 +864,11 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         File.Exists(Path.Combine(_assetRoot, "vote-overlay.html"))
             ? "vote-overlay.html"
             : Path.Combine("src", "vote-overlay.html");
+
+    private string ClipOverlayEntryPath() =>
+        File.Exists(Path.Combine(_assetRoot, "clip-overlay.html"))
+            ? "clip-overlay.html"
+            : Path.Combine("src", "clip-overlay.html");
 
     private string ImageOverlayEntryPath() =>
         File.Exists(Path.Combine(_assetRoot, "image-overlay.html"))
@@ -1036,7 +1057,7 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
             using var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath));
             var root = manifest.RootElement;
             var entryKeys = new List<string>();
-            foreach (var target in new[] { "src/chat-overlay.html", "src/obs-chat.html", "src/vote-overlay.html", "src/image-overlay.html" })
+            foreach (var target in new[] { "src/chat-overlay.html", "src/obs-chat.html", "src/vote-overlay.html", "src/image-overlay.html", "src/clip-overlay.html" })
             {
                 if (root.TryGetProperty(target, out _))
                 {

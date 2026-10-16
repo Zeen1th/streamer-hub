@@ -62,7 +62,7 @@ export function clipSettingsToStep(clip: ClipSettings): Partial<SequenceStep> {
   };
 }
 
-const OVERLAY_URL = 'http://127.0.0.1:49178/image-overlay.html';
+const OVERLAY_URL = 'http://127.0.0.1:49178/clip-overlay.html';
 
 const TEXT = {
   en: {
@@ -88,8 +88,8 @@ const TEXT = {
     captionText: 'Caption',
     captionTokens: 'The caption can use {channel}, {clip_title} and {clip_creator}.',
     waitForEnd: 'Wait for the clip to finish before the next sub-action',
-    source: 'OBS browser source (same one as pictures and GIFs)',
-    sourceHint: 'Add this URL as a Browser Source in OBS (1920 x 1080) and turn on "Control audio via OBS" to hear the clip.',
+    source: 'OBS browser source for clips',
+    sourceHint: 'Add this URL as its own Browser Source in OBS (1920 x 1080) and turn on "Control audio via OBS" to hear the clip. It is separate from the pictures and GIFs source. Until you add it, clips use the pictures and GIFs source.',
     copy: 'Copy',
     copied: 'Copied',
     open: 'Open in browser',
@@ -138,8 +138,8 @@ const TEXT = {
     captionText: 'العنوان',
     captionTokens: 'يمكن استخدام {channel} و {clip_title} و {clip_creator} في العنوان.',
     waitForEnd: 'انتظر حتى ينتهي المقطع قبل الإجراء التالي',
-    source: 'مصدر المتصفح في OBS (نفس مصدر الصور والـ GIF)',
-    sourceHint: 'أضف هذا الرابط كـ Browser Source في OBS بدقة 1920 × 1080، وفعّل "Control audio via OBS" لسماع المقطع.',
+    source: 'مصدر المتصفح في OBS للمقاطع',
+    sourceHint: 'أضف هذا الرابط كـ Browser Source مستقل في OBS بدقة 1920 × 1080، وفعّل "Control audio via OBS" لسماع المقطع. وهو منفصل عن مصدر الصور والـ GIF. وإلى أن تضيفه تستخدم المقاطع مصدر الصور والـ GIF.',
     copy: 'نسخ',
     copied: 'تم النسخ',
     open: 'فتح في المتصفح',
