@@ -216,6 +216,8 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - Load recovery: if `settings.json` is missing or unreadable it is moved to `settings.corrupt-<time>.json` (last 5 kept) and the first valid candidate of `.tmp`, `.bak`, newest snapshot is restored. `TakeRecoveryNotice()` (one-shot) is returned in `settings/get-state` as `recovery`; `App.tsx` shows an amber banner (`recovery.*` strings). A first run never reports anything.
 - Restore button: Settings > System & Window Behavior > **Backups** (`BackupsCard.tsx`). `settings/list-backups` lists copies that hold user data (`last`, `pending`, `snapshot`, `before-restore`); `settings/restore-backup {name}` accepts only listed names, saves the current file to `backups/before-restore-<time>.json` (last 5 kept, so a restore can be undone), makes the backup live and calls `RelaunchApp()` (hidden PowerShell waits for the process to exit, then starts the exe; the form closes through `ExitForUpdate` so close-to-tray cannot keep it alive). The restart is needed because the overlay server, hotkeys and Twitch connection read settings once at startup.
 - Not covered: the web side's localStorage (theme, Home layout, stats, known chatters) is not backed up. Tests: `tests/StreamerHub.Task4Tests` (recovery, listing, restore).
+- **Support playbook for a user who already lost settings (pre-0.4.13 builds had no backups)**: the data may survive in a Windows restore point. Have them run `scripts/recover-settings.ps1` from an Administrator PowerShell (`powershell -ExecutionPolicy Bypass -File recover-settings.ps1`; add `-SettingsPath` if the profile differs). It checks every shadow copy and drops each `settings.json` it finds on the Desktop as `settings.from-<date>.json`; the big one (tens of KB) is the real data, ~1 KB means empty. They then quit the app from the tray, rename the current `settings.json`, copy the good file in as `settings.json` and start the app. The Previous Versions tab did not list the snapshots in the case that prompted this, so the script (mklink to each `DeviceObject`) is the reliable route. Never ask users to run a full System Restore (it does not restore AppData files and rolls back drivers).
+- Do not commit user-supplied `settings.json` files (they contain the OBS WebSocket password); `/settings.json` is in `.gitignore`.
 
 ### 2.6b UI Scale & Default Window Size
 - The UI scale is applied as native WebView2 page zoom (`window/set-zoom` -> `WebView2.ZoomFactor` in `HostController`), not CSS `zoom`: layout, viewport units and mouse coordinates stay consistent. The browser preview (no host) still falls back to CSS zoom. Because `innerWidth` shrinks when zoomed, auto scale multiplies it back by the applied zoom (`calculateAutoScale(appliedZoom)`).
@@ -472,12 +474,20 @@ Shipped in order: If/Else + nested display, duel protected viewers (per-viewer r
 
 **Release checklist** (section 5.2) starts with adding a bilingual `CHANGELOG` entry in `src/lib/changelog.ts`; `changelog.test.mjs` fails otherwise.
 
+**Tooling gotchas (this repo, Windows)**
+- Long multi-line shell heredocs that contain apostrophes or emoji can fail to parse in the agent's bash tool; write such scripts with the file Write tool and run them.
+- Run a debug build of the app with `STREAMERHUB_DEBUG_PORT=<port>` to drive the real WebView over the DevTools protocol (Node 22 has a built-in WebSocket). `dist/` is served when it contains `.vite/manifest.json`, so run `npx vite build` after web changes before launching the exe. Close the exe before rebuilding `core`.
+- After adding hard-coded `bg-[#...]` colors run `npm run gen:skin` (Fluent theme overrides).
+
 **Local test tips**
 - `npm test` (JS) and `npx tsc -b` (types; plain `tsc --noEmit` checks nothing in this repo).
 - C# tests are console projects under `tests/`. While the app is running its exe locks `core/bin`, so build tests elsewhere: `dotnet build -c Debug -p:OutDir=<dir>` then `dotnet <dir>/StreamerHub.Task4Tests.dll`.
 - The browser preview (`npm run dev`, mock host) cannot exercise the host: native zoom, the auto-update install, IRC gifts and slash commands against Twitch must be checked in the real app.
 
 **Open ideas / not done**
+- Back up the web side's localStorage (theme, Home layout, leaderboard stats, known chatters) the same way as `settings.json`, e.g. mirror it to the host or add it to the Backups card.
+- Leaderboards only count from the v0.4.12 install; they are not backfilled, and live in localStorage (so they are not in the settings backups).
+- The Backups restore restarts the app through a hidden PowerShell helper; it was tested on a dev machine only.
 - The gifts strip only shows gifted subs (no bits, resubs, follows or raids) and is not on the viewer overlay.
 - Ctrl+Z covers commands only (not Alert Studio, overlay design, or counters' live counts).
 - The slash command list is fixed (no /announce, /slow, /followers, /me). Timer triggers only run while the app is connected to Twitch.

@@ -11,6 +11,8 @@ tests/**/obj/
 deaths.txt
 chat-overlay-write-test.txt
 release/
+# a user's settings.json sent for support (holds their OBS password etc.); never commit
+/settings.json
 
 .impeccable/
 *.tsbuildinfo
