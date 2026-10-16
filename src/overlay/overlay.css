@@ -59,7 +59,7 @@
   display: grid;
   flex: 0 0 auto;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--co-bubble-pad-x);
+  gap: var(--co-avatar-gap);
   align-items: center;
   padding: var(--co-bubble-pad-y) var(--co-bubble-pad-x);
   overflow: hidden;
@@ -203,13 +203,23 @@
   padding-bottom: 2px;
 }
 
-/* Inline username sits before the text rather than on its own line. */
-.co-block[data-username-position='inline'] .co-username::after { content: ':'; }
+/* Inline username sits before the text rather than on its own line. The colon is its own element in the
+   header (not a ::after of the name) so it follows the card direction: it always sits on the side facing the
+   message, whatever script the name is written in. */
+.co-colon {
+  font-family: var(--co-username-font);
+  font-size: var(--co-username-size);
+  font-weight: var(--co-username-weight);
+  line-height: 1.35;
+  color: var(--co-username-custom, var(--co-role-color));
+  unicode-bidi: isolate;
+}
 .co-block[data-username-position='inline'] .co-badge {
   margin-inline-start: calc(var(--co-bubble-pad-x) * 0.4);
 }
 
 .co-block[data-text-shadow='true'] .co-username,
+.co-block[data-text-shadow='true'] .co-colon,
 .co-block[data-text-shadow='true'] .co-text {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 2px 8px rgba(0, 0, 0, 0.7);
 }

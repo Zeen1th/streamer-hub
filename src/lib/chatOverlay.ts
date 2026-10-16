@@ -25,6 +25,7 @@ export const CHAT_OVERLAY_LIMITS = {
   lineHeight: { min: 0.8, max: 3 },
   letterSpacing: { min: -0.1, max: 0.5 },
   avatarSize: { min: 8, max: 160 },
+  avatarGap: { min: 0, max: 64 },
   borderWidth: { min: 0, max: 16 },
   borderRadius: { min: 0, max: 64 },
   padding: { min: 0, max: 64 },
@@ -226,6 +227,8 @@ function normalizeV2(input: Record<string, unknown>): ChatOverlaySettings {
       size: int(avatar.size, L.avatarSize, d.avatar.size),
       shape: oneOf(avatar.shape, ['circle', 'rounded', 'square', 'squircle'], d.avatar.shape),
       position: oneOf(avatar.position, ['left', 'right'], d.avatar.position),
+      // Overlays saved before the gap existed spaced the avatar by the bubble padding: keep that look.
+      gap: int(avatar.gap, L.avatarGap, int(padding.x, L.padding, d.bubble.padding.x)),
       borderWidth: int(avatar.borderWidth, L.borderWidth, d.avatar.borderWidth),
       borderColorMode: oneOf(avatar.borderColorMode, ['role', 'custom'], d.avatar.borderColorMode),
       borderColor: color(avatar.borderColor, d.avatar.borderColor),

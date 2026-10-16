@@ -185,3 +185,11 @@ test('emote size is derived from text size and the emote scale', () => {
   settings.flow.sizeScale = 100;
   assert.equal(settingsToCssVars(settings)['--co-emote-size'], '30px');
 });
+
+test('the avatar gap is its own token and scales with the overlay size', () => {
+  const settings = base();
+  settings.avatar.gap = 10;
+  assert.equal(settingsToCssVars(settings)['--co-avatar-gap'], '10px');
+  settings.flow.sizeScale = 200;
+  assert.equal(settingsToCssVars(settings)['--co-avatar-gap'], '20px');
+});

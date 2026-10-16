@@ -546,6 +546,8 @@ export interface ChatOverlayAvatarStyle {
   size: number;
   shape: ChatOverlayAvatarShape;
   position: ChatOverlayAvatarPosition;
+  /** Space between the avatar and the name/message beside it, in px. Overlays saved before this existed keep their old look (it used the bubble's horizontal padding). */
+  gap: number;
   borderWidth: number;
   borderColorMode: ChatOverlayColorMode;
   borderColor: string;

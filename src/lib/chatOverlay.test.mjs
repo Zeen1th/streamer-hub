@@ -301,3 +301,15 @@ test('ensureReadableColor brightens dark colors and leaves bright colors unchang
   assert.equal(ensureReadableColor('invalid'), '#38bdf8');
 });
 
+
+test('avatar gap: overlays saved before it existed keep their old spacing (the bubble padding), new values are clamped', () => {
+  const old = normalizeChatOverlaySettings({ version: 2, bubble: { padding: { x: 22, y: 8 } }, avatar: { size: 40 } });
+  assert.equal(old.avatar.gap, 22);
+
+  const set = normalizeChatOverlaySettings({ version: 2, bubble: { padding: { x: 22, y: 8 } }, avatar: { gap: 5 } });
+  assert.equal(set.avatar.gap, 5);
+
+  assert.equal(normalizeChatOverlaySettings({ version: 2, avatar: { gap: 500 } }).avatar.gap, 64);
+  assert.equal(normalizeChatOverlaySettings({ version: 2, avatar: { gap: -3 } }).avatar.gap, 0);
+  assert.equal(createDefaultChatOverlaySettings().avatar.gap, 16);
+});

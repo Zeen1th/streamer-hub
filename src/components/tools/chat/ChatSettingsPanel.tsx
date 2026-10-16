@@ -56,7 +56,50 @@ type SectionId =
   | 'badges'
   | 'emotes'
   | 'filters'
+  | 'animation'
   | 'obs';
+
+/** The tabs that group the sections, so the panel is a few short pages instead of one long scroll. */
+type TabId = 'presets' | 'layout' | 'card' | 'identity' | 'content' | 'filters' | 'obs';
+
+const TABS: Array<{ id: TabId; en: string; ar: string }> = [
+  { id: 'presets', en: 'Presets', ar: 'تصاميم جاهزة' },
+  { id: 'layout', en: 'Layout & Motion', ar: 'التخطيط والحركة' },
+  { id: 'card', en: 'Bubble', ar: 'الصندوق' },
+  { id: 'identity', en: 'Name & Avatar', ar: 'الاسم والصورة' },
+  { id: 'content', en: 'Text & Emotes', ar: 'النص والإيموتات' },
+  { id: 'filters', en: 'Filters', ar: 'الفلاتر' },
+  { id: 'obs', en: 'OBS', ar: 'OBS' },
+];
+
+const SECTION_TAB: Record<SectionId, TabId> = {
+  presets: 'presets',
+  layout: 'layout',
+  animation: 'layout',
+  bubble: 'card',
+  avatar: 'identity',
+  username: 'identity',
+  badges: 'identity',
+  text: 'content',
+  emotes: 'content',
+  filters: 'filters',
+  obs: 'obs',
+};
+
+/** Order inside a tab (the JSX order is not the display order: avatar comes before the name). */
+const SECTION_ORDER: Record<SectionId, number> = {
+  presets: 0,
+  layout: 1,
+  animation: 2,
+  bubble: 3,
+  avatar: 4,
+  username: 5,
+  badges: 6,
+  text: 7,
+  emotes: 8,
+  filters: 9,
+  obs: 10,
+};
 
 /** Which panel section a selected message part maps to. */
 const PART_SECTIONS: Record<ChatOverlayPart, SectionId> = {
@@ -78,6 +121,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
   const sectionRefs = useRef<Partial<Record<SectionId, HTMLElement | null>>>({});
+  const [tab, setTab] = useState<TabId>('presets');
   const [copied, setCopied] = useState(false);
   const [panelCopiedFeedback, setPanelCopiedFeedback] = useState(false);
   const [panelPastedFeedback, setPanelPastedFeedback] = useState(false);
@@ -188,7 +232,12 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
   const highlighted = selectedPart ? PART_SECTIONS[selectedPart] : null;
   useEffect(() => {
     if (!highlighted) return;
-    sectionRefs.current[highlighted]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTab(SECTION_TAB[highlighted]);
+    // wait a frame so the tab's sections are on screen before scrolling to one
+    const frame = requestAnimationFrame(() => {
+      sectionRefs.current[highlighted]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [highlighted, selectedPart]);
 
   useEffect(() => {
@@ -207,13 +256,15 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
 
   const L = CHAT_OVERLAY_LIMITS;
 
-  const section = (id: SectionId, title: string, icon: React.ReactNode, children: React.ReactNode) => (
+  const section = (id: SectionId, title: string, icon: React.ReactNode, children: React.ReactNode) =>
+    SECTION_TAB[id] !== tab ? null : (
     <section
       ref={(el) => {
         sectionRefs.current[id] = el;
       }}
+      style={{ order: SECTION_ORDER[id] }}
       className={[
-        'border-t border-hair px-3 py-3',
+        'shrink-0 border-t border-hair px-3 py-3',
         highlighted === id ? 'bg-primary/10' : '',
       ].join(' ')}
     >
@@ -321,7 +372,27 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
+      <div role="tablist" aria-label={lang === 'ar' ? 'أقسام الإعدادات' : 'Settings sections'} className="flex shrink-0 gap-1 overflow-x-auto border-b border-hair px-2 py-1.5">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.id}
+            onClick={() => setTab(item.id)}
+            className={[
+              'h-[26px] shrink-0 whitespace-nowrap rounded-full border px-3 text-[11.5px] font-semibold transition-colors',
+              tab === item.id
+                ? 'border-[#6366f1] bg-[#6366f1] text-white'
+                : 'border-white/[0.1] bg-white/[0.03] text-[#9aa3af] hover:border-white/[0.18] hover:text-white',
+            ].join(' ')}
+          >
+            {lang === 'ar' ? item.ar : item.en}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-1 flex-col overflow-y-auto">
         {/* Presets ------------------------------------------------------- */}
         {section(
           'presets',
@@ -727,6 +798,13 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
                 ]}
               />
             </Field>
+            <NumberRow
+              label={t(lang, 'chat.avatarBorder')}
+              value={settings.avatar.borderWidth}
+              range={L.borderWidth}
+              suffix="px"
+              onChange={(borderWidth) => patch({ avatar: { borderWidth } })}
+            />
             <Field
               label={t(lang, 'chat.identityLayout')}
               hint={t(lang, 'chat.identityLayoutHint')}
@@ -741,11 +819,12 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
               />
             </Field>
             <NumberRow
-              label={t(lang, 'chat.avatarBorder')}
-              value={settings.avatar.borderWidth}
-              range={L.borderWidth}
+              label={t(lang, 'chat.avatarGap')}
+              hint={t(lang, 'chat.avatarGapHint')}
+              value={settings.avatar.gap}
+              range={L.avatarGap}
               suffix="px"
-              onChange={(borderWidth) => patch({ avatar: { borderWidth } })}
+              onChange={(gap) => patch({ avatar: { gap } })}
             />
 
             {/* Avatar Diagnostics & Evaluation Card */}
@@ -1017,10 +1096,10 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
           </>,
         )}
 
-        {/* Animation + OBS ----------------------------------------------- */}
+        {/* Animation ------------------------------------------------------ */}
         {section(
-          'obs',
-          t(lang, 'chat.section.output'),
+          'animation',
+          t(lang, 'chat.section.animation'),
           <Palette size={14} className="text-accent-text" />,
           <>
             <Field label={t(lang, 'chat.animation')}>
@@ -1045,7 +1124,15 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
               suffix="ms"
               onChange={(durationMs) => patch({ animation: { durationMs } })}
             />
+          </>,
+        )}
 
+        {/* OBS output ------------------------------------------------------ */}
+        {section(
+          'obs',
+          t(lang, 'chat.section.output'),
+          <ExternalLink size={14} className="text-accent-text" />,
+          <>
             <Field
               label={target === 'obs-chat' ? (lang === 'ar' ? 'رابط نافذة شات OBS (Dock)' : 'OBS Chat Dock URL') : t(lang, 'chat.obsUrl')}
               hint={target === 'obs-chat' ? (lang === 'ar' ? 'استخدم هذا الرابط في OBS Studio: Docks -> Custom Browser Docks... (أو كمصدر متصفح)' : 'Add this URL in OBS Studio: Docks -> Custom Browser Docks... (or as a Browser Source).') : t(lang, 'chat.obsUrlHint2')}

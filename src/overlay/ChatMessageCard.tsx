@@ -74,6 +74,7 @@ export function ChatMessageCard({
     settings.username.colorMode === 'twitch' && message.color
       ? { color: message.color }
       : undefined;
+  const showColon = showUsername && settings.username.position === 'inline';
 
   return (
     <li
@@ -115,6 +116,11 @@ export function ChatMessageCard({
             {showUsername && (
               <span className="co-username" dir="auto" style={usernameStyle} {...partProps('username')}>
                 {message.username}
+              </span>
+            )}
+            {showColon && (
+              <span className="co-colon" style={usernameStyle} aria-hidden>
+                :
               </span>
             )}
             {showBadge && (

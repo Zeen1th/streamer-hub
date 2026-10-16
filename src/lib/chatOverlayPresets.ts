@@ -56,6 +56,7 @@ function baseTokens(): ChatOverlayPresetTokens {
       size: 32,
       shape: 'circle',
       position: 'left',
+      gap: 16,
       borderWidth: 2,
       borderColorMode: 'role',
       borderColor: '#8b5cf6',
@@ -143,6 +144,7 @@ export const CHAT_OVERLAY_PRESETS: readonly ChatOverlayPreset[] = [
       t.bubble.blur = 0;
       t.bubble.accent.width = 0;
       t.bubble.padding = { x: 0, y: 4 };
+      t.avatar.gap = 8;
       // Text shadow is what keeps it readable once the panel is gone.
       t.text.shadow = true;
       return t;

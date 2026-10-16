@@ -19,6 +19,29 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.16',
+    en: {
+      added: [
+        'Sub-actions are easier to find: the Add menu, the search box and the right-click menu now share one list, grouped into Chat & Twitch, Moderation, Audio & Voice, On Stream (OBS), Games & Polls, Logic & Flow, Counters and Notes, with short clear names. Every action is now in every menu, including Timeout, Clear chat and Ban/Mod/VIP.',
+        'Chat overlay settings are organized into tabs (Presets, Layout & Motion, Bubble, Name & Avatar, Text & Emotes, Filters, OBS) instead of one long page. Clicking a part of the preview jumps to its tab.',
+        'New setting in Name & Avatar: Space Between Avatar and Name. Overlays you already made keep their current spacing until you change it.',
+      ],
+      fixed: [
+        'On a right-to-left chat overlay, the colon after a name written in English was placed next to the avatar instead of next to the message. It now always sits on the message side, for English and Arabic names, in both directions.',
+      ],
+    },
+    ar: {
+      added: [
+        'أصبح العثور على الإجراءات الفرعية أسهل: قائمة الإضافة وصندوق البحث وقائمة الزر الأيمن تستخدم الآن قائمة واحدة مقسمة إلى: الشات وتويتش، الإشراف، الصوت والكلام، على البث (OBS)، الألعاب والاستطلاعات، المنطق والتحكم، العدّادات، والملاحظات، بأسماء قصيرة وواضحة. وكل إجراء موجود الآن في كل القوائم، بما فيها الإسكات ومسح الشات والحظر والمشرف وVIP.',
+        'إعدادات أوفرلاي الشات مقسمة إلى تبويبات (تصاميم جاهزة، التخطيط والحركة، الصندوق، الاسم والصورة، النص والإيموتات، الفلاتر، OBS) بدل صفحة طويلة واحدة. والضغط على جزء من المعاينة ينقلك إلى تبويبه.',
+        'إعداد جديد في الاسم والصورة: المسافة بين الصورة والاسم. الأوفرلاي الذي صنعته سابقاً يحتفظ بمسافته الحالية حتى تغيّرها.',
+      ],
+      fixed: [
+        'في أوفرلاي الشات من اليمين إلى اليسار كانت النقطتان بعد الاسم المكتوب بالإنجليزية تظهران بجانب الصورة بدل الرسالة. الآن تظهران دائماً في جهة الرسالة، للأسماء الإنجليزية والعربية وفي الاتجاهين.',
+      ],
+    },
+  },
+  {
     version: '0.4.15',
     en: {
       added: [

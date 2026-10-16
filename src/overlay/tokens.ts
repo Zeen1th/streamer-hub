@@ -156,6 +156,7 @@ export function settingsToCssVars(settings: ChatOverlaySettings): CSSProperties 
     '--co-text-max-width': settings.text.maxWidth > 0 ? px(settings.text.maxWidth) : '100%',
 
     '--co-avatar-size': px(settings.avatar.size),
+    '--co-avatar-gap': px(settings.avatar.gap),
     '--co-avatar-radius': AVATAR_RADII[settings.avatar.shape] ?? '50%',
     '--co-avatar-border-width': px(settings.avatar.borderWidth),
     '--co-avatar-border-custom': avatarBorderCustom,

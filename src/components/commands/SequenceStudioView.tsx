@@ -2,6 +2,7 @@ import { DEFAULT_PROTECTED_MESSAGES } from '../../lib/duelGameManager';
 import { shieldKey } from '../../lib/shield';
 import { DEFAULT_CLIP_FAIL_MESSAGE, replaceSequenceTokens } from '../../lib/sequenceRunner';
 import { attachedGameIndex } from '../../lib/stepGroups';
+import { groupSubActions, type SubActionGroup } from '../../lib/subActionCatalog';
 import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../../lib/sequenceTimers';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -627,6 +628,32 @@ function fitMenuToViewport(el: HTMLElement | null) {
 
 // ---------------------------------------------------------------------------
 // If / Else helpers
+/** Icon and colour of each sub-action in the catalog (src/lib/subActionCatalog.ts). */
+const SUB_ACTION_STYLE: Record<string, { icon: React.ComponentType<{ size?: number; className?: string }>; color: string }> = {
+  chat: { icon: MessageSquare, color: 'text-sky-400' },
+  shoutout: { icon: Megaphone, color: 'text-orange-400' },
+  clip_create: { icon: Clapperboard, color: 'text-violet-400' },
+  smart_timeout: { icon: Zap, color: 'text-amber-400' },
+  timeout: { icon: Shield, color: 'text-rose-400' },
+  clear_chat: { icon: Shield, color: 'text-rose-400' },
+  moderation: { icon: Shield, color: 'text-rose-400' },
+  sound: { icon: Volume2, color: 'text-indigo-400' },
+  tts: { icon: Mic, color: 'text-teal-400' },
+  mic_mute: { icon: MicOff, color: 'text-rose-400' },
+  obs_image: { icon: ImageIcon, color: 'text-pink-400' },
+  obs_clip: { icon: Clapperboard, color: 'text-fuchsia-400' },
+  obs_text: { icon: FileText, color: 'text-amber-400' },
+  duel: { icon: Swords, color: 'text-amber-400' },
+  duel_streamer: { icon: Crown, color: 'text-yellow-400' },
+  poll: { icon: BarChart3, color: 'text-violet-400' },
+  if: { icon: GitBranch, color: 'text-cyan-400' },
+  wait: { icon: Clock, color: 'text-amber-400' },
+  run_sequence: { icon: Workflow, color: 'text-indigo-400' },
+  command: { icon: Terminal, color: 'text-violet-400' },
+  counter: { icon: Calculator, color: 'text-emerald-400' },
+  comment: { icon: MessageSquare, color: 'text-emerald-400' },
+};
+
 // ---------------------------------------------------------------------------
 const BRANCH_STEP_TYPES: Array<{
   key: string;
@@ -636,8 +663,7 @@ const BRANCH_STEP_TYPES: Array<{
   options?: Partial<SequenceStep>;
 }> = [
   { key: 'chat', type: 'chat', en: 'Send chat message', ar: 'إرسال رسالة في الشات' },
-  { key: 'tts', type: 'tts', en: 'Text-to-speech', ar: 'قراءة نص صوتياً' },
-  { key: 'sound', type: 'sound', en: 'Play sound effect', ar: 'تشغيل مؤثر صوتي' },
+  { key: 'clip_create', type: 'clip_create', en: 'Create a clip', ar: 'إنشاء مقطع' },
   {
     key: 'timeout',
     type: 'moderation',
@@ -645,12 +671,13 @@ const BRANCH_STEP_TYPES: Array<{
     ar: 'إسكات المشاهد',
     options: { moderationAction: 'smart_timeout', targetUser: '{username}', durationSeconds: 60 },
   },
-  { key: 'counter', type: 'counter', en: 'Change a counter', ar: 'تعديل عدّاد' },
+  { key: 'sound', type: 'sound', en: 'Play sound effect', ar: 'تشغيل مؤثر صوتي' },
+  { key: 'tts', type: 'tts', en: 'Text-to-speech', ar: 'قراءة نص صوتياً' },
+  { key: 'mic_mute', type: 'mic_mute', en: 'Mute streamer mic', ar: 'كتم مايك الستريمر' },
   { key: 'obs_image', type: 'obs_image', en: 'Show picture / GIF', ar: 'عرض صورة أو GIF' },
-  { key: 'clip_create', type: 'clip_create', en: 'Create a clip', ar: 'إنشاء مقطع' },
   { key: 'obs_clip', type: 'obs_clip', en: 'Show raider clip', ar: 'عرض مقطع الرايدر' },
   { key: 'obs_text', type: 'obs_text', en: 'Write OBS text file', ar: 'كتابة ملف نص OBS' },
-  { key: 'mic_mute', type: 'mic_mute', en: 'Mute streamer mic', ar: 'كتم مايك الستريمر' },
+  { key: 'counter', type: 'counter', en: 'Change a counter', ar: 'تعديل عدّاد' },
   { key: 'wait', type: 'wait', en: 'Wait', ar: 'انتظار' },
   { key: 'run_sequence', type: 'run_sequence', en: 'Run a sequence', ar: 'تشغيل سلسلة' },
   { key: 'command', type: 'command', en: 'Run a command', ar: 'تشغيل أمر' },
@@ -3652,186 +3679,40 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
   );
 
   // Sub-action search items
-  const SUB_ACTION_SEARCH_ITEMS = [
-    {
-      id: 'comment',
-      type: 'comment' as SequenceStepType,
-      title: lang === 'ar' ? '💬 إضافة تعليق / ملاحظة' : '💬 Add Comment / Note',
-      desc: lang === 'ar' ? 'خطوة تعليق خضراء لتنظيم وفصل الإجراءات' : 'Visual green comment step for organizing actions',
-      icon: MessageSquare,
-      color: 'text-emerald-400',
-    },
-    {
-      id: 'sound',
-      type: 'sound' as SequenceStepType,
-      title: lang === 'ar' ? 'الصوت: تشغيل مؤثر صوتي (SFX)' : 'Audio: Play Sound Effect (SFX)',
-      desc: lang === 'ar' ? 'تشغيل ملف صوتي (.mp3, .wav) مع التحكم بمستوى الصوت' : 'Play a local sound file (.mp3, .wav) with volume control',
-      icon: Volume2,
-      color: 'text-indigo-400',
-    },
-    {
-      id: 'tts',
-      type: 'tts' as SequenceStepType,
-      title: lang === 'ar' ? 'الكلام: قراءة النص صوتياً (TTS)' : 'Speech: Text-To-Speech (TTS)',
-      desc: lang === 'ar' ? 'نطق أي نص تلقائياً مع دعم متغيرات الشات' : 'Synthesize spoken text with dynamic stream tokens',
-      icon: Mic,
-      color: 'text-teal-400',
-    },
-    {
-      id: 'obs_text',
-      type: 'obs_text' as SequenceStepType,
-      title: lang === 'ar' ? 'OBS: كتابة إلى ملف نصي' : 'OBS: Write to Text File',
-      desc: lang === 'ar' ? 'تحديث ملف نصي محلي ليظهر في مصادر نصوص OBS' : 'Update local text file for OBS text source overlays',
-      icon: FileText,
-      color: 'text-amber-400',
-    },
-    {
-      id: 'obs_image',
-      type: 'obs_image' as SequenceStepType,
-      title: lang === 'ar' ? 'OBS: عرض صورة أو GIF على الشاشة' : 'OBS: Display Picture / GIF on Screen',
-      desc: lang === 'ar' ? 'عرض صور ميمز أو GIFs أو تنبيهات على بث OBS عبر الأوفرلاي' : 'Show memes, GIFs, or alert pictures on OBS screen via overlay',
-      icon: ImageIcon,
-      color: 'text-pink-400',
-    },
-    {
-      id: 'clip_create',
-      type: 'clip_create' as SequenceStepType,
-      title: lang === 'ar' ? 'تويتش: إنشاء مقطع للمشاهد' : 'Twitch: Create a Clip for the Viewer',
-      desc: lang === 'ar' ? 'يصنع مقطعاً من البث المباشر وينسبه لمن استخدم الأمر لتتبع أكثر صنّاع المقاطع' : 'Clips the live stream and credits it to the viewer who used the command, for a Top clippers leaderboard',
-      icon: Clapperboard,
-      color: 'text-violet-400',
-    },
-    {
-      id: 'obs_clip',
-      type: 'obs_clip' as SequenceStepType,
-      title: lang === 'ar' ? 'OBS: عرض مقطع من قناة الرايدر' : 'OBS: Show a Clip from the Raider',
-      desc: lang === 'ar' ? 'يشغّل مقطعاً من قناة الرايدر (أو من يُذكر في !so) على البث عبر مصدر المتصفح' : 'Plays a clip from the raider (or the channel named in !so) on stream through the browser source',
-      icon: Clapperboard,
-      color: 'text-fuchsia-400',
-    },
-    {
-      id: 'duel',
-      type: 'duel' as SequenceStepType,
-      title: lang === 'ar' ? 'التفاعل: تحدي التايم آوت (المبارزة)' : 'Interactivity: Timeout Duel (Showdown)',
-      desc: lang === 'ar' ? 'مبارزة بين مشاهدين: قرعة 50/50 أو سؤال ألعاب بالذكاء الاصطناعي والخاسر يُعاقب بالتايم آوت' : 'Mini-game showdown: 50/50 roulette or AI gaming trivia; loser gets timed out',
-      icon: Swords,
-      color: 'text-amber-400',
-    },
-    {
-      id: 'duel_streamer',
-      type: 'duel_streamer' as SequenceStepType,
-      title: lang === 'ar' ? 'التفاعل: تحدي الستريمر 1v1 (كتم المايك)' : 'Interactivity: Streamer 1v1 Duel (Mute Mic)',
-      desc: lang === 'ar' ? 'تحدي ضد الستريمر: إذا خسر الستريمر يُكتم مايك OBS وإذا فاز يُعاقب المتحدي بتايم آوت' : '1v1 challenge against the streamer: loser streamer gets OBS mic muted; loser challenger gets timed out',
-      icon: Crown,
-      color: 'text-yellow-400',
-    },
-    {
-      id: 'poll',
-      type: 'poll' as SequenceStepType,
-      title: lang === 'ar' ? 'التفاعل: استطلاع وتصويت مباشر' : 'Interactivity: Live Poll',
-      desc: lang === 'ar' ? 'بدء، إنهاء، أو تصفير استطلاع وتصويت مباشر على الشاشة' : 'Start, end, or reset a live stream vote/poll',
-      icon: BarChart3,
-      color: 'text-violet-400',
-    },
-    {
-      id: 'run_sequence',
-      type: 'run_sequence' as SequenceStepType,
-      title: lang === 'ar' ? 'النظام: تشغيل سلسلة أخرى' : 'Core: Run Another Sequence',
-      desc: lang === 'ar' ? 'استدعاء سلسلة أخرى كخطوة فرعية لبناء سلاسل قابلة لإعادة الاستخدام' : 'Call another sequence as a sub-action to build reusable sequences',
-      icon: Workflow,
-      color: 'text-indigo-400',
-    },
-    {
-      id: 'if',
-      type: 'if' as SequenceStepType,
-      title: lang === 'ar' ? 'المنطق: إذا / وإلا (نتيجة اللعبة أو الاستطلاع)' : 'Logic: If / Else (mini game or poll result)',
-      desc: lang === 'ar' ? 'نفّذ خطوات مختلفة حسب من فاز في التحدي أو ما هي نتيجة الاستطلاع' : 'Run different steps depending on who won the mini game or what the poll result was',
-      icon: GitBranch,
-      color: 'text-cyan-400',
-    },
-    {
-      id: 'mic_mute',
-      type: 'mic_mute' as SequenceStepType,
-      title: lang === 'ar' ? 'الصوت: كتم مايك الستريمر لمدة مؤقتة' : 'Audio: Mute Streamer Mic for Duration',
-      desc: lang === 'ar' ? 'كتم ميكروفون الويندوز الافتراضي مع إعادة تشغيل تلقائية آمنة' : 'Temporarily mute default microphone with fail-safe auto-unmute',
-      icon: MicOff,
-      color: 'text-rose-400',
-    },
-    {
-      id: 'chat',
-      type: 'chat' as SequenceStepType,
-      title: lang === 'ar' ? 'تويتش: إرسال رسالة في الشات' : 'Twitch: Send Chat Message',
-      desc: lang === 'ar' ? 'إرسال رسالة مخصصة أو تنبيه في شات تويتش' : 'Post a custom message or alert to Twitch chat',
-      icon: MessageSquare,
-      color: 'text-sky-400',
-    },
-    {
-      id: 'shoutout',
-      type: 'moderation' as SequenceStepType,
-      title: lang === 'ar' ? 'تويتش: شوت أوت لقناة الـ Raider' : 'Twitch: Shoutout Raider / Channel',
-      desc: lang === 'ar' ? 'إرسال شوت أوت رسمي (/shoutout)' : 'Send an official Twitch shoutout (/shoutout)',
-      icon: Megaphone,
-      color: 'text-orange-400',
-      options: { moderationAction: 'shoutout' as ModerationAction, targetUser: '{raider}' },
-    },
-    {
-      id: 'smart_timeout',
-      type: 'moderation' as SequenceStepType,
-      title: lang === 'ar' ? 'تويتش: إسكات ذكي (مع دعم المشرفين)' : 'Twitch: Smart Timeout (Mods & Lead Mods)',
-      desc: lang === 'ar' ? 'سحب رتبة المشرف مؤقتاً، إسكاته، ثم إعادتها تلقائياً' : 'Temporarily unmods, times out, and automatically re-mods (supports Mods & Lead Mods)',
-      icon: Zap,
-      color: 'text-amber-400',
-      options: { moderationAction: 'smart_timeout' as ModerationAction, targetUser: '{input}', durationSeconds: 60 },
-    },
-    {
-      id: 'timeout',
-      type: 'moderation' as SequenceStepType,
-      title: lang === 'ar' ? 'تويتش: إسكات عادي (Timeout)' : 'Twitch: Regular Timeout',
-      desc: lang === 'ar' ? 'إسكات المشاهد المحدد لعدد ثوانٍ معين' : 'Timeout a target chatter for specified seconds',
-      icon: Shield,
-      color: 'text-rose-400',
-      options: { moderationAction: 'timeout' as ModerationAction, targetUser: '{input}', durationSeconds: 60 },
-    },
-    {
-      id: 'clear_chat',
-      type: 'moderation' as SequenceStepType,
-      title: lang === 'ar' ? 'تويتش: مسح الشات بالكامل' : 'Twitch: Clear Chat',
-      desc: lang === 'ar' ? 'مسح كل الرسائل في شات تويتش' : 'Clear the entire Twitch chat room',
-      icon: Shield,
-      color: 'text-rose-400',
-      options: { moderationAction: 'clear_chat' as ModerationAction },
-    },
-    {
-      id: 'wait',
-      type: 'wait' as SequenceStepType,
-      title: lang === 'ar' ? 'النظام: انتظار / تأخير زمني' : 'Core: Delay / Wait',
-      desc: lang === 'ar' ? 'إيقاف التنفيذ مؤقتاً لعدد ثوانٍ أو دقائق' : 'Pause execution for specified seconds or minutes',
-      icon: Clock,
-      color: 'text-amber-400',
-    },
-    {
-      id: 'counter',
-      type: 'counter' as SequenceStepType,
-      title: lang === 'ar' ? 'العدّادات: تعديل قيمة عدّاد' : 'Counters: Modify Counter',
-      desc: lang === 'ar' ? 'زيادة، إنقاص، أو تصفير قيمة عدّاد' : 'Increment, decrement, or reset a stream counter',
-      icon: Calculator,
-      color: 'text-emerald-400',
-    },
-    {
-      id: 'command',
-      type: 'command' as SequenceStepType,
-      title: lang === 'ar' ? 'النظام: تشغيل أمر فرعي' : 'Core: Run Sub-Command',
-      desc: lang === 'ar' ? 'تشغيل أمر أو تسلسل آخر' : 'Trigger another command or sequence',
-      icon: Terminal,
-      color: 'text-violet-400',
-    },
-  ];
+  const subActionGroups = groupSubActions(searchSubActionQuery);
 
-  const filteredSubActionItems = SUB_ACTION_SEARCH_ITEMS.filter(
-    (item) =>
-      item.title.toLowerCase().includes(searchSubActionQuery.toLowerCase()) ||
-      item.desc.toLowerCase().includes(searchSubActionQuery.toLowerCase())
-  );
+  /** One row per sub-action, grouped under category headings. Used by the Add menu, the search box and the right-click menu. */
+  const renderSubActionGroups = (groups: SubActionGroup[], afterPick: () => void, showDesc: boolean) =>
+    groups.map((group) => (
+      <div key={group.category.id}>
+        <div className="px-2 pb-0.5 pt-1.5 font-mono text-[9.5px] uppercase tracking-wider text-muted">
+          {lang === 'ar' ? group.category.ar : group.category.en}
+        </div>
+        {group.items.map((entry) => {
+          const { icon: Icon, color } = SUB_ACTION_STYLE[entry.id] ?? SUB_ACTION_STYLE.chat;
+          const text = lang === 'ar' ? entry.ar : entry.en;
+          return (
+            <button
+              key={entry.id}
+              type="button"
+              title={text.desc}
+              className="flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] transition-colors"
+              onClick={() => {
+                const ns = addStep(sequence.id, entry.type, entry.options);
+                afterPick();
+                setEditingStepId(ns.id);
+              }}
+            >
+              <Icon size={14} className={`${color} shrink-0`} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-semibold text-white">{text.label}</div>
+                {showDesc && <div className="truncate text-[9.5px] text-muted">{text.desc}</div>}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    ));
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-[#0d0f14] font-sans text-foreground">
@@ -4623,31 +4504,17 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                       <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
                         Select Sub-Action to Add
                       </div>
-                      {filteredSubActionItems.length === 0 ? (
+                      {subActionGroups.length === 0 ? (
                         <div className="px-3 py-2 text-[11px] text-muted">No sub-actions match search</div>
                       ) : (
-                        filteredSubActionItems.map((item) => {
-                          const Icon = item.icon;
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              className="flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] transition-colors"
-                              onClick={() => {
-                                const newStep = addStep(sequence.id, item.type, item.options);
-                                setShowSubActionSearchDropdown(false);
-                                setSearchSubActionQuery('');
-                                setEditingStepId(newStep.id);
-                              }}
-                            >
-                              <Icon size={14} className={`${item.color} shrink-0`} />
-                              <div className="min-w-0 flex-1">
-                                <div className="font-semibold text-white truncate">{item.title}</div>
-                                <div className="text-[9.5px] text-muted truncate">{item.desc}</div>
-                              </div>
-                            </button>
-                          );
-                        })
+                        renderSubActionGroups(
+                          subActionGroups,
+                          () => {
+                            setShowSubActionSearchDropdown(false);
+                            setSearchSubActionQuery('');
+                          },
+                          true,
+                        )
                       )}
                     </div>
                   )}
@@ -4680,251 +4547,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                   </Button>
 
                   {showAddActionMenu && (
-                    <div ref={fitMenuToViewport} className="absolute end-0 top-full z-30 mt-1 w-64 rounded-md border border-[#2e3448] bg-[#161a26] p-1.5 shadow-xl">
-                      <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
-                        {t(lang, 'sequence.categoryTwitch')}
-                      </div>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-sky-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'chat', { chatMessage: 'Drinking water! Thanks {username} 🥤' });
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <MessageSquare size={13} />
-                        <span>{t(lang, 'sequence.actionSendChatMessage')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-orange-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'moderation', { moderationAction: 'shoutout', targetUser: '{raider}' });
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Megaphone size={13} />
-                        <span>{t(lang, 'sequence.actionSendShoutout')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-rose-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'moderation', { moderationAction: 'smart_timeout', targetUser: '{target}' });
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Shield size={13} />
-                        <span>{t(lang, 'sequence.stepModeration')}</span>
-                      </button>
-
-                      <div className="my-1 h-px bg-white/[0.08]" />
-                      <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
-                        {t(lang, 'sequence.categoryAudioSpeech')}
-                      </div>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-indigo-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'sound');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Volume2 size={13} />
-                        <span>{t(lang, 'sequence.stepSound')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-teal-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'tts');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Mic size={13} />
-                        <span>{t(lang, 'sequence.stepTts')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-rose-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'mic_mute');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <MicOff size={13} />
-                        <span>{t(lang, 'sequence.stepMicMute')}</span>
-                      </button>
-
-                      <div className="my-1 h-px bg-white/[0.08]" />
-                      <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
-                        {t(lang, 'sequence.categoryInteractivity')}
-                      </div>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-amber-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'obs_text');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <FileText size={13} />
-                        <span>{t(lang, 'sequence.stepObsText')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-pink-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'obs_image');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <ImageIcon size={13} />
-                        <span>{t(lang, 'sequence.stepObsImage')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-violet-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'clip_create');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Clapperboard size={13} />
-                        <span>{t(lang, 'sequence.stepClipCreate')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-fuchsia-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'obs_clip');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Clapperboard size={13} />
-                        <span>{t(lang, 'sequence.stepObsClip')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-amber-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'duel', {
-                            duelMode: 'ai_trivia',
-                            duelOpponent: '{input}',
-                            duelTimeoutDuration: 60,
-                            duelTimerSeconds: 30,
-                          });
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Swords size={13} />
-                        <span>{t(lang, 'sequence.stepDuel')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-yellow-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'duel_streamer', {
-                            duelMode: 'ai_trivia',
-                            duelOpponent: '{broadcaster}',
-                            duelTimeoutDuration: 60,
-                            duelTimerSeconds: 30,
-                          });
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Crown size={13} />
-                        <span>{t(lang, 'sequence.stepDuelStreamer')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-violet-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'poll');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <BarChart3 size={13} />
-                        <span>{t(lang, 'sequence.stepPoll')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-cyan-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'if');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <GitBranch size={13} />
-                        <span>{t(lang, 'sequence.stepIf')}</span>
-                      </button>
-
-                      <div className="my-1 h-px bg-white/[0.08]" />
-                      <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
-                        {t(lang, 'sequence.categoryCore')}
-                      </div>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-indigo-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'run_sequence');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Workflow size={13} />
-                        <span>{t(lang, 'sequence.stepRunSequence')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-amber-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'wait', { waitDuration: 2, waitUnit: 'seconds' });
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Clock size={13} />
-                        <span>{t(lang, 'sequence.stepWait')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-emerald-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'counter');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Calculator size={13} />
-                        <span>{t(lang, 'sequence.stepCounter')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-violet-400 transition-colors"
-                        onClick={() => {
-                          const ns = addStep(sequence.id, 'command');
-                          setShowAddActionMenu(false);
-                          setEditingStepId(ns.id);
-                        }}
-                      >
-                        <Terminal size={13} />
-                        <span>{t(lang, 'sequence.stepCommand')}</span>
-                      </button>
+                    <div ref={fitMenuToViewport} className="absolute end-0 top-full z-30 mt-1 w-72 rounded-md border border-[#2e3448] bg-[#161a26] p-1.5 shadow-xl">
+                      {renderSubActionGroups(groupSubActions(''), () => setShowAddActionMenu(false), false)}
                     </div>
                   )}
                 </div>
@@ -5370,232 +4994,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               <div className="px-2 py-1 font-mono text-[9.5px] uppercase tracking-wider text-muted">
                 {t(lang, 'sequence.contextAddSubAction')}
               </div>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-indigo-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'sound');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Volume2 size={14} />
-                <span>{t(lang, 'sequence.stepSound')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-teal-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'tts');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Mic size={14} />
-                <span>{t(lang, 'sequence.stepTts')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-rose-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'mic_mute');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <MicOff size={14} />
-                <span>{t(lang, 'sequence.stepMicMute')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-amber-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'obs_text');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <FileText size={14} />
-                <span>{t(lang, 'sequence.stepObsText')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-pink-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'obs_image');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <ImageIcon size={14} />
-                <span>{t(lang, 'sequence.stepObsImage')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-violet-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'clip_create');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Clapperboard size={14} />
-                <span>{t(lang, 'sequence.stepClipCreate')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-fuchsia-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'obs_clip');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Clapperboard size={14} />
-                <span>{t(lang, 'sequence.stepObsClip')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-amber-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'duel', {
-                    duelMode: 'ai_trivia',
-                    duelOpponent: '{input}',
-                    duelTimeoutDuration: 60,
-                    duelTimerSeconds: 30,
-                  });
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Swords size={14} />
-                <span>{t(lang, 'sequence.stepDuel')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-yellow-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'duel_streamer', {
-                    duelMode: 'ai_trivia',
-                    duelOpponent: '{broadcaster}',
-                    duelTimeoutDuration: 60,
-                    duelTimerSeconds: 30,
-                  });
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Crown size={14} />
-                <span>{t(lang, 'sequence.stepDuelStreamer')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-violet-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'poll');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <BarChart3 size={14} />
-                <span>{t(lang, 'sequence.stepPoll')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-indigo-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'run_sequence');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Workflow size={14} />
-                <span>{t(lang, 'sequence.stepRunSequence')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-cyan-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'if');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <GitBranch size={14} />
-                <span>{t(lang, 'sequence.stepIf')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-orange-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'moderation', { moderationAction: 'shoutout', targetUser: '{raider}' });
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Megaphone size={14} />
-                <span>{t(lang, 'sequence.actionSendShoutout')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-sky-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'chat', { chatMessage: 'Thanks @{raider} for raiding with {viewers} viewers!' });
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <MessageSquare size={14} />
-                <span>{t(lang, 'sequence.actionSendChatMessage')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-rose-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'moderation', { moderationAction: 'smart_timeout', targetUser: '{target}' });
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Shield size={14} />
-                <span>{t(lang, 'sequence.stepModeration')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-amber-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'wait', { waitDuration: 2, waitUnit: 'seconds' });
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Clock size={14} />
-                <span>{t(lang, 'sequence.stepWait')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-emerald-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'counter');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Calculator size={14} />
-                <span>{t(lang, 'sequence.stepCounter')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-violet-400"
-                onClick={() => {
-                  const ns = addStep(sequence.id, 'command');
-                  setContextMenu(null);
-                  setEditingStepId(ns.id);
-                }}
-              >
-                <Terminal size={14} />
-                <span>{t(lang, 'sequence.stepCommand')}</span>
-              </button>
+              {renderSubActionGroups(groupSubActions('').filter((g) => g.category.id !== 'notes'), () => setContextMenu(null), false)}
             </>
           )}
         </div>
