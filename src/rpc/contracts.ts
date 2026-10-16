@@ -364,6 +364,12 @@ export interface SequenceStep {
   clipUseClipLength?: boolean;
   /** Create Clip step: what chat is told when the clip could not be made. */
   clipCreateFailMessage?: string;
+  /** Create Clip: title of the clip on Twitch. Tokens: {username} {streamer}. Max 100 characters. */
+  clipTitle?: string;
+  /** Create Clip: how long the clip is, 5 to 60 seconds (Twitch default 30). */
+  clipLengthSeconds?: number;
+  /** Create Clip: include the stream delay so the clip matches what viewers saw. */
+  clipHasDelay?: boolean;
   /** 0 to 1. */
   clipVolume?: number;
   clipPosition?: OverlayPosition;
@@ -1000,7 +1006,7 @@ export interface HostApi {
     request: { messageId: string };
     response: { ok: boolean; error?: string };
   };
-  [Channels.TwitchCreateClip]: { request: undefined; response: CreateClipResponse };
+  [Channels.TwitchCreateClip]: { request: CreateClipRequest | undefined; response: CreateClipResponse };
   [Channels.TwitchModerationShoutout]: {
     request: { target: string };
     response: { ok: boolean; error?: string };
@@ -1079,6 +1085,12 @@ export interface ShowOverlayClipRequest {
   size?: number;
   showCaption?: boolean;
   caption?: string;
+}
+
+export interface CreateClipRequest {
+  title?: string;
+  durationSeconds?: number;
+  hasDelay?: boolean;
 }
 
 export interface CreateClipResponse {

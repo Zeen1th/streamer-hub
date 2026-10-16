@@ -4,6 +4,7 @@ import type { ClipPeriod, ClipSelection, OverlayAnimation, OverlayPosition, Sequ
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
 import { useConnectionStore } from '../../store/connectionStore';
+import { DEFAULT_CLIP_FAIL_MESSAGE, DEFAULT_CLIP_LENGTH_SECONDS, DEFAULT_CLIP_TITLE, replaceSequenceTokens } from '../../lib/sequenceRunner';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -489,55 +490,110 @@ export function ClipStepEditor({ lang, value, onChange }: ClipStepEditorProps) {
 
 const CREATE_TEXT = {
   en: {
-    about: 'Clips the last moments of your live stream when a viewer uses the command. Twitch always credits a clip to your own account, so Streamer Hub credits the viewer: it counts their clips for the Top clippers leaderboard on Home.',
+    about: 'Clips the last moments of your live stream when a viewer uses the command. Twitch always credits a clip to your own account, so Streamer Hub credits the viewer: it counts their clips for the Top clippers leaderboard on Home, and puts their name in the clip title below.',
     tokens: 'Use {clip_url} (the clip link), {clip_count} (how many clips this viewer has made) and {username} in a chat step after this one.',
+    title: 'Clip title',
+    titleHint: 'Shown on Twitch. Use {username} for the viewer and {streamer} for you. Empty = Twitch picks a title. Up to 100 characters.',
+    length: 'Clip length',
+    lengthHint: 'How many seconds the clip covers, counted back from the moment of the command.',
+    delay: 'Include the stream delay',
+    delayHint: 'Turn on if your stream has a delay, so the clip matches what viewers saw.',
     failMessage: 'Chat message when the clip could not be made',
     failHint: 'The sequence stops after this message. Common reasons: you are not live, or Twitch has not been allowed to clip yet.',
     test: 'Create a test clip now',
     testNote: 'This makes a real clip on your channel. It is not counted for any viewer.',
-    working: 'Creating (takes a few seconds)...',
+    working: 'Creating (takes up to 10 seconds)...',
     made: 'Clip created',
     MISSING_SCOPE: 'Twitch has not allowed clipping yet. Open Settings > Twitch and connect again once, then try again.',
     CHANNEL_OFFLINE: 'You need to be live to make a clip.',
+    timeout: 'Twitch took too long to answer. The clip may still have been created: check your clips on Twitch.',
+    failed: 'The clip could not be made',
   },
   ar: {
-    about: 'يصنع مقطعاً من آخر لحظات بثك المباشر عندما يستخدم مشاهد الأمر. تويتش يحسب كل مقطع على حسابك أنت، لذلك Streamer Hub ينسب المقطع للمشاهد ويحسب مقاطعه للوحة أكثر صنّاع المقاطع في الرئيسية.',
+    about: 'يصنع مقطعاً من آخر لحظات بثك المباشر عندما يستخدم مشاهد الأمر. تويتش يحسب كل مقطع على حسابك أنت، لذلك Streamer Hub ينسب المقطع للمشاهد: يحسب مقاطعه للوحة أكثر صنّاع المقاطع في الرئيسية، ويضع اسمه في عنوان المقطع أدناه.',
     tokens: 'استخدم {clip_url} (رابط المقطع) و {clip_count} (عدد مقاطع هذا المشاهد) و {username} في رسالة شات بعد هذه الخطوة.',
+    title: 'عنوان المقطع',
+    titleHint: 'يظهر في تويتش. استخدم {username} للمشاهد و {streamer} لك. فارغ = تويتش يختار عنواناً. حتى 100 حرف.',
+    length: 'طول المقطع',
+    lengthHint: 'عدد الثواني التي يغطيها المقطع، محسوبة للخلف من لحظة الأمر.',
+    delay: 'تضمين تأخير البث',
+    delayHint: 'فعّله إذا كان بثك به تأخير، ليطابق المقطع ما رآه المشاهدون.',
     failMessage: 'رسالة الشات عندما يتعذّر إنشاء المقطع',
     failHint: 'تتوقف السلسلة بعد هذه الرسالة. الأسباب الشائعة: أنت لست في بث مباشر، أو لم يُسمح لتويتش بإنشاء المقاطع بعد.',
     test: 'أنشئ مقطعاً تجريبياً الآن',
     testNote: 'هذا يصنع مقطعاً حقيقياً على قناتك، ولا يُحسب لأي مشاهد.',
-    working: 'جارٍ الإنشاء (يستغرق ثوانٍ)...',
+    working: 'جارٍ الإنشاء (حتى 10 ثوانٍ)...',
     made: 'تم إنشاء المقطع',
     MISSING_SCOPE: 'لم يُسمح لتويتش بإنشاء المقاطع بعد. افتح الإعدادات > تويتش واربط حسابك مرة أخرى ثم جرّب من جديد.',
     CHANNEL_OFFLINE: 'يجب أن تكون في بث مباشر لإنشاء مقطع.',
+    timeout: 'تأخر تويتش في الرد. ربما تم إنشاء المقطع فعلاً: تحقق من مقاطعك في تويتش.',
+    failed: 'تعذّر إنشاء المقطع',
   },
 } as const;
 
-interface ClipCreateEditorProps {
-  lang: 'en' | 'ar';
+/** What the Create Clip step lets the streamer set. */
+export interface ClipCreateSettings {
+  title: string;
+  lengthSeconds: number;
+  hasDelay: boolean;
   failMessage: string;
-  onFailMessageChange: (value: string) => void;
 }
 
-export function ClipCreateEditor({ lang, failMessage, onFailMessageChange }: ClipCreateEditorProps) {
+export function clipCreateSettingsFromStep(step: SequenceStep): ClipCreateSettings {
+  return {
+    title: step.clipTitle ?? DEFAULT_CLIP_TITLE,
+    lengthSeconds: step.clipLengthSeconds ?? DEFAULT_CLIP_LENGTH_SECONDS,
+    hasDelay: step.clipHasDelay ?? false,
+    failMessage: step.clipCreateFailMessage ?? DEFAULT_CLIP_FAIL_MESSAGE,
+  };
+}
+
+export function clipCreateSettingsToStep(value: ClipCreateSettings): Partial<SequenceStep> {
+  return {
+    clipTitle: value.title.trim(),
+    clipLengthSeconds: value.lengthSeconds,
+    clipHasDelay: value.hasDelay,
+    clipCreateFailMessage: value.failMessage.trim(),
+  };
+}
+
+interface ClipCreateEditorProps {
+  lang: 'en' | 'ar';
+  value: ClipCreateSettings;
+  onChange: (patch: Partial<ClipCreateSettings>) => void;
+}
+
+export function ClipCreateEditor({ lang, value, onChange }: ClipCreateEditorProps) {
   const tx = CREATE_TEXT[lang];
+  const twitchChannel = useConnectionStore((s) => s.twitchChannel);
   const [working, setWorking] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
+
+  const addToken = (token: string) =>
+    onChange({ title: `${value.title}${value.title && !value.title.endsWith(' ') ? ' ' : ''}${token}` });
 
   const runTest = async () => {
     setWorking(true);
     setResult(null);
     try {
-      const res = await rpc.invoke(Channels.TwitchCreateClip, undefined);
+      const streamer = (twitchChannel ?? '').replace(/^#+/, '') || 'streamer';
+      const title = replaceSequenceTokens(value.title, { username: 'Test', source: 'test', broadcasterName: streamer }).trim();
+      // Twitch needs a few seconds to process the clip, so wait longer than the usual 8 seconds.
+      const res = await rpc.invoke(
+        Channels.TwitchCreateClip,
+        { title, durationSeconds: value.lengthSeconds, hasDelay: value.hasDelay },
+        30_000,
+      );
       if (res?.ok) {
         setResult({ ok: true, text: tx.made, url: res.url ?? undefined });
+      } else if (res?.error === 'MISSING_SCOPE' || res?.error === 'CHANNEL_OFFLINE') {
+        setResult({ ok: false, text: tx[res.error] });
       } else {
-        const known = res?.error === 'MISSING_SCOPE' || res?.error === 'CHANNEL_OFFLINE' ? tx[res.error] : undefined;
-        setResult({ ok: false, text: known ?? res?.error ?? 'Failed' });
+        setResult({ ok: false, text: `${tx.failed}: ${res?.error ?? '?'}` });
       }
     } catch (err) {
-      setResult({ ok: false, text: err instanceof Error ? err.message : 'Failed' });
+      const message = err instanceof Error ? err.message : String(err);
+      setResult({ ok: false, text: /TIMEOUT/i.test(message) ? tx.timeout : `${tx.failed}: ${message}` });
     } finally {
       setWorking(false);
     }
@@ -551,8 +607,38 @@ export function ClipCreateEditor({ lang, failMessage, onFailMessageChange }: Cli
       </div>
 
       <div className="flex flex-col gap-1.5">
+        <label className={labelClass}>{tx.title}</label>
+        <Input value={value.title} onChange={(e) => onChange({ title: e.target.value })} maxLength={100} className="h-9 text-[12.5px]" />
+        <div className="flex flex-wrap items-center gap-1.5">
+          {['{username}', '{streamer}'].map((tok) => (
+            <button key={tok} type="button" onClick={() => addToken(tok)} className={chipClass}>
+              {tok}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted">{tx.titleHint}</p>
+      </div>
+
+      <div className={boxClass}>
+        <div className="flex items-center justify-between">
+          <span className={labelClass}>{tx.length}</span>
+          <span className="font-mono text-[11px] text-zinc-400">{value.lengthSeconds}s</span>
+        </div>
+        <Slider value={value.lengthSeconds} min={5} max={60} step={5} onChange={(lengthSeconds) => onChange({ lengthSeconds })} ariaLabel={tx.length} />
+        <p className="text-[11px] text-muted">{tx.lengthHint}</p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+        <div className="min-w-0">
+          <div className={labelClass}>{tx.delay}</div>
+          <p className="text-[11px] text-muted">{tx.delayHint}</p>
+        </div>
+        <Switch checked={value.hasDelay} onChange={(hasDelay) => onChange({ hasDelay })} label={tx.delay} />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
         <label className={labelClass}>{tx.failMessage}</label>
-        <Input value={failMessage} onChange={(e) => onFailMessageChange(e.target.value)} className="h-9 text-[12.5px]" />
+        <Input value={value.failMessage} onChange={(e) => onChange({ failMessage: e.target.value })} className="h-9 text-[12.5px]" />
         <p className="text-[11px] text-muted">{tx.failHint}</p>
       </div>
 

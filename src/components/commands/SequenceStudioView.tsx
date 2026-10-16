@@ -80,7 +80,14 @@ import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
 import { DurationPicker } from '../ui/DurationPicker';
 import { fieldDir } from '../../lib/textDirection';
-import { ClipCreateEditor, ClipStepEditor, clipSettingsFromStep, clipSettingsToStep } from './ClipStepEditor';
+import {
+  ClipCreateEditor,
+  ClipStepEditor,
+  clipCreateSettingsFromStep,
+  clipCreateSettingsToStep,
+  clipSettingsFromStep,
+  clipSettingsToStep,
+} from './ClipStepEditor';
 import type { ClipSettings } from './ClipStepEditor';
 
 export const EDGE_NEURAL_VOICES = [
@@ -958,7 +965,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
   >(step.imageAnimation ?? 'bounce');
   const [imageScale, setImageScale] = useState(step.imageScale ?? 1.0);
   // Create Clip state
-  const [clipFailMessage, setClipFailMessage] = useState(step.clipCreateFailMessage ?? DEFAULT_CLIP_FAIL_MESSAGE);
+  const [clipCreate, setClipCreate] = useState(() => clipCreateSettingsFromStep(step));
   // OBS Clip state
   const [clip, setClip] = useState<ClipSettings>(() => clipSettingsFromStep(step));
   const [isPreviewingImage, setIsPreviewingImage] = useState(false);
@@ -1208,7 +1215,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
         });
         break;
       case 'clip_create':
-        saveWithShield({ clipCreateFailMessage: clipFailMessage.trim() });
+        saveWithShield(clipCreateSettingsToStep(clipCreate));
         break;
       case 'obs_clip':
         saveWithShield(clipSettingsToStep(clip));
@@ -2262,7 +2269,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
 
           {/* CREATE CLIP */}
           {step.type === 'clip_create' && (
-            <ClipCreateEditor lang={lang} failMessage={clipFailMessage} onFailMessageChange={setClipFailMessage} />
+            <ClipCreateEditor lang={lang} value={clipCreate} onChange={(patch) => setClipCreate((c) => ({ ...c, ...patch }))} />
           )}
 
           {/* OBS CLIP */}

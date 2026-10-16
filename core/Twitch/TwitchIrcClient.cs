@@ -1049,46 +1049,70 @@ public sealed class TwitchIrcClient : ITwitchClient
         }
     }
 
-    public async Task<(bool Ok, string? Id, string? Url, string? Title, string? Error)> CreateClipAsync(CancellationToken cancellationToken = default)
+    public async Task<(bool Ok, string? Id, string? Url, string? Title, string? Error)> CreateClipAsync(
+        string? title = null,
+        int? durationSeconds = null,
+        bool hasDelay = false,
+        CancellationToken cancellationToken = default)
     {
         var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, null, null, null, bErr ?? "BROADCASTER_ID_NOT_FOUND");
 
+        var baseUrl = $"https://api.twitch.tv/helix/clips?broadcaster_id={Uri.EscapeDataString(broadcasterId)}";
+        var cleanTitle = string.IsNullOrWhiteSpace(title) ? null : (title.Trim().Length > 100 ? title.Trim()[..100] : title.Trim());
+        var extras = string.Empty;
+        if (hasDelay) extras += "&has_delay=true";
+        if (cleanTitle is not null) extras += $"&title={Uri.EscapeDataString(cleanTitle)}";
+        if (durationSeconds is int length) extras += $"&duration={Math.Clamp(length, 5, 60)}";
+
         try
         {
-            using var response = await SendHelixWithRetryAsync(
-                () => new HttpRequestMessage(HttpMethod.Post, $"https://api.twitch.tv/helix/clips?broadcaster_id={Uri.EscapeDataString(broadcasterId)}"),
+            var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, baseUrl + extras),
                 cancellationToken).ConfigureAwait(false);
-            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-                return (false, null, null, null, "MISSING_SCOPE");
-            if (response.StatusCode == HttpStatusCode.NotFound)
-                return (false, null, null, null, "CHANNEL_OFFLINE");
-            if (!response.IsSuccessStatusCode)
-                return (false, null, null, null, await ReadHelixErrorAsync(response).ConfigureAwait(false));
-
-            using var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
-            var id = created.RootElement.GetProperty("data")[0].GetProperty("id").GetString();
-            if (string.IsNullOrWhiteSpace(id)) return (false, null, null, null, "CLIP_ID_MISSING");
-
-            // The clip is processed for a few seconds; wait until Twitch lists it so the link works, but never hold the command for long.
-            string? title = null;
-            var url = $"https://clips.twitch.tv/{id}";
-            for (var attempt = 0; attempt < 8; attempt++)
+            // A title or length Twitch does not accept must not stop the clip: try again with Twitch's own defaults.
+            if (response.StatusCode == HttpStatusCode.BadRequest && extras.Length > 0)
             {
-                await Task.Delay(1500, cancellationToken).ConfigureAwait(false);
-                using var lookup = await SendHelixWithRetryAsync(
-                    () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/clips?id={Uri.EscapeDataString(id)}"),
+                response.Dispose();
+                response = await SendHelixWithRetryAsync(
+                    () => new HttpRequestMessage(HttpMethod.Post, baseUrl + (hasDelay ? "&has_delay=true" : string.Empty)),
                     cancellationToken).ConfigureAwait(false);
-                if (!lookup.IsSuccessStatusCode) continue;
-                using var listed = JsonDocument.Parse(await lookup.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
-                var data = listed.RootElement.GetProperty("data");
-                if (data.GetArrayLength() == 0) continue;
-                title = data[0].TryGetProperty("title", out var t) ? t.GetString() : null;
-                if (data[0].TryGetProperty("url", out var u) && !string.IsNullOrWhiteSpace(u.GetString())) url = u.GetString()!;
-                break;
             }
 
-            return (true, id, url, title, null);
+            using (response)
+            {
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    return (false, null, null, null, "MISSING_SCOPE");
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                    return (false, null, null, null, "CHANNEL_OFFLINE");
+                if (!response.IsSuccessStatusCode)
+                    return (false, null, null, null, await ReadHelixErrorAsync(response).ConfigureAwait(false));
+
+                using var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                var id = created.RootElement.GetProperty("data")[0].GetProperty("id").GetString();
+                if (string.IsNullOrWhiteSpace(id)) return (false, null, null, null, "CLIP_ID_MISSING");
+
+                // Twitch processes the clip for a few seconds. Wait (briefly) until it is listed so the link works, but
+                // answer within ~8s either way: the clip exists as soon as Twitch accepted the request.
+                string? madeTitle = cleanTitle;
+                var url = $"https://clips.twitch.tv/{id}";
+                for (var attempt = 0; attempt < 8; attempt++)
+                {
+                    await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
+                    using var lookup = await SendHelixWithRetryAsync(
+                        () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/clips?id={Uri.EscapeDataString(id)}"),
+                        cancellationToken).ConfigureAwait(false);
+                    if (!lookup.IsSuccessStatusCode) continue;
+                    using var listed = JsonDocument.Parse(await lookup.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                    var data = listed.RootElement.GetProperty("data");
+                    if (data.GetArrayLength() == 0) continue;
+                    madeTitle = data[0].TryGetProperty("title", out var t) ? t.GetString() : madeTitle;
+                    if (data[0].TryGetProperty("url", out var u) && !string.IsNullOrWhiteSpace(u.GetString())) url = u.GetString()!;
+                    break;
+                }
+
+                return (true, id, url, madeTitle, null);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

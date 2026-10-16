@@ -217,6 +217,9 @@ public sealed record SequenceStep
     public string? ClipPeriod { get; init; } // "week" | "month" | "year" | "all"
     public int? ClipMaxSeconds { get; init; }
     public string? ClipCreateFailMessage { get; init; } // reply when a Create Clip step fails
+    public string? ClipTitle { get; init; } // Create Clip: title template
+    public int? ClipLengthSeconds { get; init; } // Create Clip: 5 to 60
+    public bool? ClipHasDelay { get; init; } // Create Clip: include the stream delay
     public bool? ClipUseClipLength { get; init; } // show the whole clip instead of cutting it at ClipMaxSeconds
     public double? ClipVolume { get; init; }
     public string? ClipPosition { get; init; }
@@ -510,6 +513,9 @@ public sealed record ShowOverlayClipPayload(
     bool ShowCaption = true,
     string? Caption = null
 );
+
+/// <summary>What a Create Clip step asks for. Everything is optional; Twitch fills in its defaults.</summary>
+public sealed record CreateClipPayload(string? Title = null, int? DurationSeconds = null, bool HasDelay = false);
 
 /// <summary>One clip from Helix GET /clips.</summary>
 public sealed record TwitchClipInfo(

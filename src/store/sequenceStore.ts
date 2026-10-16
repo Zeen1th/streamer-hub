@@ -20,6 +20,8 @@ import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 import {
   DEFAULT_CLIP_FAIL_MESSAGE,
+  DEFAULT_CLIP_LENGTH_SECONDS,
+  DEFAULT_CLIP_TITLE,
   executeSequence,
   extractCommandArguments,
   isSequenceOnCooldown,
@@ -275,6 +277,9 @@ export const defaultStepForType = (type: SequenceStepType, options?: Partial<Seq
         id,
         type: 'clip_create',
         clipCreateFailMessage: options?.clipCreateFailMessage ?? DEFAULT_CLIP_FAIL_MESSAGE,
+        clipTitle: options?.clipTitle ?? DEFAULT_CLIP_TITLE,
+        clipLengthSeconds: options?.clipLengthSeconds ?? DEFAULT_CLIP_LENGTH_SECONDS,
+        clipHasDelay: options?.clipHasDelay ?? false,
         ...options,
       };
     case 'obs_clip':
@@ -1007,9 +1012,18 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
             return false;
           }
         },
-        createClip: async (ctx) => {
+        createClip: async (step, ctx) => {
           try {
-            const res = await rpc.invoke(Channels.TwitchCreateClip, undefined);
+            // Twitch needs a few seconds to process the clip, so this call is allowed longer than the usual 8s.
+            const res = await rpc.invoke(
+              Channels.TwitchCreateClip,
+              {
+                title: step.clipTitle,
+                durationSeconds: step.clipLengthSeconds ?? DEFAULT_CLIP_LENGTH_SECONDS,
+                hasDelay: step.clipHasDelay ?? false,
+              },
+              30_000,
+            );
             if (!res?.ok) return { ok: false, error: res?.error ?? 'FAILED' };
             const login = ctx.userLogin || ctx.username;
             const stats = useStatsStore.getState();
@@ -1036,7 +1050,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
               size: step.clipSize,
               showCaption: step.clipShowCaption,
               caption: step.clipCaption,
-            });
+            }, 20_000);
             return { ok: Boolean(res?.ok), durationSeconds: res?.durationSeconds, error: res?.error ?? undefined };
           } catch (err) {
             return { ok: false, error: err instanceof Error ? err.message : 'RPC_FAILED' };

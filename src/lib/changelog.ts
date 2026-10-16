@@ -19,6 +19,25 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.20',
+    en: {
+      added: [
+        'The clip command can now be customized: the clip title (use {username} to put the viewer\'s name in it, so you can tell who made each clip on Twitch), the clip length from 5 to 60 seconds, and an option to include your stream delay. The Test button now reports clearly what happened.',
+      ],
+      fixed: [
+        'The clip command did nothing visible while you were live: the clip was made on Twitch, but the app gave up waiting after 8 seconds and treated it as a failure, so no link was posted and the viewer was not credited. It now waits long enough, posts the link, and counts the clip for the viewer.',
+      ],
+    },
+    ar: {
+      added: [
+        'أصبح أمر المقطع قابلاً للتخصيص: عنوان المقطع (استخدم {username} لوضع اسم المشاهد فيه لتعرف من صنع كل مقطع في تويتش)، وطول المقطع من 5 إلى 60 ثانية، وخيار لتضمين تأخير البث. وزر التجربة يوضح الآن ما حدث بدقة.',
+      ],
+      fixed: [
+        'أمر المقطع لم يكن يُظهر شيئاً أثناء البث المباشر: كان المقطع يُصنع في تويتش لكن التطبيق يتوقف عن الانتظار بعد 8 ثوانٍ ويعتبره فشلاً، فلا يُنشر الرابط ولا يُحسب المقطع للمشاهد. الآن ينتظر المدة الكافية وينشر الرابط ويحسب المقطع للمشاهد.',
+      ],
+    },
+  },
+  {
     version: '0.4.19',
     en: {
       added: [

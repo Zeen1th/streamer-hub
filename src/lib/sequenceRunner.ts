@@ -21,6 +21,10 @@ export interface SequenceExecutionContext {
 }
 
 /** Chat reply when a Create Clip step fails and the sequence stops. */
+/** Twitch credits every clip to the streamer, so the title is where the viewer's name goes. */
+export const DEFAULT_CLIP_TITLE = 'Clipped by {username}';
+export const DEFAULT_CLIP_LENGTH_SECONDS = 30;
+
 export const DEFAULT_CLIP_FAIL_MESSAGE = '@{username} could not clip that right now. Is the stream live?';
 
 /** A sequence may call another, which may call another... but no deeper than this. */
@@ -49,7 +53,7 @@ export interface SequenceExecutionSinks {
   writeObsText?: (filePath: string, content: string) => Promise<boolean>;
   showObsImage?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<boolean>;
   /** Makes a clip of the live channel and credits it to the viewer in `ctx`. `count` is that viewer's total clips. */
-  createClip?: (ctx: SequenceExecutionContext) => Promise<{ ok: boolean; url?: string; count?: number; error?: string }>;
+  createClip?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<{ ok: boolean; url?: string; count?: number; error?: string }>;
   /** Plays a clip from `step.clipChannel` (tokens already resolved). `ok: false` (no clips, unknown channel, Twitch down) is logged and the sequence continues. */
   showObsClip?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<{ ok: boolean; durationSeconds?: number; error?: string }>;
   executeDuel?: (
@@ -533,7 +537,10 @@ export async function executeSequence(
         case 'clip_create': {
           log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Create a clip for ${ctx.username}`);
           if (!sinks.createClip) break;
-          const made = await sinks.createClip(ctx);
+          const made = await sinks.createClip(
+            { ...step, clipTitle: replaceSequenceTokens(step.clipTitle ?? DEFAULT_CLIP_TITLE, ctx).trim() },
+            ctx,
+          );
           if (!made.ok) {
             const why = made.error === 'MISSING_SCOPE'
               ? 'Twitch has not allowed clipping yet. Reconnect Twitch once in Settings.'

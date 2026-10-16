@@ -977,12 +977,14 @@ test('clip_create credits the viewer and gives later steps {clip_url} and {clip_
   };
   const chats = [];
   const askedFor = [];
+  const titles = [];
   const result = await executeSequence(
     seq,
     { username: 'Viewer1', userLogin: 'viewer1', source: 'chat' },
     {
-      createClip: async (ctx) => {
+      createClip: async (step, ctx) => {
         askedFor.push(ctx.userLogin);
+        titles.push(step.clipTitle);
         return { ok: true, url: 'https://clips.twitch.tv/AbC', count: 3 };
       },
       sendChatMessage: async (message) => {
@@ -994,6 +996,8 @@ test('clip_create credits the viewer and gives later steps {clip_url} and {clip_
 
   assert.equal(result.ok, true);
   assert.deepEqual(askedFor, ['viewer1']);
+  // the viewer's name goes in the clip title (Twitch files the clip under the streamer)
+  assert.deepEqual(titles, ['Clipped by Viewer1']);
   assert.deepEqual(chats, ['@Viewer1 clip #3: https://clips.twitch.tv/AbC']);
 });
 
