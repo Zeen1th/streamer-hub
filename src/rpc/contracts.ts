@@ -166,6 +166,7 @@ export type SequenceStepType =
   | 'tts'
   | 'obs_text'
   | 'obs_image'
+  | 'obs_clip'
   | 'duel'
   | 'duel_streamer'
   | 'poll'
@@ -180,6 +181,18 @@ export type SequenceIfCondition =
   | 'poll_winner_is'
   | 'poll_tie'
   | 'poll_no_votes';
+export type ClipSelection = 'top' | 'random' | 'recent';
+export type ClipPeriod = 'week' | 'month' | 'year' | 'all';
+export type OverlayPosition =
+  | 'center'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
+  | 'top-center'
+  | 'bottom-center'
+  | 'fullscreen';
+export type OverlayAnimation = 'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none';
 export type SequenceWaitUnit = 'seconds' | 'minutes';
 export type SequenceTriggerType = 'channel_points' | 'chat' | 'both';
 
@@ -338,6 +351,27 @@ export interface SequenceStep {
   scale?: number;
   obsImageDestinationPath?: string;
   destinationPath?: string;
+
+  // OBS Clip: play a clip from another channel (raider / shoutout target)
+  /** Channel to take the clip from; `{target}` is the raider, or the name given to `!so`. */
+  clipChannel?: string;
+  clipSelection?: ClipSelection;
+  clipPeriod?: ClipPeriod;
+  /** Longest the clip may play, in seconds. */
+  clipMaxSeconds?: number;
+  /** Show the whole clip, however long it is (ignores `clipMaxSeconds`). */
+  clipUseClipLength?: boolean;
+  /** 0 to 1. */
+  clipVolume?: number;
+  clipPosition?: OverlayPosition;
+  clipAnimation?: OverlayAnimation;
+  /** Percent of the screen width (10 to 100). */
+  clipSize?: number;
+  clipShowCaption?: boolean;
+  /** Tokens: {channel} {clip_title} {clip_creator}. Empty = "Go follow {channel}!". */
+  clipCaption?: string;
+  /** Hold the next sub-action until the clip is over. */
+  clipWaitForEnd?: boolean;
 
   // Mini-Game: Timeout Duel
   duelMode?: 'random' | 'ai_trivia';
@@ -802,6 +836,7 @@ export const Channels = {
   DialogPickFolder: 'dialog/pick-folder',
   ChatOverlayShowImage: 'chat-overlay/show-image',
   ChatOverlayHideImage: 'chat-overlay/hide-image',
+  ChatOverlayShowClip: 'chat-overlay/show-clip',
   ChatOverlayGetImageUrl: 'chat-overlay/get-image-url',
   AiGenerateTrivia: 'ai/generate-trivia',
   ObsWebsocketGetStatus: 'obs/websocket-get-status',
@@ -1001,6 +1036,7 @@ export interface HostApi {
   [Channels.AlertsSaveDroppedFile]: { request: { fileName: string; fileBase64: string }; response: { ok: boolean; filePath?: string; error?: string } };
   [Channels.ChatOverlayShowImage]: { request: ShowOverlayImagePayload; response: { ok: boolean; error?: string } };
   [Channels.ChatOverlayHideImage]: { request: undefined; response: { ok: boolean } };
+  [Channels.ChatOverlayShowClip]: { request: ShowOverlayClipRequest; response: ShowOverlayClipResponse };
   [Channels.ChatOverlayGetImageUrl]: { request: undefined; response: { url: string } };
   [Channels.AiGenerateTrivia]: { request: GenerateGamingQuestionPayload | undefined; response: GenerateGamingQuestionResponse };
   [Channels.ObsWebsocketGetStatus]: { request: undefined; response: ObsWebsocketStatus };
@@ -1021,6 +1057,45 @@ export interface ShowOverlayImagePayload {
   scale?: number;
   obsImageDestinationPath?: string;
   destinationPath?: string;
+}
+
+/** Sent to the host, which picks the clip from `channel` and pushes it to the clip/image browser source. */
+export interface ShowOverlayClipRequest {
+  channel: string;
+  selection?: ClipSelection;
+  period?: ClipPeriod;
+  maxSeconds?: number;
+  useClipLength?: boolean;
+  volume?: number;
+  position?: OverlayPosition;
+  animation?: OverlayAnimation;
+  size?: number;
+  showCaption?: boolean;
+  caption?: string;
+}
+
+export interface ShowOverlayClipResponse {
+  ok: boolean;
+  /** NO_CLIPS, NO_CHANNEL, USER_NOT_FOUND, or a Twitch error. */
+  error?: string | null;
+  /** How long the clip will play on screen. */
+  durationSeconds: number;
+  title?: string | null;
+}
+
+/** What the browser source receives for `show-clip`. */
+export interface ShowOverlayClipPayload {
+  clipId: string;
+  /** Direct video file when Twitch's thumbnail lets us derive one; otherwise the embedded player is used. */
+  videoUrl?: string | null;
+  title: string;
+  channel: string;
+  durationSeconds: number;
+  volume: number;
+  position: OverlayPosition;
+  animation: OverlayAnimation;
+  size: number;
+  caption: string;
 }
 
 export interface GenerateGamingQuestionPayload {

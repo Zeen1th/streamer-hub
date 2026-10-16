@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { ShowOverlayImagePayload } from './rpc/contracts';
+import type { ShowOverlayClipPayload, ShowOverlayImagePayload } from './rpc/contracts';
+import { ClipOverlayScene } from './overlay/ClipOverlayScene';
 import { ImageOverlayScene } from './overlay/ImageOverlayScene';
 
 interface OverlayEnvelope {
@@ -26,6 +27,7 @@ const pageStyles = `
 
 function DedicatedImageOverlayApp() {
   const [image, setImage] = useState<ShowOverlayImagePayload | null>(null);
+  const [clip, setClip] = useState<ShowOverlayClipPayload | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -41,10 +43,16 @@ function DedicatedImageOverlayApp() {
         try {
           if (typeof event.data !== 'string') return;
           const envelope = JSON.parse(event.data) as Partial<OverlayEnvelope>;
+          // One thing on screen at a time: a new picture or clip replaces the last.
           if (envelope.kind === 'show-image' && envelope.payload) {
+            setClip(null);
             setImage(envelope.payload as ShowOverlayImagePayload);
+          } else if (envelope.kind === 'show-clip' && envelope.payload) {
+            setImage(null);
+            setClip({ ...(envelope.payload as ShowOverlayClipPayload) });
           } else if (envelope.kind === 'hide-image') {
             setImage(null);
+            setClip(null);
           }
         } catch {
           // ignore
@@ -78,7 +86,12 @@ function DedicatedImageOverlayApp() {
     };
   }, []);
 
-  return <ImageOverlayScene image={image} onDismiss={() => setImage(null)} />;
+  return (
+    <>
+      <ImageOverlayScene image={image} onDismiss={() => setImage(null)} />
+      <ClipOverlayScene clip={clip} onDismiss={() => setClip(null)} />
+    </>
+  );
 }
 
 const root = document.getElementById('image-overlay-root');

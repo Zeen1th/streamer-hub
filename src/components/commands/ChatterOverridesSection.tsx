@@ -16,6 +16,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { cn } from '../../lib/cn';
+import { fieldDir } from '../../lib/textDirection';
 
 interface ChatterOverridesSectionProps {
   rule: AutoReply;
@@ -466,7 +467,7 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
                   : 'Custom AI Instructions for Listed Viewers'}
               </label>
               <textarea
-                dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                dir={fieldDir(overrideValue, lang === 'ar' ? 'rtl' : 'ltr')}
                 rows={2}
                 value={overrideValue}
                 onChange={(e) => handleValueChange(e.target.value)}

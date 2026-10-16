@@ -19,6 +19,29 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.14',
+    en: {
+      added: [
+        'Show a clip from the raider: a new sub-action, "OBS: Show a Clip from the Raider", plays a clip from the raider (or from the channel named in a !so command) on your stream. It uses the same OBS browser source as pictures and GIFs. You choose which clip (most viewed, random or newest) and from how far back, plus position, size, animation, volume and a caption under the clip. It plays in up to 1080p with sound, and a switch lets it play for the clip\'s own length. A Test button plays a clip from any channel so you can set it up before going live.',
+      ],
+      fixed: [
+        'Prepared and AI reply commands no longer show an "!" in front of the trigger unless you typed one.',
+        'Text fields now follow the language you type. A message that starts in Arabic stays right-to-left even when it contains English words or {mention}, and English stays left-to-right.',
+        'Pictures and GIFs on the standalone image browser source are now placed and sized correctly.',
+      ],
+    },
+    ar: {
+      added: [
+        'عرض مقطع من قناة الرايدر: إجراء فرعي جديد اسمه "OBS: عرض مقطع من قناة الرايدر" يشغّل مقطعاً من قناة الرايدر (أو من القناة المذكورة في أمر !so) على البث. يستخدم نفس مصدر المتصفح في OBS الخاص بالصور والـ GIF. تختار أي مقطع (الأكثر مشاهدة أو عشوائي أو الأحدث) ومن أي فترة، مع المكان والحجم والحركة ومستوى الصوت وعنوان تحت المقطع. يُعرض بجودة تصل إلى 1080p مع الصوت، وخيار يجعله يعمل حسب طول المقطع نفسه. زر التجربة يشغّل مقطعاً من أي قناة لتضبطه قبل البث.',
+      ],
+      fixed: [
+        'ردود الأوامر الجاهزة وردود الذكاء الاصطناعي لم تعد تُظهر علامة "!" قبل الكلمة إلا إذا كتبتها أنت.',
+        'حقول النص تتبع الآن لغة الكتابة. الرسالة التي تبدأ بالعربية تبقى من اليمين إلى اليسار حتى لو احتوت كلمات إنجليزية أو {mention}، والإنجليزية تبقى من اليسار إلى اليمين.',
+        'الصور والـ GIF في مصدر المتصفح المستقل للصور تظهر الآن في مكانها وبحجمها الصحيح.',
+      ],
+    },
+  },
+  {
     version: '0.4.13',
     en: {
       added: [

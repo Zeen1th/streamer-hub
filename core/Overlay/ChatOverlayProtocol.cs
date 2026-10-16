@@ -60,6 +60,9 @@ public static class ChatOverlayProtocol
     public static string ShowImage(object payload) =>
         Serialize("show-image", payload);
 
+    public static string ShowClip(object payload) =>
+        Serialize("show-clip", payload);
+
     public static string HideImage() =>
         Serialize("hide-image", new { });
 

@@ -1,4 +1,4 @@
-import type { ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayImagePayload, TwitchRewardInfo, TwitchSettings } from './contracts';
+import type { ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayClipRequest, ShowOverlayImagePayload, TwitchRewardInfo, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -935,6 +935,15 @@ export class MockHost {
       case Channels.ChatOverlayShowImage: {
         const _payload = request.payload as ShowOverlayImagePayload | undefined;
         this.respond(request, { ok: true, payload: _payload });
+        break;
+      }
+      case Channels.ChatOverlayShowClip: {
+        const clip = request.payload as ShowOverlayClipRequest | undefined;
+        this.respond(request, {
+          ok: true,
+          durationSeconds: Math.min(clip?.maxSeconds ?? 30, 12),
+          title: `Mock clip from ${clip?.channel ?? 'channel'}`,
+        });
         break;
       }
       case Channels.ChatOverlayHideImage: {

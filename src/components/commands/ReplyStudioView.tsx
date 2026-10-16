@@ -26,6 +26,7 @@ import { Switch } from '../ui/Switch';
 import { DurationPicker } from '../ui/DurationPicker';
 import { TriggerTitleAction } from '../tools/auto-replies/TriggerTitleAction';
 import { ChatterOverridesSection } from './ChatterOverridesSection';
+import { fieldDir } from '../../lib/textDirection';
 
 interface ReplyStudioViewProps {
   rule: AutoReply;
@@ -95,7 +96,7 @@ export function ReplyStudioView({
       isMod: false,
       isVip: false,
       isSubscriber: false,
-      message: rule.triggers[0] ? `!${rule.triggers[0]}` : 'hello',
+      message: rule.triggers[0] || 'hello',
       timestamp: new Date().toISOString(),
       emotes: [],
     };
@@ -314,7 +315,7 @@ export function ReplyStudioView({
                     key={idx}
                     className="flex items-center gap-1 rounded-md border border-rule bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-ink shadow-xs"
                   >
-                    <span>!{trig}</span>
+                    <span>{trig}</span>
                     {rule.triggers.length > 1 && (
                       <button
                         type="button"
@@ -399,6 +400,7 @@ export function ReplyStudioView({
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="flex flex-col gap-2">
               <textarea
+                dir={fieldDir(rule.response)}
                 rows={4}
                 value={rule.response}
                 onChange={(e) => update(rule.id, { response: e.target.value })}

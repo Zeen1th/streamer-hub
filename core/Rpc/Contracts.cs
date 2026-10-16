@@ -209,6 +209,21 @@ public sealed record SequenceStep
     public string? IfOption { get; init; }
     public List<SequenceStep>? IfThen { get; init; }
     public List<SequenceStep>? IfElse { get; init; }
+
+    // OBS Clip: play a clip from another channel (raider / shoutout target) on the browser source
+    // (defaults live in the editor; steps of other types leave these null)
+    public string? ClipChannel { get; init; }
+    public string? ClipSelection { get; init; } // "top" | "random" | "recent"
+    public string? ClipPeriod { get; init; } // "week" | "month" | "year" | "all"
+    public int? ClipMaxSeconds { get; init; }
+    public bool? ClipUseClipLength { get; init; } // show the whole clip instead of cutting it at ClipMaxSeconds
+    public double? ClipVolume { get; init; }
+    public string? ClipPosition { get; init; }
+    public string? ClipAnimation { get; init; }
+    public int? ClipSize { get; init; } // percent of the screen width
+    public bool? ClipShowCaption { get; init; }
+    public string? ClipCaption { get; init; }
+    public bool? ClipWaitForEnd { get; init; }
 }
 
 public sealed record ModerationTargetPayload(string? Target);
@@ -478,6 +493,33 @@ public sealed record ShowOverlayImagePayload(
     double? Scale = null,
     string? ObsImageDestinationPath = null,
     string? DestinationPath = null
+);
+
+/// <summary>Plays a clip from another channel on the image/clip browser source. The host picks the clip.</summary>
+public sealed record ShowOverlayClipPayload(
+    string? Channel = null,
+    string? Selection = "top",
+    string? Period = "month",
+    int MaxSeconds = 30,
+    bool UseClipLength = false,
+    double Volume = 0.7,
+    string? Position = "center",
+    string? Animation = "zoom",
+    int Size = 50,
+    bool ShowCaption = true,
+    string? Caption = null
+);
+
+/// <summary>One clip from Helix GET /clips.</summary>
+public sealed record TwitchClipInfo(
+    string Id,
+    string Title,
+    double DurationSeconds,
+    int ViewCount,
+    DateTimeOffset CreatedAt,
+    string? CreatorName,
+    string? BroadcasterName,
+    string? ThumbnailUrl
 );
 
 public sealed record GenerateGamingQuestionPayload(

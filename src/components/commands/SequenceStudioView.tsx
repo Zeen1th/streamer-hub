@@ -11,6 +11,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Clapperboard,
   Clock,
   Coins,
   Copy,
@@ -77,6 +78,9 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
 import { DurationPicker } from '../ui/DurationPicker';
+import { fieldDir } from '../../lib/textDirection';
+import { ClipStepEditor, clipSettingsFromStep, clipSettingsToStep } from './ClipStepEditor';
+import type { ClipSettings } from './ClipStepEditor';
 
 export const EDGE_NEURAL_VOICES = [
   { id: 'en-AU-WilliamMultilingualNeural', name: 'Microsoft William (Multilingual - Arabic & English Neural)', nameAr: 'صوت ويليام (طبيعي - يدعم العربية والإنجليزية)' },
@@ -569,6 +573,7 @@ function QuickTokenInput({
       </div>
       {multiline ? (
         <textarea
+          dir={fieldDir(value)}
           ref={inputRef as React.RefObject<HTMLTextAreaElement>}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -642,6 +647,7 @@ const BRANCH_STEP_TYPES: Array<{
   },
   { key: 'counter', type: 'counter', en: 'Change a counter', ar: 'تعديل عدّاد' },
   { key: 'obs_image', type: 'obs_image', en: 'Show picture / GIF', ar: 'عرض صورة أو GIF' },
+  { key: 'obs_clip', type: 'obs_clip', en: 'Show raider clip', ar: 'عرض مقطع الرايدر' },
   { key: 'obs_text', type: 'obs_text', en: 'Write OBS text file', ar: 'كتابة ملف نص OBS' },
   { key: 'mic_mute', type: 'mic_mute', en: 'Mute streamer mic', ar: 'كتم مايك الستريمر' },
   { key: 'wait', type: 'wait', en: 'Wait', ar: 'انتظار' },
@@ -667,6 +673,7 @@ function branchStepDetail(step: SequenceStep, sequenceNames?: Record<string, str
     case 'moderation': return `${step.moderationAction ?? 'smart_timeout'} ${step.targetUser ?? ''} ${step.durationSeconds ?? 60}s`.trim();
     case 'counter': return `${step.counterAction ?? 'increase'}`;
     case 'obs_image': return (step.imagePath ?? '').split(/[/\\]/).pop() ?? '';
+    case 'obs_clip': return step.clipChannel ?? '{target}';
     case 'obs_text': return (step.filePath ?? '').split(/[/\\]/).pop() ?? '';
     case 'mic_mute': return `${step.micMuteDurationSeconds ?? 5}s`;
     case 'wait': return `${step.waitDuration ?? 2}${step.waitUnit === 'minutes' ? 'm' : 's'}`;
@@ -922,6 +929,8 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
     'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none'
   >(step.imageAnimation ?? 'bounce');
   const [imageScale, setImageScale] = useState(step.imageScale ?? 1.0);
+  // OBS Clip state
+  const [clip, setClip] = useState<ClipSettings>(() => clipSettingsFromStep(step));
   const [isPreviewingImage, setIsPreviewingImage] = useState(false);
   const [copiedImageUrl, setCopiedImageUrl] = useState(false);
 
@@ -1168,6 +1177,9 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
           imageScale,
         });
         break;
+      case 'obs_clip':
+        saveWithShield(clipSettingsToStep(clip));
+        break;
       case 'duel':
         saveWithShield({
           duelMode,
@@ -1266,6 +1278,8 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   ? (lang === 'ar' ? 'OBS > إخراج ملف نصي' : 'OBS > Text File Output')
                   : step.type === 'obs_image'
                   ? (lang === 'ar' ? 'OBS > عرض صورة أو GIF' : 'OBS > Display Picture or GIF')
+                  : step.type === 'obs_clip'
+                  ? (lang === 'ar' ? 'OBS > عرض مقطع من قناة الرايدر' : 'OBS > Show a Clip from the Raider')
                   : step.type === 'duel'
                   ? (lang === 'ar' ? 'التفاعل > تحدي التايم آوت (المبارزة)' : 'Interactivity > Timeout Duel')
                   : step.type === 'duel_streamer'
@@ -1322,6 +1336,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                 {t(lang, 'sequence.stepChat')}
               </label>
               <textarea
+                dir={fieldDir(chatMessage)}
                 value={chatMessage}
                 onChange={(e) => setChatMessage(e.target.value)}
                 placeholder={t(lang, 'sequence.chatPlaceholder')}
@@ -1590,6 +1605,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   {t(lang, 'sequence.ttsMessage')}
                 </label>
                 <textarea
+                  dir={fieldDir(ttsText)}
                   value={ttsText}
                   onChange={(e) => setTtsText(e.target.value)}
                   placeholder="Welcome to the stream {username}!"
@@ -1726,6 +1742,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   {t(lang, 'sequence.obsFileContent')}
                 </label>
                 <textarea
+                  dir={fieldDir(fileContent)}
                   value={fileContent}
                   onChange={(e) => setFileContent(e.target.value)}
                   placeholder="Latest Follower: {username}"
@@ -1912,6 +1929,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                     : lang === 'ar' ? 'رد الدرع العام (للجميع ما عدا من لهم رد خاص)' : 'Default shield reply (everyone without their own reply)'}
                 </label>
                 <textarea
+                  dir={fieldDir(protectedMessage)}
                   value={protectedMessage}
                   onChange={(e) => setProtectedMessage(e.target.value)}
                   rows={2}
@@ -2205,6 +2223,11 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                 </Button>
               </div>
             </div>
+          )}
+
+          {/* OBS CLIP */}
+          {step.type === 'obs_clip' && (
+            <ClipStepEditor lang={lang} value={clip} onChange={(patch) => setClip((c) => ({ ...c, ...patch }))} />
           )}
 
           {/* OBS IMAGE */}
@@ -2613,6 +2636,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                       </button>
                     </div>
                     <textarea
+                      dir={fieldDir(duelInstructions)}
                       value={duelInstructions}
                       onChange={(e) => setDuelInstructions(e.target.value)}
                       placeholder={defaultDuelInstructions}
@@ -3018,6 +3042,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                       </button>
                     </div>
                     <textarea
+                      dir={fieldDir(duelInstructions)}
                       value={duelInstructions}
                       onChange={(e) => setDuelInstructions(e.target.value)}
                       placeholder={defaultDuelInstructions}
@@ -3488,6 +3513,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
         const fileName = st.imagePath ? st.imagePath.split(/[/\\]/).pop() : 'image.png';
         return `${lang === 'ar' ? 'صورة OBS: عرض' : 'OBS Image: Show'} "${fileName}" (${st.imageDurationSeconds ?? 5}s, ${st.imagePosition ?? 'center'})`;
       }
+      case 'obs_clip':
+        return `${lang === 'ar' ? 'مقطع OBS: من' : 'OBS Clip: from'} ${st.clipChannel || '{target}'} (${st.clipMaxSeconds ?? 30}s max, ${st.clipPosition ?? 'center'})`;
       case 'duel': {
         const modeLabel = st.duelMode === 'random'
           ? (lang === 'ar' ? 'قرعة' : 'Random')
@@ -3632,6 +3659,14 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       desc: lang === 'ar' ? 'عرض صور ميمز أو GIFs أو تنبيهات على بث OBS عبر الأوفرلاي' : 'Show memes, GIFs, or alert pictures on OBS screen via overlay',
       icon: ImageIcon,
       color: 'text-pink-400',
+    },
+    {
+      id: 'obs_clip',
+      type: 'obs_clip' as SequenceStepType,
+      title: lang === 'ar' ? 'OBS: عرض مقطع من قناة الرايدر' : 'OBS: Show a Clip from the Raider',
+      desc: lang === 'ar' ? 'يشغّل مقطعاً من قناة الرايدر (أو من يُذكر في !so) على البث عبر مصدر المتصفح' : 'Plays a clip from the raider (or the channel named in !so) on stream through the browser source',
+      icon: Clapperboard,
+      color: 'text-fuchsia-400',
     },
     {
       id: 'duel',
@@ -4702,6 +4737,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                       </button>
                       <button
                         type="button"
+                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-fuchsia-400 transition-colors"
+                        onClick={() => {
+                          const ns = addStep(sequence.id, 'obs_clip');
+                          setShowAddActionMenu(false);
+                          setEditingStepId(ns.id);
+                        }}
+                      >
+                        <Clapperboard size={13} />
+                        <span>{t(lang, 'sequence.stepObsClip')}</span>
+                      </button>
+                      <button
+                        type="button"
                         className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start text-[11.5px] hover:bg-white/[0.08] text-amber-400 transition-colors"
                         onClick={() => {
                           const ns = addStep(sequence.id, 'duel', {
@@ -4921,6 +4968,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                 <FileText size={13} className="text-amber-400 shrink-0" />
                               ) : st.type === 'obs_image' ? (
                                 <ImageIcon size={13} className="text-pink-400 shrink-0" />
+                              ) : st.type === 'obs_clip' ? (
+                                <Clapperboard size={13} className="text-fuchsia-400 shrink-0" />
                               ) : st.type === 'duel' ? (
                                 <Swords size={13} className="text-amber-400 shrink-0" />
                               ) : st.type === 'duel_streamer' ? (
@@ -5311,6 +5360,18 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               >
                 <ImageIcon size={14} />
                 <span>{t(lang, 'sequence.stepObsImage')}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-start hover:bg-white/[0.08] text-fuchsia-400"
+                onClick={() => {
+                  const ns = addStep(sequence.id, 'obs_clip');
+                  setContextMenu(null);
+                  setEditingStepId(ns.id);
+                }}
+              >
+                <Clapperboard size={14} />
+                <span>{t(lang, 'sequence.stepObsClip')}</span>
               </button>
               <button
                 type="button"

@@ -1,8 +1,11 @@
 import { forwardRef, type InputHTMLAttributes } from 'react';
 import { cn } from '../../lib/cn';
+import { fieldDir } from '../../lib/textDirection';
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function Input({ className, ...rest }, ref) {
+    // Follow what is typed: Arabic reads right-to-left, English left-to-right. A caller can still force `dir`.
+    const dir = rest.dir ?? (typeof rest.value === 'string' ? fieldDir(rest.value) : undefined);
     return (
       <input
         ref={ref}
@@ -12,6 +15,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
           className,
         )}
         {...rest}
+        dir={dir}
       />
     );
   },

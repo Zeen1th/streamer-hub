@@ -37,5 +37,7 @@ public interface ITwitchClient : IAsyncDisposable
     Task<(bool Ok, string? Error)> ClearChatAsync(CancellationToken cancellationToken = default);
     Task<(bool Ok, string? Error)> DeleteChatMessageAsync(string messageId, CancellationToken cancellationToken = default);
     Task<(bool Ok, string? Error)> SendShoutoutAsync(string targetUsernameOrId, CancellationToken cancellationToken = default);
+    /// <summary>Recent clips of any channel (up to 100, newest window first as Helix returns them).</summary>
+    Task<(bool Ok, IReadOnlyList<TwitchClipInfo> Clips, string? Login, string? DisplayName, string? Error)> GetClipsAsync(string targetUsernameOrId, DateTimeOffset? startedAt, CancellationToken cancellationToken = default);
     Task<(bool Ok, bool WasMod, string? TargetUser, string? Error)> SmartModTimeoutAsync(string targetUsernameOrId, int durationSeconds, string? reason = null, CancellationToken cancellationToken = default);
 }

@@ -25,6 +25,54 @@ using (var release = JsonDocument.Parse("""
         "installer targets the running app directory");
 }
 
+// Raider clip sub-action: which clip is picked and how it is played
+{
+    var now = new DateTimeOffset(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
+    TwitchClipInfo Clip(string id, double seconds, int views, int daysAgo) =>
+        new(id, $"clip {id}", seconds, views, now.AddDays(-daysAgo), "viewer", "Raider", null);
+    var clips = new List<TwitchClipInfo>
+    {
+        Clip("long-hit", 55, 900, 3),
+        Clip("short-top", 20, 400, 10),
+        Clip("short-new", 12, 50, 1),
+        Clip("short-mid", 25, 100, 5),
+    };
+
+    AssertEqual("short-top", ClipSelector.Pick(clips, "top", 30)!.Id, "top picks the most viewed clip that fits the cap");
+    AssertEqual("short-new", ClipSelector.Pick(clips, "recent", 30)!.Id, "recent picks the newest clip that fits the cap");
+    AssertEqual("long-hit", ClipSelector.Pick(clips, "top", 60)!.Id, "a longer cap lets the long clip win");
+    AssertEqual("long-hit", ClipSelector.Pick(new[] { clips[0] }, "random", 30)!.Id, "when nothing fits, any clip is used");
+    AssertTrue(ClipSelector.Pick(Array.Empty<TwitchClipInfo>(), "top", 30) is null, "no clips picks nothing");
+    var seen = new HashSet<string>();
+    var rng = new Random(7);
+    for (var i = 0; i < 60; i++) seen.Add(ClipSelector.Pick(clips, "random", 30, rng)!.Id);
+    AssertEqual(3, seen.Count, "random only uses clips that fit the cap, and reaches all of them");
+
+    AssertEqual(now.AddDays(-7), ClipSelector.PeriodStart("week", now)!.Value, "week window");
+    AssertEqual(now.AddDays(-30), ClipSelector.PeriodStart(null, now)!.Value, "month is the default window");
+    AssertTrue(ClipSelector.PeriodStart("all", now) is null, "all time has no start");
+
+    AssertEqual(
+        "https://clips-media-assets2.twitch.tv/AT-cm%7C123.mp4",
+        ClipSelector.DirectVideoUrl("https://clips-media-assets2.twitch.tv/AT-cm%7C123-preview-480x272.jpg"),
+        "legacy thumbnail maps to the mp4");
+    AssertTrue(
+        ClipSelector.DirectVideoUrl("https://static-cdn.jtvnw.net/twitch-clips-thumbnails-prod/Slug/abc/preview.jpg") is null,
+        "unknown thumbnail shapes fall back to the embedded player");
+    AssertTrue(ClipSelector.DirectVideoUrl(null) is null, "no thumbnail, no direct video");
+    AssertEqual(
+        "https://cdn.example/clip/landscape/1080.mp4?sig=abc&token=%7B%22a%22%3A1%7D",
+        ClipVideoResolver.BestVideoUrl("""
+        [{"data":{"clip":{"playbackAccessToken":{"signature":"abc","value":"{\"a\":1}"},"videoQualities":[
+          {"quality":"360","sourceURL":"https://cdn.example/clip/landscape/360.mp4"},
+          {"quality":"1080","sourceURL":"https://cdn.example/clip/landscape/1080.mp4"},
+          {"quality":"720","sourceURL":"https://cdn.example/clip/landscape/720.mp4"}]}}}]
+        """),
+        "best quality file is chosen and signed");
+    AssertTrue(ClipVideoResolver.BestVideoUrl("""[{"data":{"clip":null}}]""") is null, "a clip with no access token has no best file");
+    AssertEqual("show-clip", Kind(ChatOverlayProtocol.ShowClip(new { clipId = "x" })), "show-clip envelope kind");
+}
+
 // Streamer chat slash commands: parsing, durations
 {
     var timeout = ChatCommandProcessor.Parse("/to @Bob 10m spamming links");

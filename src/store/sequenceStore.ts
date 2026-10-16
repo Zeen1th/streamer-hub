@@ -268,6 +268,24 @@ export const defaultStepForType = (type: SequenceStepType, options?: Partial<Seq
         obsImageDestinationPath: options?.obsImageDestinationPath ?? '',
         ...options,
       };
+    case 'obs_clip':
+      return {
+        id,
+        type: 'obs_clip',
+        clipChannel: options?.clipChannel ?? '{target}',
+        clipSelection: options?.clipSelection ?? 'top',
+        clipPeriod: options?.clipPeriod ?? 'month',
+        clipMaxSeconds: options?.clipMaxSeconds ?? 30,
+        clipUseClipLength: options?.clipUseClipLength ?? false,
+        clipVolume: options?.clipVolume ?? 0.7,
+        clipPosition: options?.clipPosition ?? 'center',
+        clipAnimation: options?.clipAnimation ?? 'zoom',
+        clipSize: options?.clipSize ?? 50,
+        clipShowCaption: options?.clipShowCaption ?? true,
+        clipCaption: options?.clipCaption ?? 'Go follow {channel}!',
+        clipWaitForEnd: options?.clipWaitForEnd ?? false,
+        ...options,
+      };
     case 'duel':
       return {
         id,
@@ -978,6 +996,26 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
             return Boolean(res?.ok);
           } catch {
             return false;
+          }
+        },
+        showObsClip: async (step) => {
+          try {
+            const res = await rpc.invoke(Channels.ChatOverlayShowClip, {
+              channel: step.clipChannel ?? '',
+              selection: step.clipSelection,
+              period: step.clipPeriod,
+              maxSeconds: step.clipMaxSeconds,
+              useClipLength: step.clipUseClipLength,
+              volume: step.clipVolume,
+              position: step.clipPosition,
+              animation: step.clipAnimation,
+              size: step.clipSize,
+              showCaption: step.clipShowCaption,
+              caption: step.clipCaption,
+            });
+            return { ok: Boolean(res?.ok), durationSeconds: res?.durationSeconds, error: res?.error ?? undefined };
+          } catch (err) {
+            return { ok: false, error: err instanceof Error ? err.message : 'RPC_FAILED' };
           }
         },
         executeDuel: async (step, ctx) => {

@@ -42,6 +42,8 @@ export interface SequenceExecutionSinks {
   ) => Promise<boolean>;
   writeObsText?: (filePath: string, content: string) => Promise<boolean>;
   showObsImage?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<boolean>;
+  /** Plays a clip from `step.clipChannel` (tokens already resolved). `ok: false` (no clips, unknown channel, Twitch down) is logged and the sequence continues. */
+  showObsClip?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<{ ok: boolean; durationSeconds?: number; error?: string }>;
   executeDuel?: (
     step: SequenceStep,
     ctx: SequenceExecutionContext,
@@ -513,6 +515,31 @@ export async function executeSequence(
                 },
                 ctx,
               );
+            }
+          }
+          break;
+        }
+
+        case 'obs_clip': {
+          const channel = extractTargetUsername(replaceSequenceTokens(step.clipChannel ?? '{target}', ctx));
+          if (!channel) {
+            log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Show clip skipped, no channel to take it from`);
+            break;
+          }
+          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Show clip from "${channel}"`);
+          if (sinks.showObsClip) {
+            const res = await sinks.showObsClip(
+              {
+                ...step,
+                clipChannel: channel,
+                clipCaption: step.clipCaption ? replaceSequenceTokens(step.clipCaption, ctx) : step.clipCaption,
+              },
+              ctx,
+            );
+            if (!res.ok) {
+              log('system', `[Sequence ${sequence.name}] Step ${i + 1}: No clip shown for "${channel}" (${res.error ?? 'unknown'}); continuing`);
+            } else if (step.clipWaitForEnd && res.durationSeconds) {
+              await delay(Math.round(res.durationSeconds * 1000));
             }
           }
           break;

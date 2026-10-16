@@ -126,6 +126,7 @@ public static class Channels
     public const string DialogPickFolder = "dialog/pick-folder";
     public const string ChatOverlayShowImage = "chat-overlay/show-image";
     public const string ChatOverlayHideImage = "chat-overlay/hide-image";
+    public const string ChatOverlayShowClip = "chat-overlay/show-clip";
     public const string ChatOverlayGetImageUrl = "chat-overlay/get-image-url";
     public const string AiGenerateTrivia = "ai/generate-trivia";
     public const string ObsWebsocketGetStatus = "obs/websocket-get-status";

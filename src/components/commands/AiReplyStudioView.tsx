@@ -34,6 +34,7 @@ import { Switch } from '../ui/Switch';
 import { DurationPicker } from '../ui/DurationPicker';
 import { TriggerTitleAction } from '../tools/auto-replies/TriggerTitleAction';
 import { ChatterOverridesSection } from './ChatterOverridesSection';
+import { fieldDir } from '../../lib/textDirection';
 
 interface AiReplyStudioViewProps {
   rule: AutoReply;
@@ -230,7 +231,7 @@ export function AiReplyStudioView({
       isMod: false,
       isVip: false,
       isSubscriber: false,
-      message: testMessage.trim() || (rule.triggers[0] ? `!${rule.triggers[0]}` : 'hello'),
+      message: testMessage.trim() || (rule.triggers[0] || 'hello'),
       timestamp: new Date().toISOString(),
       emotes: [],
     };
@@ -440,7 +441,7 @@ export function AiReplyStudioView({
                     key={idx}
                     className="flex items-center gap-1 rounded-md border border-rule bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-ink shadow-xs"
                   >
-                    <span>!{trig}</span>
+                    <span>{trig}</span>
                     {rule.triggers.length > 1 && (
                       <button
                         type="button"
@@ -785,7 +786,7 @@ export function AiReplyStudioView({
                   {t(lang, 'aiStudio.agentRole')}
                 </label>
                 <textarea
-                  dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                  dir={fieldDir(rule.agentRole ?? '', lang === 'ar' ? 'rtl' : 'ltr')}
                   rows={2}
                   value={rule.agentRole ?? ''}
                   onChange={(e) => update(rule.id, { agentRole: e.target.value })}
@@ -805,7 +806,7 @@ export function AiReplyStudioView({
                   <span>{t(lang, 'aiStudio.agentContext')}</span>
                 </label>
                 <textarea
-                  dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                  dir={fieldDir(rule.agentContext ?? '', lang === 'ar' ? 'rtl' : 'ltr')}
                   rows={3}
                   value={rule.agentContext ?? ''}
                   onChange={(e) => update(rule.id, { agentContext: e.target.value })}
@@ -824,7 +825,7 @@ export function AiReplyStudioView({
                   {t(lang, 'aiStudio.instructionsLabel')}
                 </label>
                 <textarea
-                  dir={lang === 'ar' ? 'rtl' : 'ltr'}
+                  dir={fieldDir(rule.aiInstructions ?? '', lang === 'ar' ? 'rtl' : 'ltr')}
                   rows={4}
                   value={rule.aiInstructions ?? ''}
                   onChange={(e) => update(rule.id, { aiInstructions: e.target.value })}

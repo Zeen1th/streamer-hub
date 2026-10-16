@@ -1049,6 +1049,63 @@ public sealed class TwitchIrcClient : ITwitchClient
         }
     }
 
+    public async Task<(bool Ok, IReadOnlyList<TwitchClipInfo> Clips, string? Login, string? DisplayName, string? Error)> GetClipsAsync(
+        string targetUsernameOrId,
+        DateTimeOffset? startedAt,
+        CancellationToken cancellationToken = default)
+    {
+        var none = Array.Empty<TwitchClipInfo>();
+        var cleanTarget = CleanUsername(targetUsernameOrId);
+        if (string.IsNullOrWhiteSpace(cleanTarget)) return (false, none, null, null, "EMPTY_TARGET");
+
+        var profile = await CheckUserProfileAsync(cleanTarget, cancellationToken).ConfigureAwait(false);
+        if (!profile.Ok || string.IsNullOrWhiteSpace(profile.UserId))
+            return (false, none, null, null, profile.Error ?? "USER_NOT_FOUND");
+
+        var url = $"https://api.twitch.tv/helix/clips?broadcaster_id={Uri.EscapeDataString(profile.UserId)}&first=100";
+        if (startedAt is { } from)
+        {
+            url += $"&started_at={Uri.EscapeDataString(from.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))}";
+            url += $"&ended_at={Uri.EscapeDataString(DateTimeOffset.UtcNow.AddMinutes(1).UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))}";
+        }
+
+        try
+        {
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, url),
+                cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                return (false, none, profile.Login, profile.DisplayName, await ReadHelixErrorAsync(response).ConfigureAwait(false));
+
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+            var clips = new List<TwitchClipInfo>();
+            if (document.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var clip in data.EnumerateArray())
+                {
+                    var id = clip.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+
+                    clips.Add(new TwitchClipInfo(
+                        id,
+                        clip.TryGetProperty("title", out var title) ? title.GetString() ?? string.Empty : string.Empty,
+                        clip.TryGetProperty("duration", out var duration) && duration.TryGetDouble(out var seconds) ? seconds : 0,
+                        clip.TryGetProperty("view_count", out var views) && views.TryGetInt32(out var count) ? count : 0,
+                        clip.TryGetProperty("created_at", out var created) && DateTimeOffset.TryParse(created.GetString(), out var at) ? at : DateTimeOffset.MinValue,
+                        clip.TryGetProperty("creator_name", out var creator) ? creator.GetString() : null,
+                        clip.TryGetProperty("broadcaster_name", out var broadcaster) ? broadcaster.GetString() : null,
+                        clip.TryGetProperty("thumbnail_url", out var thumb) ? thumb.GetString() : null));
+                }
+            }
+
+            return (true, clips, profile.Login, profile.DisplayName, null);
+        }
+        catch (Exception ex)
+        {
+            return (false, none, profile.Login, profile.DisplayName, ex.Message);
+        }
+    }
+
     public async Task<(bool Ok, bool WasMod, string? TargetUser, string? Error)> SmartModTimeoutAsync(
         string targetUsernameOrId,
         int durationSeconds,

@@ -1,5 +1,6 @@
 import { useRef } from 'react';
-import { directionFromStart, insertReplyToken } from '../../../lib/autoReplyRules';
+import { insertReplyToken } from '../../../lib/autoReplyRules';
+import { fieldDir } from '../../../lib/textDirection';
 
 interface Token {
   token: string;
@@ -16,7 +17,7 @@ interface ReplyComposerProps {
 
 export function ReplyComposer({ value, placeholder, tokens, onChange, onUndo }: ReplyComposerProps) {
   const editorRef = useRef<HTMLTextAreaElement>(null);
-  const direction = directionFromStart(value);
+  const direction = fieldDir(value);
 
   const addToken = (token: string, start?: number | null, end?: number | null) => {
     const editor = editorRef.current;

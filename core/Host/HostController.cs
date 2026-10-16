@@ -57,6 +57,9 @@ public sealed class ChatOverlayHostBridge
     public async Task PublishShowImageAsync(object payload, CancellationToken cancellationToken = default) =>
         await _server.PublishShowImageAsync(payload, cancellationToken).ConfigureAwait(false);
 
+    public async Task PublishShowClipAsync(object payload, CancellationToken cancellationToken = default) =>
+        await _server.PublishShowClipAsync(payload, cancellationToken).ConfigureAwait(false);
+
     public async Task PublishHideImageAsync(CancellationToken cancellationToken = default) =>
         await _server.PublishHideImageAsync(cancellationToken).ConfigureAwait(false);
 
@@ -1578,6 +1581,52 @@ public sealed class HostController : IDisposable
 
             await _chatOverlay.PublishShowImageAsync(broadcastPayload, ct).ConfigureAwait(false);
             return new { ok = true, payload = broadcastPayload };
+        });
+        _dispatcher.Register(Channels.ChatOverlayShowClip, async (payload, ct) =>
+        {
+            var req = Json.Deserialize<ShowOverlayClipPayload>(payload ?? default);
+            var channel = req?.Channel?.Trim();
+            if (req is null || string.IsNullOrWhiteSpace(channel)) return new { ok = false, error = "NO_CHANNEL", durationSeconds = 0.0, title = (string?)null };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH IS NOT CONNECTED", durationSeconds = 0.0, title = (string?)null };
+
+            // "Use the clip's length" lifts the cap (clips are at most 60s), so any clip fits and none is cut short.
+            var maxSeconds = req.UseClipLength ? 120 : Math.Clamp(req.MaxSeconds, 3, 120);
+            var found = await _twitch.GetClipsAsync(
+                ResolveKnownTarget(channel),
+                ClipSelector.PeriodStart(req.Period, DateTimeOffset.UtcNow),
+                ct).ConfigureAwait(false);
+            if (!found.Ok) return new { ok = false, error = found.Error ?? "CLIPS_LOOKUP_FAILED", durationSeconds = 0.0, title = (string?)null };
+
+            var clip = ClipSelector.Pick(found.Clips, req.Selection, maxSeconds);
+            if (clip is null) return new { ok = false, error = "NO_CLIPS", durationSeconds = 0.0, title = (string?)null };
+
+            var channelName = found.DisplayName ?? found.Login ?? channel.TrimStart('@');
+            var caption = string.IsNullOrWhiteSpace(req.Caption) ? "Go follow {channel}!" : req.Caption;
+            caption = caption
+                .Replace("{channel}", channelName, StringComparison.OrdinalIgnoreCase)
+                .Replace("{clip_title}", clip.Title, StringComparison.OrdinalIgnoreCase)
+                .Replace("{clip_creator}", clip.CreatorName ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+            var playSeconds = Math.Min(clip.DurationSeconds > 0 ? clip.DurationSeconds + 0.5 : maxSeconds, maxSeconds);
+            var broadcastPayload = new
+            {
+                clipId = clip.Id,
+                // best quality first (1080p), then the 360p file from the thumbnail, then the embed (no url)
+                videoUrl = await ClipVideoResolver.ResolveBestAsync(clip.Id, ct).ConfigureAwait(false)
+                    ?? ClipSelector.DirectVideoUrl(clip.ThumbnailUrl),
+                title = clip.Title,
+                channel = channelName,
+                durationSeconds = playSeconds,
+                volume = Math.Clamp(req.Volume, 0.0, 1.0),
+                position = string.IsNullOrWhiteSpace(req.Position) ? "center" : req.Position,
+                animation = string.IsNullOrWhiteSpace(req.Animation) ? "zoom" : req.Animation,
+                size = Math.Clamp(req.Size, 10, 100),
+                caption = req.ShowCaption ? caption : string.Empty,
+            };
+
+            await _chatOverlay.PublishShowClipAsync(broadcastPayload, ct).ConfigureAwait(false);
+            Log("obs-ok", $"Showing clip \"{clip.Title}\" from {channelName} ({playSeconds:0.#}s)");
+            return new { ok = true, error = (string?)null, durationSeconds = playSeconds, title = (string?)clip.Title };
         });
         _dispatcher.Register(Channels.ChatOverlayHideImage, async (_, ct) =>
         {

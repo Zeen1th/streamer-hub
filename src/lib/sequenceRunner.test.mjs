@@ -873,3 +873,92 @@ test('the Run Command step hands the trigger to the host with the call stack', a
   });
   assert.deepEqual(seen, [['!sound', ['seq-if']]]);
 });
+
+test('executeSequence plays a raider clip: {target} is the raider, caption tokens are resolved, wait holds the next step', async () => {
+  const seq = {
+    id: 'seq-clip',
+    enabled: true,
+    name: 'Raid clip',
+    triggerType: 'chat',
+    cooldownSeconds: 0,
+    steps: [
+      {
+        id: 's-clip',
+        type: 'obs_clip',
+        clipChannel: '{target}',
+        clipCaption: '{username} says go follow {channel}',
+        clipMaxSeconds: 20,
+        clipWaitForEnd: true,
+      },
+      { id: 's-chat', type: 'chat', chatMessage: 'welcome raiders' },
+    ],
+  };
+
+  const events = [];
+  const result = await executeSequence(
+    seq,
+    { username: 'BigRaider', raider: 'BigRaider', source: 'raid', viewers: 40 },
+    {
+      showObsClip: async (step) => {
+        events.push(['clip', step.clipChannel, step.clipCaption]);
+        return { ok: true, durationSeconds: 12 };
+      },
+      delay: async (ms) => {
+        events.push(['wait', ms]);
+      },
+      sendChatMessage: async (message) => {
+        events.push(['chat', message]);
+        return true;
+      },
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(events, [
+    ['clip', 'BigRaider', 'BigRaider says go follow {channel}'],
+    ['wait', 12000],
+    ['chat', 'welcome raiders'],
+  ]);
+});
+
+test('executeSequence clip step takes the channel named after the command and never blocks the sequence', async () => {
+  const seq = {
+    id: 'seq-clip-so',
+    enabled: true,
+    name: 'Shoutout clip',
+    triggerType: 'chat',
+    cooldownSeconds: 0,
+    steps: [
+      { id: 's-clip', type: 'obs_clip', clipChannel: '{target}', clipWaitForEnd: true },
+      { id: 's-chat', type: 'chat', chatMessage: 'done' },
+    ],
+  };
+
+  const channels = [];
+  const chats = [];
+  const waits = [];
+  const sinks = {
+    showObsClip: async (step) => {
+      channels.push(step.clipChannel);
+      return { ok: false, error: 'NO_CLIPS' };
+    },
+    delay: async (ms) => waits.push(ms),
+    sendChatMessage: async (message) => {
+      chats.push(message);
+      return true;
+    },
+  };
+
+  // `!so @SomeStreamer`: the clip comes from the named channel; no clips found means no waiting and the sequence goes on.
+  let result = await executeSequence(seq, { username: 'Mod', userInput: '@SomeStreamer', source: 'chat' }, sinks);
+  assert.equal(result.ok, true);
+  assert.deepEqual(channels, ['SomeStreamer']);
+  assert.deepEqual(waits, []);
+  assert.deepEqual(chats, ['done']);
+
+  // `!so` with nobody named has no channel, so the step is skipped without asking the host.
+  result = await executeSequence(seq, { username: 'Mod', userInput: '', source: 'chat' }, sinks);
+  assert.equal(result.ok, true);
+  assert.deepEqual(channels, ['SomeStreamer']);
+  assert.deepEqual(chats, ['done', 'done']);
+});

@@ -725,7 +725,7 @@ function FragmentRow({
         <td className="px-2.5">
           <div className="flex min-w-0 flex-col justify-center leading-tight">
             <span dir="ltr" className={`truncate text-left font-sans text-[13.5px] font-bold ${row.enabled ? 'text-[#e8ecff]' : 'text-muted line-through'}`}>
-              {(isAi || row.sourceKind === 'reply' ? prefixed(row.name, '!') : row.name) || t(lang, 'workspace.untitled')}
+              {row.name || t(lang, 'workspace.untitled')}
             </span>
             {isCounter && row.command && (
               <span dir="ltr" className="truncate font-mono text-[10.5px] text-muted">!{row.command}</span>
@@ -825,12 +825,6 @@ const TRIGGER_GLYPH: Record<NonNullable<CommandRow['triggerKinds']>[number], str
   watch_streak: '⚡',
   timer: '⏱',
 };
-
-/** Reply rows are titled by their trigger word; make sure it reads as a command. */
-function prefixed(name: string, prefix: string): string {
-  if (!name) return name;
-  return name.startsWith('!') || !prefix ? name : `${prefix}${name}`;
-}
 
 function EmptyCommands({ onNewCommand }: { onNewCommand?: () => void }) {
   const language = useSettingsStore((s) => s.language);
@@ -1588,7 +1582,7 @@ function ReplyInspector({
   return (
     <>
       <InspectorHeader
-        title={rule.triggers[0] ? (rule.triggers[0].startsWith('!') ? rule.triggers[0] : `!${rule.triggers[0]}`) : t(lang, 'workspace.untitled')}
+        title={rule.triggers[0] || t(lang, 'workspace.untitled')}
         kind={isAi ? t(lang, 'workspace.aiReply') : t(lang, 'workspace.preparedReply')}
         onClose={onClose}
       />
@@ -1656,7 +1650,7 @@ function ReplyInspector({
                   key={idx}
                   className="rounded border border-hair bg-surface-2 px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-ink"
                 >
-                  {trig.startsWith('!') ? trig : `!${trig}`}
+                  {trig}
                 </span>
               ))}
             </div>

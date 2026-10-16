@@ -237,6 +237,13 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
         await BroadcastAsync(ChatOverlayProtocol.ShowImage(payload), cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Clips only go to the image/clip browser source; the chat overlay has no player.</summary>
+    public async Task PublishShowClipAsync(object payload, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        await BroadcastAsync(ChatOverlayProtocol.ShowClip(payload), "image-overlay", cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task PublishHideImageAsync(CancellationToken cancellationToken = default)
     {
         await BroadcastAsync(ChatOverlayProtocol.HideImage(), cancellationToken).ConfigureAwait(false);
