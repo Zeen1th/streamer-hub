@@ -231,6 +231,7 @@ public sealed record SequenceStep
     public int? ClipMaxSeconds { get; init; }
     public string? ClipCreateFailMessage { get; init; } // reply when a Create Clip step fails
     public string? ClipTitle { get; init; } // Create Clip: title template
+    public string? ClipAnnounceMessage { get; init; } // Create Clip: chat message once the clip exists (null = automatic, empty = none)
     public int? ClipLengthSeconds { get; init; } // Create Clip: 5 to 60
     public bool? ClipHasDelay { get; init; } // Create Clip: include the stream delay
     public bool? ClipUseClipLength { get; init; } // show the whole clip instead of cutting it at ClipMaxSeconds

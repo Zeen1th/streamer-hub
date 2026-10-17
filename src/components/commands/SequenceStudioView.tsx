@@ -1,6 +1,6 @@
 import { DEFAULT_PROTECTED_MESSAGES } from '../../lib/duelGameManager';
 import { shieldKey } from '../../lib/shield';
-import { DEFAULT_CLIP_FAIL_MESSAGE, replaceSequenceTokens } from '../../lib/sequenceRunner';
+import { DEFAULT_CLIP_ANNOUNCE_MESSAGE, DEFAULT_CLIP_FAIL_MESSAGE, replaceSequenceTokens } from '../../lib/sequenceRunner';
 import { attachedGameIndex } from '../../lib/stepGroups';
 import { groupSubActions, type SubActionGroup } from '../../lib/subActionCatalog';
 import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../../lib/sequenceTimers';
@@ -3473,11 +3473,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
           id: crypto.randomUUID(),
           type: 'clip_create',
           clipCreateFailMessage: DEFAULT_CLIP_FAIL_MESSAGE,
-        },
-        {
-          id: crypto.randomUUID(),
-          type: 'chat',
-          chatMessage: '🎬 @{username} clipped that! Clip #{clip_count}: {clip_url}',
+          clipAnnounceMessage: DEFAULT_CLIP_ANNOUNCE_MESSAGE,
         },
       ],
     });

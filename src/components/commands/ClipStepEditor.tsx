@@ -4,7 +4,13 @@ import type { ClipPeriod, ClipSelection, OverlayAnimation, OverlayPosition, Sequ
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
 import { useConnectionStore } from '../../store/connectionStore';
-import { DEFAULT_CLIP_FAIL_MESSAGE, DEFAULT_CLIP_LENGTH_SECONDS, DEFAULT_CLIP_TITLE, replaceSequenceTokens } from '../../lib/sequenceRunner';
+import {
+  DEFAULT_CLIP_ANNOUNCE_MESSAGE,
+  DEFAULT_CLIP_FAIL_MESSAGE,
+  DEFAULT_CLIP_LENGTH_SECONDS,
+  DEFAULT_CLIP_TITLE,
+  replaceSequenceTokens,
+} from '../../lib/sequenceRunner';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -498,6 +504,8 @@ const CREATE_TEXT = {
     lengthHint: 'How many seconds the clip covers, counted back from the moment of the command.',
     delay: 'Include the stream delay',
     delayHint: 'Turn on if your stream has a delay, so the clip matches what viewers saw.',
+    announce: 'Post the clip in chat',
+    announceHint: 'Sent as soon as the clip exists. Use {clip_url} for the link, {clip_count} for how many clips this viewer has made, {username} for the viewer. Turn this off if a chat step of your own already posts the link.',
     failMessage: 'Chat message when the clip could not be made',
     failHint: 'The sequence stops after this message. Common reasons: you are not live, or Twitch has not been allowed to clip yet.',
     test: 'Create a test clip now',
@@ -518,6 +526,8 @@ const CREATE_TEXT = {
     lengthHint: 'عدد الثواني التي يغطيها المقطع، محسوبة للخلف من لحظة الأمر.',
     delay: 'تضمين تأخير البث',
     delayHint: 'فعّله إذا كان بثك به تأخير، ليطابق المقطع ما رآه المشاهدون.',
+    announce: 'انشر المقطع في الشات',
+    announceHint: 'تُرسل فور إنشاء المقطع. استخدم {clip_url} للرابط و {clip_count} لعدد مقاطع هذا المشاهد و {username} للمشاهد. أوقفها إذا كانت لديك خطوة شات تنشر الرابط أصلاً.',
     failMessage: 'رسالة الشات عندما يتعذّر إنشاء المقطع',
     failHint: 'تتوقف السلسلة بعد هذه الرسالة. الأسباب الشائعة: أنت لست في بث مباشر، أو لم يُسمح لتويتش بإنشاء المقاطع بعد.',
     test: 'أنشئ مقطعاً تجريبياً الآن',
@@ -536,6 +546,9 @@ export interface ClipCreateSettings {
   title: string;
   lengthSeconds: number;
   hasDelay: boolean;
+  /** Post the clip in chat when it is made. */
+  announceEnabled: boolean;
+  announceMessage: string;
   failMessage: string;
 }
 
@@ -544,6 +557,9 @@ export function clipCreateSettingsFromStep(step: SequenceStep): ClipCreateSettin
     title: step.clipTitle ?? DEFAULT_CLIP_TITLE,
     lengthSeconds: step.clipLengthSeconds ?? DEFAULT_CLIP_LENGTH_SECONDS,
     hasDelay: step.clipHasDelay ?? false,
+    // missing = a step from before this option: it announces by default; empty = the streamer turned it off
+    announceEnabled: step.clipAnnounceMessage !== '',
+    announceMessage: step.clipAnnounceMessage || DEFAULT_CLIP_ANNOUNCE_MESSAGE,
     failMessage: step.clipCreateFailMessage ?? DEFAULT_CLIP_FAIL_MESSAGE,
   };
 }
@@ -553,6 +569,7 @@ export function clipCreateSettingsToStep(value: ClipCreateSettings): Partial<Seq
     clipTitle: value.title.trim(),
     clipLengthSeconds: value.lengthSeconds,
     clipHasDelay: value.hasDelay,
+    clipAnnounceMessage: value.announceEnabled ? value.announceMessage.trim() || DEFAULT_CLIP_ANNOUNCE_MESSAGE : '',
     clipCreateFailMessage: value.failMessage.trim(),
   };
 }
@@ -634,6 +651,37 @@ export function ClipCreateEditor({ lang, value, onChange }: ClipCreateEditorProp
           <p className="text-[11px] text-muted">{tx.delayHint}</p>
         </div>
         <Switch checked={value.hasDelay} onChange={(hasDelay) => onChange({ hasDelay })} label={tx.delay} />
+      </div>
+
+      <div className={boxClass}>
+        <div className="flex items-center justify-between gap-3">
+          <span className={labelClass}>{tx.announce}</span>
+          <Switch checked={value.announceEnabled} onChange={(announceEnabled) => onChange({ announceEnabled })} label={tx.announce} />
+        </div>
+        {value.announceEnabled && (
+          <>
+            <Input
+              value={value.announceMessage}
+              onChange={(e) => onChange({ announceMessage: e.target.value })}
+              placeholder={DEFAULT_CLIP_ANNOUNCE_MESSAGE}
+              aria-label={tx.announce}
+              className="h-9 text-[12.5px]"
+            />
+            <div className="flex flex-wrap items-center gap-1.5">
+              {['{username}', '{clip_url}', '{clip_count}'].map((tok) => (
+                <button
+                  key={tok}
+                  type="button"
+                  onClick={() => onChange({ announceMessage: `${value.announceMessage}${value.announceMessage && !value.announceMessage.endsWith(' ') ? ' ' : ''}${tok}` })}
+                  className={chipClass}
+                >
+                  {tok}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        <p className="text-[11px] text-muted">{tx.announceHint}</p>
       </div>
 
       <div className="flex flex-col gap-1.5">

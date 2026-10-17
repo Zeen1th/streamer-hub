@@ -25,6 +25,18 @@ export interface SequenceExecutionContext {
 export const DEFAULT_CLIP_TITLE = 'Clipped by {username}';
 export const DEFAULT_CLIP_LENGTH_SECONDS = 30;
 
+/** Posted in chat when a Create Clip step makes a clip. */
+export const DEFAULT_CLIP_ANNOUNCE_MESSAGE = '🎬 @{username} clipped that! Clip #{clip_count}: {clip_url}';
+
+/** True when a step after `index` (in these steps or inside an If branch) already posts the clip link itself. */
+export function laterStepPostsClip(steps: SequenceStep[], index: number): boolean {
+  const posts = (step: SequenceStep): boolean =>
+    (step.type === 'chat' && /\{clip_(?:url|count)\}/i.test(step.chatMessage ?? '')) ||
+    (step.ifThen ?? []).some(posts) ||
+    (step.ifElse ?? []).some(posts);
+  return steps.slice(index + 1).some(posts);
+}
+
 export const DEFAULT_CLIP_FAIL_MESSAGE = '@{username} could not clip that right now. Is the stream live?';
 
 /** A sequence may call another, which may call another... but no deeper than this. */
@@ -553,6 +565,11 @@ export async function executeSequence(
             return { ok: false, executedSteps: executedCount, error: `Clip not created: ${why}` };
           }
           ctx = { ...ctx, clipUrl: made.url ?? '', clipCount: made.count ?? 1 };
+          // Tell chat. A step made before this option existed has no message of its own: it announces by default,
+          // except when a chat step after it already posts the link (that would say it twice).
+          const announce = step.clipAnnounceMessage ?? (laterStepPostsClip(steps, i) ? '' : DEFAULT_CLIP_ANNOUNCE_MESSAGE);
+          const announcement = replaceSequenceTokens(announce, ctx).trim();
+          if (announcement && sinks.sendChatMessage) await sinks.sendChatMessage(announcement);
           break;
         }
 

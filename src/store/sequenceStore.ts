@@ -19,6 +19,7 @@ import type {
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
 import {
+  DEFAULT_CLIP_ANNOUNCE_MESSAGE,
   DEFAULT_CLIP_FAIL_MESSAGE,
   DEFAULT_CLIP_LENGTH_SECONDS,
   DEFAULT_CLIP_TITLE,
@@ -278,6 +279,7 @@ export const defaultStepForType = (type: SequenceStepType, options?: Partial<Seq
         type: 'clip_create',
         clipCreateFailMessage: options?.clipCreateFailMessage ?? DEFAULT_CLIP_FAIL_MESSAGE,
         clipTitle: options?.clipTitle ?? DEFAULT_CLIP_TITLE,
+        clipAnnounceMessage: options?.clipAnnounceMessage ?? DEFAULT_CLIP_ANNOUNCE_MESSAGE,
         clipLengthSeconds: options?.clipLengthSeconds ?? DEFAULT_CLIP_LENGTH_SECONDS,
         clipHasDelay: options?.clipHasDelay ?? false,
         ...options,

@@ -1029,3 +1029,57 @@ test('clip_create that fails tells chat once and stops the sequence', async () =
   assert.equal(result.ok, false);
   assert.deepEqual(chats, ['sorry @Viewer1, no clip']);
 });
+
+test('a Create Clip step on its own announces the clip in chat (it used to be silent)', async () => {
+  const seq = { id: 'a', enabled: true, name: 'Clip', triggerType: 'chat', cooldownSeconds: 0, steps: [{ id: 's1', type: 'clip_create' }] };
+  const chats = [];
+  const result = await executeSequence(
+    seq,
+    { username: 'Viewer1', userLogin: 'viewer1', source: 'chat' },
+    {
+      createClip: async () => ({ ok: true, url: 'https://clips.twitch.tv/AbC', count: 4 }),
+      sendChatMessage: async (m) => { chats.push(m); return true; },
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(chats, ['\u{1F3AC} @Viewer1 clipped that! Clip #4: https://clips.twitch.tv/AbC']);
+});
+
+test('the announcement can be rewritten or turned off, and an older sequence with its own chat step does not post twice', async () => {
+  const run = async (steps) => {
+    const chats = [];
+    await executeSequence(
+      { id: 'b', enabled: true, name: 'Clip', triggerType: 'chat', cooldownSeconds: 0, steps },
+      { username: 'Viewer1', source: 'chat' },
+      {
+        createClip: async () => ({ ok: true, url: 'https://clips.twitch.tv/X', count: 1 }),
+        sendChatMessage: async (m) => { chats.push(m); return true; },
+      },
+    );
+    return chats;
+  };
+
+  assert.deepEqual(await run([{ id: 's', type: 'clip_create', clipAnnounceMessage: 'New clip by {username}: {clip_url}' }]), ['New clip by Viewer1: https://clips.twitch.tv/X']);
+  assert.deepEqual(await run([{ id: 's', type: 'clip_create', clipAnnounceMessage: '' }]), []);
+  // made before the option existed (no message saved) and a chat step of its own posts the link: only that one speaks
+  assert.deepEqual(
+    await run([{ id: 's', type: 'clip_create' }, { id: 'c', type: 'chat', chatMessage: 'clip: {clip_url}' }]),
+    ['clip: https://clips.twitch.tv/X'],
+  );
+  // an explicit message always posts, even next to a chat step
+  assert.deepEqual(
+    await run([{ id: 's', type: 'clip_create', clipAnnounceMessage: 'one' }, { id: 'c', type: 'chat', chatMessage: 'two {clip_url}' }]),
+    ['one', 'two https://clips.twitch.tv/X'],
+  );
+});
+
+test('a clip that could not be made announces nothing but the failure message', async () => {
+  const chats = [];
+  const result = await executeSequence(
+    { id: 'c', enabled: true, name: 'Clip', triggerType: 'chat', cooldownSeconds: 0, steps: [{ id: 's', type: 'clip_create', clipCreateFailMessage: 'no clip' }] },
+    { username: 'Viewer1', source: 'chat' },
+    { createClip: async () => ({ ok: false, error: 'CHANNEL_OFFLINE' }), sendChatMessage: async (m) => { chats.push(m); return true; } },
+  );
+  assert.equal(result.ok, false);
+  assert.deepEqual(chats, ['no clip']);
+});

@@ -373,6 +373,12 @@ export interface SequenceStep {
   clipUseClipLength?: boolean;
   /** Create Clip step: what chat is told when the clip could not be made. */
   clipCreateFailMessage?: string;
+  /**
+   * Create Clip: what is posted in chat once the clip exists. Tokens: {username} {clip_url} {clip_count} {streamer}.
+   * Empty = post nothing. Missing (steps made before this option) = post the default message, unless a later chat step
+   * already posts the clip link.
+   */
+  clipAnnounceMessage?: string;
   /** Create Clip: title of the clip on Twitch. Tokens: {username} {streamer}. Max 100 characters. */
   clipTitle?: string;
   /** Create Clip: how long the clip is, 5 to 60 seconds (Twitch default 30). */

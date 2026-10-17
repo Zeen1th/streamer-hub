@@ -19,6 +19,21 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.23',
+    en: {
+      added: [
+        'The clip command now tells chat when a clip is made, instead of working silently. The "Create a Clip for the Viewer" step posts a message with the clip link as soon as it exists, for example "@viewer clipped that! Clip #3: link". You can rewrite the message (use {username}, {clip_url} and {clip_count}) or turn it off in the step. The Clip Command preset is now just this one step. Commands you already built that post the link with their own chat step keep working and do not post twice.',
+      ],
+      fixed: [],
+    },
+    ar: {
+      added: [
+        'أمر المقطع الآن يخبر الشات عند إنشاء المقطع بدل أن يعمل بصمت. خطوة "إنشاء مقطع للمشاهد" تنشر رسالة فيها رابط المقطع فور إنشائه، مثل "@مشاهد صنع مقطعاً! المقطع رقم 3: الرابط". ويمكنك تعديل الرسالة (استخدم {username} و {clip_url} و {clip_count}) أو إيقافها من الخطوة. وقالب أمر المقطع أصبح هذه الخطوة وحدها. والأوامر التي بنيتها سابقاً وتنشر الرابط بخطوة شات خاصة تبقى تعمل ولا تنشر مرتين.',
+      ],
+      fixed: [],
+    },
+  },
+  {
     version: '0.4.22',
     en: {
       added: [
