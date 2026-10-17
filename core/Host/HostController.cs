@@ -757,6 +757,76 @@ public sealed class HostController : IDisposable
             if (!RelaunchApp()) return Task.FromResult<object?>(new { ok = true, restarting = false });
             return Task.FromResult<object?>(new { ok = true, restarting = true });
         });
+        _dispatcher.Register(Channels.SettingsExportShare, (payload, _) =>
+        {
+            var request = Json.Deserialize<ExportSharePayload>(payload ?? default);
+            if (request is null || (!request.Commands && !request.Overlays)) return Task.FromResult<object?>(new { ok = false, error = "NOTHING SELECTED" });
+            var version = typeof(HostController).Assembly.GetName().Version?.ToString(3) ?? string.Empty;
+            var bundle = _settings.BuildShareBundle(request.Commands, request.Overlays, version);
+            var path = ShowSaveDialog($"streamerhub-share-{DateTime.Now:yyyyMMdd}.json", "StreamerHub share file (*.json)|*.json|All files (*.*)|*.*", "Export commands and settings");
+            if (string.IsNullOrWhiteSpace(path)) return Task.FromResult<object?>(new { ok = false, cancelled = true });
+            try
+            {
+                File.WriteAllText(path, ShareBundles.Serialize(bundle), new System.Text.UTF8Encoding(false));
+            }
+            catch
+            {
+                return Task.FromResult<object?>(new { ok = false, error = "WRITE FAILED" });
+            }
+            Log("system", $"SHARE FILE EXPORTED: {path}");
+            var counts = ShareBundles.Count(bundle);
+            return Task.FromResult<object?>(new { ok = true, path, counters = counts.Counters, replies = counts.Replies, sequences = counts.Sequences, overlays = counts.Overlays });
+        });
+        _dispatcher.Register(Channels.SettingsImportShareChoose, (_, _) =>
+        {
+            _pendingShare = null;
+            var path = ShowOpenDialog("StreamerHub share file (*.json)|*.json|All files (*.*)|*.*", "Import commands and settings");
+            if (string.IsNullOrWhiteSpace(path)) return Task.FromResult<object?>(new { ok = false, cancelled = true });
+            string text;
+            try
+            {
+                if (new FileInfo(path).Length > 16 * 1024 * 1024) return Task.FromResult<object?>(new { ok = false, error = "FILE TOO LARGE" });
+                text = File.ReadAllText(path);
+            }
+            catch
+            {
+                return Task.FromResult<object?>(new { ok = false, error = "READ FAILED" });
+            }
+            if (!ShareBundles.TryParse(text, out var bundle, out var error)) return Task.FromResult<object?>(new { ok = false, error });
+            _pendingShare = bundle;
+            var counts = ShareBundles.Count(bundle);
+            return Task.FromResult<object?>(new
+            {
+                ok = true,
+                fileName = Path.GetFileName(path),
+                appVersion = bundle.AppVersion,
+                exportedAt = bundle.ExportedAt,
+                counters = counts.Counters,
+                replies = counts.Replies,
+                sequences = counts.Sequences,
+                overlays = counts.Overlays,
+            });
+        });
+        _dispatcher.Register(Channels.SettingsImportShareApply, (_, _) =>
+        {
+            var bundle = _pendingShare;
+            _pendingShare = null;
+            if (bundle is null) return Task.FromResult<object?>(new { ok = false, error = "NO FILE CHOSEN" });
+            if (!_settings.ImportShareBundle(bundle, out var result, out var error) || result is null) return Task.FromResult<object?>(new { ok = false, error });
+            Log("system", $"SHARE FILE IMPORTED: {result.Added.Counters} counters, {result.Added.Replies} replies, {result.Added.Sequences} sequences, {result.Added.Overlays} overlays ({result.Skipped} already there)");
+            var restarting = RelaunchApp();
+            return Task.FromResult<object?>(new
+            {
+                ok = true,
+                restarting,
+                counters = result.Added.Counters,
+                replies = result.Added.Replies,
+                sequences = result.Added.Sequences,
+                overlays = result.Added.Overlays,
+                skipped = result.Skipped,
+                clashes = result.Clashes,
+            });
+        });
         _dispatcher.Register(Channels.ChatOverlayGetState, (_, _) =>
             Task.FromResult<object?>(_chatOverlay.GetState()));
         _dispatcher.Register(Channels.ChatOverlaySaveSettings, async (payload, ct) =>
@@ -2240,6 +2310,8 @@ public sealed class HostController : IDisposable
     }
 
     private sealed record RestoreBackupPayload(string Name);
+    private sealed record ExportSharePayload(bool Commands, bool Overlays);
+    private ShareBundle? _pendingShare;
 
     /// <summary>
     /// Starts a hidden helper that waits for this process to exit and then launches the app again, and closes the

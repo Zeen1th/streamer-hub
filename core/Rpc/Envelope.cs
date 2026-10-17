@@ -56,6 +56,9 @@ public static class Channels
     public const string SettingsSave = "settings/save";
     public const string SettingsListBackups = "settings/list-backups";
     public const string SettingsRestoreBackup = "settings/restore-backup";
+    public const string SettingsExportShare = "settings/export-share";
+    public const string SettingsImportShareChoose = "settings/import-share-choose";
+    public const string SettingsImportShareApply = "settings/import-share-apply";
     public const string ChatOverlayGetState = "chat-overlay/get-state";
     public const string ChatOverlaySaveSettings = "chat-overlay/save-settings";
     public const string ChatOverlayGetUrl = "chat-overlay/get-url";

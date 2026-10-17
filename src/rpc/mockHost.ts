@@ -900,6 +900,15 @@ export class MockHost {
       case Channels.SettingsRestoreBackup:
         this.respond(request, { ok: true, restarting: false });
         break;
+      case Channels.SettingsExportShare:
+        this.respond(request, { ok: true, path: 'streamerhub-share.json', counters: 2, replies: 14, sequences: 6, overlays: 1 });
+        break;
+      case Channels.SettingsImportShareChoose:
+        this.respond(request, { ok: true, fileName: 'streamerhub-share.json', appVersion: '0.4.25', counters: 2, replies: 14, sequences: 6, overlays: 1 });
+        break;
+      case Channels.SettingsImportShareApply:
+        this.respond(request, { ok: true, restarting: false, counters: 2, replies: 14, sequences: 6, overlays: 1, skipped: 0, clashes: [] });
+        break;
       case Channels.AlertsGetTempSettings:
         this.respond(request, {
           keepTempFiles: this.alertTemp.keepTempFiles,

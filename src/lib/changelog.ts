@@ -19,6 +19,23 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.25',
+    en: {
+      added: [
+        'You can now share your commands and settings. Settings > System & Window Behavior has a new "Share commands and settings" card. Export saves your counters, replies, sequences and chat overlay looks to a file you can give to another streamer. Import adds a file someone gave you. Nothing private is in the file: no Twitch or OBS login, no counter numbers, no keybinds.',
+        'Importing is safe for what you already have. Nothing of yours is changed or replaced, a backup of your current settings is made first (you can bring it back from Settings > Backups), things you already have are skipped, and imported replies and sequences arrive switched off so you can check them before they start answering in chat. If an imported counter uses a command you already use, you are told which one.',
+      ],
+      fixed: [],
+    },
+    ar: {
+      added: [
+        'يمكنك الآن مشاركة أوامرك وإعداداتك. في الإعدادات > النظام والنافذة بطاقة جديدة "مشاركة الأوامر والإعدادات". التصدير يحفظ عدّاداتك وردودك وتسلسلاتك وأشكال أوفرلاي الشات في ملف تعطيه لستريمر آخر. والاستيراد يضيف ملفاً أعطاك إياه أحد. لا يوجد في الملف أي شيء خاص: لا تسجيل دخول تويتش أو OBS ولا أرقام العدّادات ولا اختصارات لوحة المفاتيح.',
+        'الاستيراد آمن على ما لديك. لا يتغيّر ولا يُستبدل أي شيء عندك، وتُؤخذ نسخة احتياطية من إعداداتك الحالية أولاً (ويمكنك إرجاعها من الإعدادات > النسخ الاحتياطية)، ويُتخطى ما لديك أصلاً، وتصل الردود والتسلسلات المستوردة مُوقَفة لتراجعها قبل أن تبدأ بالرد في الشات. وإذا استخدم عدّاد مستورد أمراً تستخدمه أصلاً فستعرف أيّ أمر.',
+      ],
+      fixed: [],
+    },
+  },
+  {
     version: '0.4.24',
     en: {
       added: [

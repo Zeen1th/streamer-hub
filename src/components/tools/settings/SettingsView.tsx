@@ -16,6 +16,7 @@ import { Slider } from '../../ui/Slider';
 import { Switch } from '../../ui/Switch';
 import { TriggerGlobalSettings } from '../auto-replies/TriggerGlobalSettings';
 import { BackupsCard } from './BackupsCard';
+import { ShareCard } from './ShareCard';
 import { KeybindSettings } from './KeybindSettings';
 import { ObsSettings } from './ObsSettings';
 
@@ -346,6 +347,7 @@ export function SettingsView() {
               </div>
             </div>
           </Card>
+          <ShareCard />
           <BackupsCard />
           <Card title={t(lang, 'updates.settingsTitle')}>
             <div className="space-y-3">

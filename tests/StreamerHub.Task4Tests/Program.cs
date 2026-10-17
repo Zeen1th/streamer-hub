@@ -429,6 +429,46 @@ try
             "emote map contents");
     }
 
+    // Share files: export, parse, merge
+    {
+        var theirCounter = new Counter { Id = "11111111-aaaa-bbbb-cccc-000000000001", Name = "Deaths", Count = 99 };
+        var theirReply = new AutoReply { Id = "22222222-aaaa-bbbb-cccc-000000000002", Trigger = "hi", Triggers = new() { "hi" }, Response = "counter 11111111-aaaa-bbbb-cccc-000000000001", Enabled = true };
+        var theirSeq = new CommandSequence { Id = "33333333-aaaa-bbbb-cccc-000000000003", Name = "Shoutout", Enabled = true };
+        var theirOverlay = new ChatOverlayInstance { Id = "default", Name = "Main Overlay", IsMain = true, Settings = new ChatOverlaySettings { Values = new() { ["fontSize"] = JsonDocument.Parse("22").RootElement.Clone() } } };
+        var built = ShareBundles.Build(new[] { theirCounter }, new[] { theirReply }, new[] { theirSeq }, new[] { theirOverlay }, includeCommands: true, includeOverlays: true, "0.4.25");
+        AssertEqual(0, built.Counters[0].Count, "a shared counter starts from zero");
+        var text = ShareBundles.Serialize(built);
+        AssertTrue(!text.Contains("accessToken", StringComparison.OrdinalIgnoreCase), "no login data in a share file");
+        AssertTrue(ShareBundles.TryParse(text, out var parsed, out var parseError), "a share file reads back");
+        AssertEqual(1, parsed.Sequences.Count, "sequence survives the round trip");
+        AssertTrue(!ShareBundles.TryParse("{\"counters\":[]}", out _, out var notShare) && notShare == "NOT A SHARE FILE", "a settings file is not a share file");
+        AssertTrue(!ShareBundles.TryParse(text.Replace("\"version\": 1", "\"version\": 9"), out _, out var tooNew) && tooNew == "NEWER VERSION", "a newer share file is refused");
+        AssertTrue(!ShareBundles.TryParse("not json", out _, out _), "garbage is refused");
+        AssertEqual(0, ShareBundles.Build(new[] { theirCounter }, new[] { theirReply }, new[] { theirSeq }, new[] { theirOverlay }, true, false, "x").ChatOverlays.Count, "overlays can be left out");
+
+        var mine = new Counter { Id = "mine", Name = "Mine", Count = 5, Commands = new CounterConfig { Increase = new CounterCommandConfig { CommandName = "deaths" } } };
+        var mineSeq = new CommandSequence { Id = "my-seq", Name = "Mine", Enabled = true };
+        var mainOverlay = new ChatOverlayInstance { Id = "default", Name = "Main Overlay", IsMain = true };
+        var merged = ShareBundles.Merge(new[] { mine }, Array.Empty<AutoReply>(), new[] { mineSeq }, new[] { mainOverlay }, parsed);
+        AssertEqual(2, merged.Counters.Count, "imported counter is added");
+        AssertEqual(5, merged.Counters[0].Count, "my counter keeps its count");
+        AssertEqual("mine", merged.Counters[0].Id, "my counter keeps its id");
+        AssertTrue(merged.Counters[1].Id != theirCounter.Id, "imported counter gets a fresh id");
+        AssertEqual(0, merged.Counters[1].Count, "imported counter starts at zero");
+        AssertTrue(merged.Clashes.Any(c => c.Contains("deaths")), "a command that is already used is reported");
+        AssertEqual(2, merged.Sequences.Count, "imported sequence is added");
+        AssertTrue(merged.Sequences[0].Enabled && !merged.Sequences[1].Enabled, "imported sequences arrive switched off, mine untouched");
+        AssertTrue(!merged.AutoReplies[0].Enabled, "imported replies arrive switched off");
+        AssertTrue(merged.AutoReplies[0].Response.Contains(merged.Counters[1].Id), "references to an imported counter follow its new id");
+        AssertEqual(2, merged.ChatOverlays.Count, "imported overlay is added next to the main one");
+        AssertTrue(merged.ChatOverlays[0].IsMain && !merged.ChatOverlays[1].IsMain, "the main overlay stays the main one");
+        AssertEqual("Main Overlay (shared)", merged.ChatOverlays[1].Name, "imported overlay is named apart");
+
+        var again = ShareBundles.Merge(merged.Counters, merged.AutoReplies, merged.Sequences, merged.ChatOverlays, parsed);
+        AssertEqual(0, again.Added.Counters + again.Added.Replies + again.Added.Sequences + again.Added.Overlays, "importing the same file twice adds nothing");
+        AssertEqual(4, again.Skipped, "the repeat is reported as already there");
+    }
+
     await bridge.SetConnectedAsync(false);
     AssertEqual("disconnected", Kind(await ReceiveAsync(socket)), "disconnected transition");
     Console.WriteLine("All Task 4 native host bridge tests passed.");

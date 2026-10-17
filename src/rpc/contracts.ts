@@ -214,6 +214,14 @@ export type ActionTriggerType =
   | 'twitch_watch_streak'
   | 'timer';
 
+/** How many of each thing a share file holds (or how many were added from it). */
+export interface ShareCounts {
+  counters: number;
+  replies: number;
+  sequences: number;
+  overlays: number;
+}
+
 export interface ActionTrigger {
   id: string;
   type: ActionTriggerType;
@@ -793,6 +801,9 @@ export const Channels = {
   SettingsGetState: 'settings/get-state',
   SettingsListBackups: 'settings/list-backups',
   SettingsRestoreBackup: 'settings/restore-backup',
+  SettingsExportShare: 'settings/export-share',
+  SettingsImportShareChoose: 'settings/import-share-choose',
+  SettingsImportShareApply: 'settings/import-share-apply',
   SettingsSave: 'settings/save',
   ChatOverlayGetState: 'chat-overlay/get-state',
   ChatOverlaySaveSettings: 'chat-overlay/save-settings',
@@ -956,6 +967,18 @@ export interface HostApi {
   [Channels.AutoRepliesSettingsGet]: { request: undefined; response: AutoReplySettings };
   [Channels.SettingsListBackups]: { request: undefined; response: { backups: SettingsBackupInfo[] } };
   [Channels.SettingsRestoreBackup]: { request: { name: string }; response: { ok: boolean; restarting?: boolean; error?: string } };
+  [Channels.SettingsExportShare]: {
+    request: { commands: boolean; overlays: boolean };
+    response: { ok: boolean; cancelled?: boolean; error?: string; path?: string } & Partial<ShareCounts>;
+  };
+  [Channels.SettingsImportShareChoose]: {
+    request: undefined;
+    response: { ok: boolean; cancelled?: boolean; error?: string; fileName?: string; appVersion?: string; exportedAt?: string } & Partial<ShareCounts>;
+  };
+  [Channels.SettingsImportShareApply]: {
+    request: undefined;
+    response: { ok: boolean; error?: string; restarting?: boolean; skipped?: number; clashes?: string[] } & Partial<ShareCounts>;
+  };
   [Channels.AutoRepliesSettingsSave]: { request: AutoReplySettings; response: { ok: boolean } };
   [Channels.AutoRepliesSave]: { request: { rule: AutoReply }; response: { ok: boolean } };
   [Channels.AutoRepliesDelete]: { request: { ruleId: string }; response: { ok: boolean } };

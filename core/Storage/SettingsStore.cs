@@ -480,15 +480,7 @@ public sealed class SettingsStore : IDisposable
         if (!TryReadDocument(match.Path, out var restored)) { error = "BACKUP UNREADABLE"; return false; }
         try
         {
-            if (File.Exists(_filePath))
-            {
-                Directory.CreateDirectory(_snapshotDir);
-                File.Copy(_filePath, Path.Combine(_snapshotDir, $"before-restore-{DateTime.Now:yyyyMMdd-HHmmss}.json"), overwrite: true);
-                foreach (var old in Directory.GetFiles(_snapshotDir, "before-restore-*.json").OrderByDescending(f => f, StringComparer.Ordinal).Skip(MaxBeforeRestoreCopies))
-                {
-                    try { File.Delete(old); } catch { }
-                }
-            }
+            KeepBeforeRestoreCopy();
             lock (_lock) _document = restored;
             Flush();
             return true;
@@ -496,6 +488,63 @@ public sealed class SettingsStore : IDisposable
         catch
         {
             error = "RESTORE FAILED";
+            return false;
+        }
+    }
+
+    /// <summary>Keeps what is on disk now as backups/before-restore-*.json (last few kept) so a restore or import can be undone.</summary>
+    private void KeepBeforeRestoreCopy()
+    {
+        Flush();
+        if (!File.Exists(_filePath)) return;
+        Directory.CreateDirectory(_snapshotDir);
+        File.Copy(_filePath, Path.Combine(_snapshotDir, $"before-restore-{DateTime.Now:yyyyMMdd-HHmmss}.json"), overwrite: true);
+        foreach (var old in Directory.GetFiles(_snapshotDir, "before-restore-*.json").OrderByDescending(f => f, StringComparer.Ordinal).Skip(MaxBeforeRestoreCopies))
+        {
+            try { File.Delete(old); } catch { }
+        }
+    }
+
+    /// <summary>The commands and/or chat overlay looks, ready to be written to a share file.</summary>
+    public ShareBundle BuildShareBundle(bool includeCommands, bool includeOverlays, string appVersion)
+    {
+        lock (_lock)
+        {
+            return ShareBundles.Build(_document.Counters, _document.AutoReplies, _document.Sequences, _document.ChatOverlays, includeCommands, includeOverlays, appVersion);
+        }
+    }
+
+    /// <summary>
+    /// Adds a shared bundle to the current settings without changing anything already there. The current file is kept first
+    /// (backups/before-restore-*.json). The caller restarts the app so every part of the host reloads.
+    /// </summary>
+    public bool ImportShareBundle(ShareBundle bundle, out ShareMergeResult? result, out string? error)
+    {
+        result = null;
+        error = null;
+        try
+        {
+            lock (_lock)
+            {
+                result = ShareBundles.Merge(_document.Counters, _document.AutoReplies, _document.Sequences, _document.ChatOverlays, bundle);
+            }
+            KeepBeforeRestoreCopy();
+            lock (_lock)
+            {
+                _document = _document with
+                {
+                    Counters = result.Counters,
+                    AutoReplies = result.AutoReplies,
+                    Sequences = result.Sequences,
+                    ChatOverlays = result.ChatOverlays,
+                };
+            }
+            Flush();
+            return true;
+        }
+        catch
+        {
+            error = "IMPORT FAILED";
             return false;
         }
     }
