@@ -581,7 +581,7 @@ public sealed class TwitchIrcClient : ITwitchClient
             await _remodManager.ProcessDueRemodsAsync(
                 async (targetUserId, ct) => await CheckIsModeratorAsync(targetUserId, ct).ConfigureAwait(false),
                 async (targetUserId, ct) => await ModUserAsync(targetUserId, ct).ConfigureAwait(false),
-                async (entry, success, error) =>
+                (entry, success, error) =>
                 {
                     if (success)
                     {
@@ -599,12 +599,8 @@ public sealed class TwitchIrcClient : ITwitchClient
                         {
                             if (entry.WasLeadMod)
                             {
+                                // Only the streamer's log hears about it; nothing is posted in chat
                                 Info?.Invoke(new TwitchInfo("remod-lead-mod-notice", $"{safeLogin}: Moderator privileges restored. (Lead Moderator: check Twitch Roles Manager if badge re-grant is needed)"));
-                                await SendChatMessageAsync($"[Moderation] Restored moderator privileges for @{safeLogin}. (Lead Moderator)").ConfigureAwait(false);
-                            }
-                            else
-                            {
-                                await SendChatMessageAsync($"[Moderation] Restored moderator privileges for @{safeLogin}.").ConfigureAwait(false);
                             }
                         }
                         else
@@ -616,6 +612,7 @@ public sealed class TwitchIrcClient : ITwitchClient
                     {
                         Info?.Invoke(new TwitchInfo("remod-status", $"{entry.TargetLogin}: {error}"));
                     }
+                    return Task.CompletedTask;
                 },
                 _cts.Token).ConfigureAwait(false);
         }

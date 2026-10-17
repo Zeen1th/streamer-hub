@@ -264,6 +264,7 @@ public sealed record ActionTrigger
     public int? MinViewers { get; init; }
     public int? MinStreak { get; init; }
     public string? ChatCommand { get; init; }
+    public List<string>? ChatCommands { get; init; } // every chat command of a chat trigger (ChatCommand is the first)
     public string? MatchMode { get; init; } // "exact" | "startsWith" | "contains"
     public string? RewardId { get; init; }
     public string? RewardTitle { get; init; }

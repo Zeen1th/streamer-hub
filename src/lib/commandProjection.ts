@@ -1,6 +1,7 @@
 import type { AutoReply, CommandSequence, Counter, CounterAction, PermissionLevel } from '../rpc/contracts';
 import { renderTemplate } from './counterRules.ts';
 import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES } from './sequenceTimers.ts';
+import { triggerChatCommands } from './triggerCommands.ts';
 
 export type CommandGroup = 'all' | 'counters' | 'replies' | 'ai' | 'sequences' | 'disabled';
 export type CommandSink = 'file' | 'title' | 'chat';
@@ -133,7 +134,7 @@ export function projectCommands({
         const labels = seq.triggers.map((t) => {
           if (t.type === 'twitch_raid') return `🔥 Raid (≥${t.minViewers ?? 1})`;
           if (t.type === 'timer') return `⏱ Every ${formatTimerInterval(t.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES)}`;
-          if (t.type === 'twitch_chat') return t.chatCommand || 'Chat';
+          if (t.type === 'twitch_chat') return triggerChatCommands(t).join(' / ') || 'Chat';
           return t.rewardTitle ? `🪙 ${t.rewardTitle}` : '🪙 Reward';
         });
         triggerLabel = labels.join(', ');

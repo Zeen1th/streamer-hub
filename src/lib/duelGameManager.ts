@@ -82,6 +82,8 @@ export interface ActiveTriviaDuel {
   messageTimeout?: string;
   shield: DuelShield;
   sinks: DuelExecutionSinks;
+  /** Everything the app itself said in chat during this duel (its own echo must never count as an answer). */
+  sentTexts: string[];
   timerHandle: ReturnType<typeof setTimeout> | null;
   resolveOutcome?: (outcome: DuelOutcome | null) => void;
 }
@@ -118,6 +120,8 @@ export function renderDuelMessage(template: string, tokens: Record<string, strin
 }
 
 export interface DuelChatMessageInput {
+  id?: string;
+  isSelf?: boolean;
   username: string;
   displayName?: string;
   userLogin?: string;
@@ -594,6 +598,17 @@ class DuelGameManager {
         resolveOutcome = resolve;
       });
 
+      // The app talks through the streamer's account, so its own messages come back as chat lines.
+      // Remember them, otherwise a line that contains the answer could be read as a player answering.
+      const sentTexts: string[] = [];
+      const trackedSinks: DuelExecutionSinks = {
+        ...sinks,
+        sendChatMessage: async (msg) => {
+          sentTexts.push(msg);
+          return sinks.sendChatMessage(msg);
+        },
+      };
+
       const timerHandle = setTimeout(async () => {
         await this.handleTimeoutExpiration(duelId);
       }, timerSeconds * 1000);
@@ -616,14 +631,15 @@ class DuelGameManager {
         messageWin: options.messageWin,
         messageTimeout: options.messageTimeout,
         shield,
-        sinks,
+        sinks: trackedSinks,
+        sentTexts,
         timerHandle,
         resolveOutcome,
       };
 
       const startTpl = options.messageStart?.trim() ||
         (options.isStreamerDuel ? DEFAULT_DUEL_MESSAGES.streamerTriviaStart : DEFAULT_DUEL_MESSAGES.triviaStart);
-      await sinks.sendChatMessage(
+      await trackedSinks.sendChatMessage(
         renderDuelMessage(startTpl, makeTokens(undefined, undefined, {
           question,
           timer: timerSeconds,
@@ -657,6 +673,15 @@ class DuelGameManager {
     }
 
     const duel = this.activeDuel;
+
+    // Ignore the app's own lines (the question, the start message...) even if they contain the answer
+    const line = normalizeAnswer(message.message);
+    const question = normalizeAnswer(duel.question);
+    const isOwnEcho =
+      duel.sentTexts.some((sent) => normalizeAnswer(sent) === line) ||
+      Boolean(question && line.includes(question));
+    if (isOwnEcho) return false;
+
     const isCorrect = isAnswerMatch(message.message, duel.answer, duel.acceptableAnswers);
 
     if (!isCorrect) {

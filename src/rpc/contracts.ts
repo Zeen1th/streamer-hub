@@ -221,6 +221,8 @@ export interface ActionTrigger {
   minViewers?: number;
   minStreak?: number;
   chatCommand?: string;
+  /** Extra chat commands that start the same action. `chatCommand` stays the first one. */
+  chatCommands?: string[];
   matchMode?: 'exact' | 'startsWith' | 'contains';
   rewardId?: string;
   rewardTitle?: string;

@@ -1,5 +1,6 @@
 import { DEFAULT_PROTECTED_MESSAGES } from '../../lib/duelGameManager';
 import { shieldKey } from '../../lib/shield';
+import { triggerChatCommands } from '../../lib/triggerCommands';
 import { DEFAULT_CLIP_ANNOUNCE_MESSAGE, DEFAULT_CLIP_FAIL_MESSAGE, replaceSequenceTokens } from '../../lib/sequenceRunner';
 import { attachedGameIndex } from '../../lib/stepGroups';
 import { groupSubActions, type SubActionGroup } from '../../lib/subActionCatalog';
@@ -135,7 +136,10 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
   const [enabled, setEnabled] = useState(trigger.enabled);
   const [minViewers, setMinViewers] = useState(trigger.minViewers ?? 1);
   const [minStreak, setMinStreak] = useState(trigger.minStreak ?? 1);
-  const [chatCommand, setChatCommand] = useState(trigger.chatCommand ?? '!command');
+  const [chatCommands, setChatCommands] = useState<string[]>(() => {
+    const existing = triggerChatCommands(trigger);
+    return existing.length > 0 ? existing : ['!command'];
+  });
   const [matchMode, setMatchMode] = useState(trigger.matchMode ?? 'startsWith');
   const [rewardTitle, setRewardTitle] = useState(trigger.rewardTitle ?? 'Custom Reward');
   const [rewardId, setRewardId] = useState(trigger.rewardId ?? '');
@@ -161,7 +165,9 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
     } else if (trigger.type === 'timer') {
       onSave({ enabled, intervalMinutes: Math.max(1, Math.min(1440, Math.round(Number(intervalMinutes) || TIMER_DEFAULT_INTERVAL_MINUTES))), minChatMessages: Math.max(0, Math.round(Number(minChatMessages) || 0)) });
     } else if (trigger.type === 'twitch_chat') {
-      onSave({ enabled, chatCommand: chatCommand.trim() || '!command', matchMode });
+      const cleaned = triggerChatCommands({ chatCommands });
+      const commands = cleaned.length > 0 ? cleaned : ['!command'];
+      onSave({ enabled, chatCommand: commands[0], chatCommands: commands, matchMode });
     } else {
       onSave({ enabled, rewardTitle: rewardTitle.trim() || 'Custom Reward', rewardId });
     }
@@ -384,12 +390,43 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                 <label className="font-sans text-[12px] font-medium text-zinc-300">
                   {t(lang, 'sequence.triggerChatCommand')}
                 </label>
-                <Input
-                  value={chatCommand}
-                  onChange={(e) => setChatCommand(e.target.value)}
-                  placeholder="!command"
-                  className="h-9 font-mono text-[13px]"
-                />
+                {chatCommands.map((command, index) => (
+                  <div key={index} className="flex items-center gap-1.5">
+                    <Input
+                      value={command}
+                      onChange={(e) =>
+                        setChatCommands((list) => list.map((c, i) => (i === index ? e.target.value : c)))
+                      }
+                      placeholder="!command"
+                      dir="ltr"
+                      className="h-9 flex-1 font-mono text-[13px]"
+                    />
+                    {chatCommands.length > 1 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setChatCommands((list) => list.filter((_, i) => i !== index))}
+                        className="h-9 w-9 shrink-0 px-0 text-zinc-400 hover:text-red-300"
+                        aria-label={t(lang, 'sequence.removeChatCommand')}
+                        title={t(lang, 'sequence.removeChatCommand')}
+                      >
+                        <X size={14} />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setChatCommands((list) => [...list, ''])}
+                  className="h-8 w-fit gap-1 px-2 text-[11.5px] text-teal-300 hover:bg-teal-500/10 hover:text-teal-200"
+                >
+                  <Plus size={12} />
+                  <span>{t(lang, 'sequence.addChatCommand')}</span>
+                </Button>
+                <p className="text-[11px] text-muted">{t(lang, 'sequence.chatCommandsHint')}</p>
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -4378,7 +4415,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           : trig.type === 'twitch_watch_streak'
                           ? `Min: ${trig.minStreak ?? 1} streams`
                           : trig.type === 'twitch_chat'
-                          ? `${trig.chatCommand || '!command'} (${trig.matchMode || 'startsWith'})`
+                          ? `${triggerChatCommands(trig).join(' / ') || '!command'} (${trig.matchMode || 'startsWith'})`
                           : trig.rewardTitle || 'Custom Reward';
 
                       return (

@@ -1,4 +1,5 @@
 import type { DuelOutcome } from './duelGameManager.ts';
+import { chatMessageMatchesTrigger } from './triggerCommands.ts';
 import type { PollOutcome } from './pollOutcome.ts';
 import { protectedUserMessage } from './shield.ts';
 import type { CommandSequence, CounterAction, LogKind, ModerationAction, SequenceIfCondition, SequenceStep } from '../rpc/contracts';
@@ -218,13 +219,8 @@ export function matchesSequenceTrigger(sequence: CommandSequence, query: Sequenc
         }
       }
 
-      if (trigger.type === 'twitch_chat' && query.chatMessage && trigger.chatCommand) {
-        const cmd = trigger.chatCommand.trim().toLowerCase();
-        const rawMsg = query.chatMessage.trim().toLowerCase();
-        const mode = trigger.matchMode || 'startsWith';
-        if (mode === 'exact' && rawMsg === cmd) return true;
-        if (mode === 'startsWith' && (rawMsg === cmd || rawMsg.startsWith(`${cmd} `))) return true;
-        if (mode === 'contains' && rawMsg.includes(cmd)) return true;
+      if (trigger.type === 'twitch_chat' && query.chatMessage && chatMessageMatchesTrigger(trigger, query.chatMessage)) {
+        return true;
       }
     }
     return false;

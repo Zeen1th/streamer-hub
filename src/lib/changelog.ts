@@ -19,6 +19,27 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.24',
+    en: {
+      added: [
+        'A chat trigger can now have more than one command. In the Twitch Chat trigger of a sequence, use "Add another command" so for example !so and !shoutout both start the same action. Existing triggers keep their command.',
+      ],
+      fixed: [
+        'Smart timeout no longer posts "[Moderation] Restored moderator privileges for ..." in chat when it gives moderator back. It is only noted in the app log now.',
+        'Trivia duels no longer read their own chat lines (such as the question) as a player answering, which could end a duel with the wrong winner announced.',
+      ],
+    },
+    ar: {
+      added: [
+        'يمكن الآن أن يكون لمشغّل الشات أكثر من أمر. في مشغّل شات تويتش داخل التسلسل اضغط "أضف أمراً آخر" ليشغّل مثلاً !so و !shoutout الإجراء نفسه. المشغّلات الحالية تحتفظ بأمرها.',
+      ],
+      fixed: [
+        'لم يعد الإسكات الذكي ينشر "[Moderation] Restored moderator privileges for ..." في الشات عند إعادة الإشراف. يُسجَّل في سجل التطبيق فقط.',
+        'لم تعد مبارزات الأسئلة تعتبر رسائل التطبيق نفسه في الشات (مثل السؤال) إجابة من لاعب، وهذا كان قد ينهي المبارزة بإعلان فائز خاطئ.',
+      ],
+    },
+  },
+  {
     version: '0.4.23',
     en: {
       added: [

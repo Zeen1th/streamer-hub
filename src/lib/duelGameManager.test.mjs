@@ -743,3 +743,31 @@ test('a shielded viewer can have their own reply; others use the shared reply', 
   assert.ok(sent.includes("bob's own: Bob is busy"));
   assert.ok(sent.includes('shared: Carol is shielded'));
 });
+
+test('the app\'s own chat lines never count as an answer in a streamer trivia duel', async () => {
+  duelGameManager.reset();
+  const timeouts = [];
+  const sinks = {
+    sendChatMessage: async () => true,
+    smartModTimeout: async (target) => { timeouts.push(target); return { ok: true }; },
+    muteStreamerSource: async () => true,
+    generateTrivia: async () => ({ ok: true, question: 'Who is the hero of Zelda?', answer: 'Link', acceptableAnswers: ['link'] }),
+    delay: async () => {},
+  };
+  await duelGameManager.startDuel({
+    challenger: 'Viewer',
+    opponentRaw: 'Streamer',
+    mode: 'ai_trivia',
+    isStreamerDuel: true,
+    broadcasterName: 'Streamer',
+    sinks,
+  });
+  // The start message comes back as a chat line from the streamer's own account and mentions the answer
+  const echoed = await duelGameManager.handleChatMessage({ username: 'Streamer', message: 'Who is the hero of Zelda?' });
+  assert.equal(echoed, false);
+  assert.ok(duelGameManager.getActiveDuel() !== null);
+  // The viewer then answers for real and wins
+  const won = await duelGameManager.handleChatMessage({ username: 'Viewer', message: 'Link' });
+  assert.equal(won, true);
+  duelGameManager.reset();
+});
