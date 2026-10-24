@@ -946,6 +946,9 @@ export class MockHost {
         this.respond(request, { ok: true, payload: _payload });
         break;
       }
+      case Channels.TwitchGetStreamStatus:
+        this.respond(request, { ok: true, live: true, startedAt: new Date(Date.now() - 95 * 60_000).toISOString() });
+        break;
       case Channels.TwitchCreateClip: {
         const id = `MockClip${Date.now().toString(36)}`;
         this.respond(request, { ok: true, id, url: `https://clips.twitch.tv/${id}`, title: 'Mock clip' });

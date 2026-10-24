@@ -841,6 +841,7 @@ export const Channels = {
   TwitchModerationDeleteMessage: 'twitch/moderation/delete-message',
   TwitchModerationShoutout: 'twitch/moderation/shoutout',
   TwitchCreateClip: 'twitch/create-clip',
+  TwitchGetStreamStatus: 'twitch/get-stream-status',
   ChatOverlayTestMessage: 'chat-overlay/test-message',
   ChatOverlayReload: 'chat-overlay/reload',
   ChatOverlaySetPreview: 'chat-overlay/set-preview',
@@ -1046,6 +1047,7 @@ export interface HostApi {
     request: { messageId: string };
     response: { ok: boolean; error?: string };
   };
+  [Channels.TwitchGetStreamStatus]: { request: undefined; response: { ok: boolean; live: boolean; startedAt?: string | null; error?: string | null } };
   [Channels.TwitchCreateClip]: { request: CreateClipRequest | undefined; response: CreateClipResponse };
   [Channels.TwitchModerationShoutout]: {
     request: { target: string };

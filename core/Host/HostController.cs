@@ -1257,6 +1257,12 @@ public sealed class HostController : IDisposable
             else Log("obs-error", $"Clip failed: {made.Error}");
             return new { ok = made.Ok, id = made.Id, url = made.Url, title = made.Title, error = made.Error };
         });
+        _dispatcher.Register(Channels.TwitchGetStreamStatus, async (_, ct) =>
+        {
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, live = false, startedAt = (string?)null, error = (string?)"TWITCH IS NOT CONNECTED" };
+            var status = await _twitch.GetStreamStatusAsync(ct).ConfigureAwait(false);
+            return new { ok = status.Ok, live = status.Live, startedAt = status.StartedAt?.ToString("o"), error = status.Error };
+        });
         _dispatcher.Register(Channels.ChatOverlayTestMessage, async (payload, ct) =>
         {
             var message = Json.Deserialize<ChatMessage>(payload ?? default);

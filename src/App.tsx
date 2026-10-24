@@ -27,6 +27,7 @@ import { useSettingsStore } from './store/settingsStore';
 import { useToolStore } from './store/toolStore';
 import { useUpdateStore } from './store/updateStore';
 import { useStatsStore } from './store/statsStore';
+import { startStreamStatusPolling } from './store/streamStatus';
 import { useChatterStore } from './store/chatterStore';
 import { useVoteStore } from './store/voteStore';
 import { ObsChatView } from './components/tools/chat/ObsChatView';
@@ -139,6 +140,7 @@ export default function App() {
   }, []);
 
   useEffect(() => { void useUpdateStore.getState().check(); }, []);
+  useEffect(() => { startStreamStatusPolling(); }, []);
 
   // Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) on the Commands tab. Text fields keep their own undo, and an open dialog
   // owns the keyboard, so neither is intercepted.

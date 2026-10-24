@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chatMessageMatchesTrigger, triggerChatCommands } from './triggerCommands.ts';
+import { chatMessageMatchesTrigger, matchedChatCommand, triggerChatCommands } from './triggerCommands.ts';
 
 test('a trigger made before multi-command support still has its one command', () => {
   assert.deepEqual(triggerChatCommands({ chatCommand: '!so' }), ['!so']);
@@ -28,4 +28,17 @@ test('match modes apply to every command', () => {
   assert.equal(chatMessageMatchesTrigger(exact, '!b now'), false);
   const contains = { chatCommands: ['hello', 'hi there'], matchMode: 'contains' };
   assert.equal(chatMessageMatchesTrigger(contains, 'oh hi there friend'), true);
+});
+
+test('the command a viewer used is found, so {input} is only what follows it', () => {
+  const triggers = [
+    { type: 'twitch_chat', enabled: true, chatCommand: '!so', chatCommands: ['!so', '!shoutout'], matchMode: 'startsWith' },
+    { type: 'twitch_raid', enabled: true },
+  ];
+  assert.equal(matchedChatCommand(triggers, '!shoutout @bob'), '!shoutout');
+  assert.equal(matchedChatCommand(triggers, '!so @bob'), '!so');
+  assert.equal(matchedChatCommand(triggers, 'hello'), null);
+  assert.equal(matchedChatCommand(undefined, '!so'), null);
+  // a disabled trigger is not used
+  assert.equal(matchedChatCommand([{ ...triggers[0], enabled: false }], '!so @bob'), null);
 });

@@ -31,10 +31,10 @@ export function LeaderboardWidget({ chrome, config, setConfig }: WidgetProps) {
   const { h } = useHomeText();
   const metric = readMetric(config.metric);
   const period: LeaderboardPeriod = config.period === 'allTime' ? 'allTime' : 'stream';
-  const includeStreamer = config.includeStreamer === '1';
   const limit = chrome.size >= 8 ? 8 : 5;
 
   const broadcaster = useConnectionStore((s) => s.twitchChannel)?.replace(/^#+/, '');
+  const botLogin = useConnectionStore((s) => s.botLogin);
   const allTime = useStatsStore((s) => s.allTime);
   const session = useStatsStore((s) => s.session);
   const rev = useStatsStore((s) => s.rev);
@@ -44,10 +44,10 @@ export function LeaderboardWidget({ chrome, config, setConfig }: WidgetProps) {
   const [confirmReset, setConfirmReset] = useState(false);
 
   const rows = useMemo(
-    () => topUsers(period === 'stream' ? session.users : allTime, metric, limit, (login) => isIgnoredUser(login, broadcaster, includeStreamer)),
+    () => topUsers(period === 'stream' ? session.users : allTime, metric, limit, (login) => isIgnoredUser(login, broadcaster, botLogin)),
     // rev changes whenever the (mutated) maps do
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [period, metric, limit, broadcaster, includeStreamer, rev, session, allTime],
+    [period, metric, limit, broadcaster, botLogin, rev, session, allTime],
   );
 
   const avatars = useMemo(() => {
@@ -146,16 +146,7 @@ export function LeaderboardWidget({ chrome, config, setConfig }: WidgetProps) {
         </ol>
       )}
 
-      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-3">
-        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-[#9aa3af]">
-          <input
-            type="checkbox"
-            checked={includeStreamer}
-            onChange={(e) => setConfig({ includeStreamer: e.target.checked ? '1' : '0' })}
-            className="size-3.5 rounded border-white/20 bg-black/40"
-          />
-          {h('lb.includeStreamer')}
-        </label>
+      <div className="mt-auto flex flex-wrap items-center justify-end gap-2 pt-3">
         <div className="flex items-center gap-1.5">
           <button
             type="button"

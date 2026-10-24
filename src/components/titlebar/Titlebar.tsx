@@ -26,7 +26,7 @@ export function Titlebar() {
   const [message, setMessage] = useState<string | null>(null);
 
   const parsedNotes = parseReleaseNotes(releaseNotes, lang);
-  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.25';
+  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.26';
 
   useEffect(() => {
     if (!debugPromptRequested) return;

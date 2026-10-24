@@ -9,10 +9,12 @@ import type {
   TwitchWatchStreakEvent,
 } from '../rpc/contracts';
 import { rpc } from '../rpc';
+import { useConnectionStore } from './connectionStore';
 import {
   EMPTY_TOTALS,
   addFeedEvent,
   bumpUser,
+  isIgnoredUser,
   pruneUsers,
   recordMinute,
   type FeedEvent,
@@ -52,7 +54,14 @@ interface StatsState {
   giftIds: string[];
   /** Bumped on every change so selectors can re-run even though the maps are mutated in place. */
   rev: number;
-  recordMessage(message: Pick<ChatMessage, 'username' | 'displayName' | 'userLogin'>): void;
+  /**
+   * Whether Twitch says the channel is live. Nothing is counted while it is explicitly offline; while it is unknown
+   * (not connected yet, or Twitch could not be asked) everything is counted as before.
+   */
+  streamLive: 'unknown' | 'live' | 'offline';
+  /** Twitch said live or offline. A new live stream starts a fresh "this stream", and the on-air clock follows Twitch's start time. */
+  setStreamStatus(status: 'unknown' | 'live' | 'offline', startedAt?: number): void;
+  recordMessage(message: Pick<ChatMessage, 'username' | 'displayName' | 'userLogin'> & { id?: string; isSelf?: boolean }): void;
   recordFollow(event: TwitchFollowEvent): void;
   recordRaid(event: TwitchRaidEvent): void;
   recordGift(event: TwitchGiftEvent): void;
@@ -114,6 +123,12 @@ function scheduleSave(read: () => StatsState) {
 
 const initial = load(Date.now());
 
+/** The streamer, their bot account and known bots are never counted as viewers. */
+const isNotViewer = (login: string) => {
+  const connection = useConnectionStore.getState();
+  return isIgnoredUser(login, connection.twitchChannel?.replace(/^#+/, ''), connection.botLogin);
+};
+
 export const useStatsStore = create<StatsState>((set, get) => {
   /** Applies one change to both the stream and all-time tallies, then notifies subscribers. */
   const apply = (
@@ -144,20 +159,41 @@ export const useStatsStore = create<StatsState>((set, get) => {
     minutes: initial.minutes,
     giftIds: initial.giftIds,
     rev: 0,
+    streamLive: 'unknown',
+
+    setStreamStatus: (status, startedAt) => {
+      const s = get();
+      if (status !== 'live') {
+        if (s.streamLive !== status) set({ streamLive: status, rev: s.rev + 1 });
+        return;
+      }
+      const start = startedAt && startedAt > 0 ? startedAt : s.session.startedAt;
+      // The saved numbers belong to an earlier stream when it began before this one did
+      const isNewStream = s.session.startedAt < start - 5 * 60_000;
+      const session = isNewStream ? { ...freshSession(start) } : { ...s.session, startedAt: Math.min(s.session.startedAt, start) };
+      set({ streamLive: 'live', session, rev: s.rev + 1 });
+      scheduleSave(get);
+    },
 
     recordMessage: (message) => {
+      if (get().streamLive === 'offline') return;
+      // What the app itself says in chat (replies, announcements) comes back as a chat line: it is not a viewer talking
+      if (message.isSelf || message.id?.startsWith('self-')) return;
       const login = message.userLogin || message.username;
       if (!login) return;
       const now = Date.now();
       recordMinute(get().minutes, now);
-      apply(login, message.displayName || message.username, { messages: 1 }, { messages: 1 });
+      // The streamer's own lines still count towards the stream's chat total, but never as a viewer
+      apply(isNotViewer(login) ? '' : login, message.displayName || message.username, { messages: 1 }, { messages: 1 });
     },
 
     recordFollow: (event) => {
+      if (get().streamLive === 'offline') return;
       apply(event.userLogin, event.userName, {}, { follows: 1 }, { kind: 'follow', at: Date.now(), who: event.userName || event.userLogin, detail: '' });
     },
 
     recordRaid: (event) => {
+      if (get().streamLive === 'offline') return;
       apply('', undefined, {}, { raids: 1, raidViewers: event.viewers }, {
         kind: 'raid',
         at: Date.now(),
@@ -167,16 +203,19 @@ export const useStatsStore = create<StatsState>((set, get) => {
     },
 
     recordGift: (event) => {
+      if (get().streamLive === 'offline') return;
       if (event.id && get().giftIds.includes(event.id)) return;
       if (event.id) set({ giftIds: [event.id, ...get().giftIds].slice(0, 300) });
       const count = Math.max(1, event.count || 1);
       const who = event.anonymous ? 'Anonymous' : event.gifterName || event.gifterLogin;
-      apply(event.anonymous ? '' : event.gifterLogin, who, { gifts: count }, { gifts: count }, { kind: 'gift', at: Date.now(), who, detail: String(count) });
+      const gifter = event.anonymous || isNotViewer(event.gifterLogin) ? '' : event.gifterLogin;
+      apply(gifter, who, { gifts: count }, { gifts: count }, { kind: 'gift', at: Date.now(), who, detail: String(count) });
     },
 
     recordRedemption: (event) => {
+      if (get().streamLive === 'offline') return;
       apply(
-        event.userLogin,
+        isNotViewer(event.userLogin) ? '' : event.userLogin,
         event.userName,
         { redemptions: 1, points: event.rewardCost ?? 0 },
         { redemptions: 1 },
@@ -185,17 +224,23 @@ export const useStatsStore = create<StatsState>((set, get) => {
     },
 
     recordWatchStreak: (event) => {
+      if (get().streamLive === 'offline') return;
       apply('', undefined, {}, {}, { kind: 'streak', at: Date.now(), who: event.userName || event.userLogin, detail: String(event.streak) });
     },
 
     recordDuel: ({ winner, loser, kind }) => {
-      if (kind !== 'win' || !winner || !loser) return;
+      if (kind !== 'win' || !winner || !loser || get().streamLive === 'offline') return;
       const now = Date.now();
       const s = get();
-      bumpUser(s.allTime, winner, winner, { duelWins: 1 }, now);
-      bumpUser(s.session.users, winner, winner, { duelWins: 1 }, now);
-      bumpUser(s.allTime, loser, loser, { duelLosses: 1 }, now);
-      bumpUser(s.session.users, loser, loser, { duelLosses: 1 }, now);
+      // The streamer can play a duel too, but only viewers are ranked
+      if (!isNotViewer(winner)) {
+        bumpUser(s.allTime, winner, winner, { duelWins: 1 }, now);
+        bumpUser(s.session.users, winner, winner, { duelWins: 1 }, now);
+      }
+      if (!isNotViewer(loser)) {
+        bumpUser(s.allTime, loser, loser, { duelLosses: 1 }, now);
+        bumpUser(s.session.users, loser, loser, { duelLosses: 1 }, now);
+      }
       s.session.totals.duels += 1;
       set({ rev: s.rev + 1, feed: addFeedEvent(s.feed, { kind: 'duel', at: now, who: winner, detail: loser }) });
       scheduleSave(get);
@@ -204,8 +249,10 @@ export const useStatsStore = create<StatsState>((set, get) => {
     recordClip: ({ login, name, url }) => {
       const now = Date.now();
       const s = get();
-      const entry = bumpUser(s.allTime, login, name, { clips: 1 }, now);
-      bumpUser(s.session.users, login, name, { clips: 1 }, now);
+      // A clip the streamer makes themself is not credited to anyone
+      const credited = isNotViewer(login) ? null : login;
+      const entry = credited ? bumpUser(s.allTime, credited, name, { clips: 1 }, now) : null;
+      if (credited) bumpUser(s.session.users, credited, name, { clips: 1 }, now);
       s.session.totals.clips = (s.session.totals.clips ?? 0) + 1;
       set({ rev: s.rev + 1, feed: addFeedEvent(s.feed, { kind: 'clip', at: now, who: name || login, detail: url }) });
       scheduleSave(get);

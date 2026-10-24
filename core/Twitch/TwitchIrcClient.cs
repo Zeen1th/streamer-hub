@@ -1174,6 +1174,34 @@ public sealed class TwitchIrcClient : ITwitchClient
         }
     }
 
+    public async Task<(bool Ok, bool Live, DateTimeOffset? StartedAt, string? Error)> GetStreamStatusAsync(CancellationToken cancellationToken = default)
+    {
+        var (broadcasterId, bErr) = await GetBroadcasterIdAsync(cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(broadcasterId)) return (false, false, null, bErr ?? "BROADCASTER_ID_NOT_FOUND");
+
+        try
+        {
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/streams?user_id={Uri.EscapeDataString(broadcasterId)}"),
+                cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                return (false, false, null, await ReadHelixErrorAsync(response).ConfigureAwait(false));
+
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+            // No entry means the channel is offline
+            if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array || data.GetArrayLength() == 0)
+                return (true, false, null, null);
+            var stream = data[0];
+            var isLive = !stream.TryGetProperty("type", out var type) || string.Equals(type.GetString(), "live", StringComparison.OrdinalIgnoreCase);
+            DateTimeOffset? startedAt = stream.TryGetProperty("started_at", out var started) && DateTimeOffset.TryParse(started.GetString(), out var at) ? at : null;
+            return (true, isLive, startedAt, null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return (false, false, null, ex.Message);
+        }
+    }
+
     public async Task<(bool Ok, bool WasMod, string? TargetUser, string? Error)> SmartModTimeoutAsync(
         string targetUsernameOrId,
         int durationSeconds,

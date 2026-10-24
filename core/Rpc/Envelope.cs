@@ -95,6 +95,7 @@ public static class Channels
     public const string TwitchModerationDeleteMessage = "twitch/moderation/delete-message";
     public const string TwitchModerationShoutout = "twitch/moderation/shoutout";
     public const string TwitchCreateClip = "twitch/create-clip";
+    public const string TwitchGetStreamStatus = "twitch/get-stream-status";
     public const string ChatOverlayTestMessage = "chat-overlay/test-message";
     public const string ChatOverlayReload = "chat-overlay/reload";
     public const string ChatOverlaySetPreview = "chat-overlay/set-preview";

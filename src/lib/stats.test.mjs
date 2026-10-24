@@ -35,7 +35,7 @@ test('topUsers ranks by metric, hides zero scores and ignored accounts, breaks t
   bumpUser(users, 'c', 'C', { messages: 5 }, 50);
   bumpUser(users, 'nightbot', 'Nightbot', { messages: 99 }, 10);
   bumpUser(users, 'z', 'Z', { duelWins: 1 }, 10);
-  const ignored = (login) => isIgnoredUser(login, 'streamer', false);
+  const ignored = (login) => isIgnoredUser(login, 'streamer');
   const rows = topUsers(users, 'messages', 10, ignored);
   assert.deepEqual(rows.map((r) => r.user.login), ['b', 'c', 'a']);
   assert.deepEqual(rows.map((r) => r.rank), [1, 2, 3]);
@@ -45,10 +45,12 @@ test('topUsers ranks by metric, hides zero scores and ignored accounts, breaks t
 });
 
 test('the streamer is hidden unless included; bots are always hidden', () => {
-  assert.equal(isIgnoredUser('Streamer', 'streamer', false), true);
-  assert.equal(isIgnoredUser('Streamer', 'streamer', true), false);
-  assert.equal(isIgnoredUser('StreamElements', 'streamer', true), true);
-  assert.equal(isIgnoredUser('', 'streamer', true), true);
+  assert.equal(isIgnoredUser('Streamer', 'streamer'), true);
+  assert.equal(isIgnoredUser('@STREAMER', '#streamer'.replace('#', '')), true);
+  assert.equal(isIgnoredUser('helper_bot', 'streamer', 'Helper_Bot'), true, 'the app bot account is hidden too');
+  assert.equal(isIgnoredUser('viewer', 'streamer', null, undefined), false);
+  assert.equal(isIgnoredUser('StreamElements', 'streamer'), true);
+  assert.equal(isIgnoredUser('', 'streamer'), true);
   assert.equal(userKey('  @Bob '), 'bob');
 });
 

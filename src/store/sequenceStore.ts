@@ -42,6 +42,7 @@ import { isShielded, protectedUserMessage } from '../lib/shield';
 import { shouldFireTimer, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../lib/sequenceTimers';
 import { insertIndexForIf, moveStepBlock, reorderStepBlock } from '../lib/stepGroups';
 import { useChatterStore } from './chatterStore';
+import { matchedChatCommand } from '../lib/triggerCommands';
 import { duelGameManager } from '../lib/duelGameManager';
 import { DEFAULT_OPTION_COLORS } from '../lib/voteRules';
 import { evaluatePollOutcome, type PollOutcome } from '../lib/pollOutcome';
@@ -1133,7 +1134,9 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
           });
           // Feed the Home leaderboards: a finished duel with a winner counts for both players
           void res.outcome?.then((o) => {
-            if (o?.kind === 'win') useStatsStore.getState().recordDuel({ winner: o.winner, loser: o.loser, kind: 'win' });
+            // Duel names are what was typed or a display name: use the chat login so the win lands on the viewer's own row
+            const loginOf = (name: string) => useChatterStore.getState().findKnownChatter(name)?.login || name;
+            if (o?.kind === 'win') useStatsStore.getState().recordDuel({ winner: loginOf(o.winner), loser: loginOf(o.loser), kind: 'win' });
           });
           return { ok: res.ok, outcome: res.outcome };
         },
@@ -1294,10 +1297,14 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
 
       if (matches) {
         handled = true;
-        const userInput = extractCommandArguments(message.message, seq.chatTrigger || '');
+        // Everything after the command the viewer actually used ({input}), whichever of the trigger's commands it was
+        const command = matchedChatCommand(seq.triggers, message.message) ?? seq.chatTrigger ?? '';
+        const userInput = extractCommandArguments(message.message, command);
 
         await get().runSequence(seq.id, {
           username: message.username,
+          // Without the login the run is credited to a made-up "streamer" user (clip counts, stats)
+          userLogin: message.userLogin || message.username,
           userId: message.userId,
           source: 'chat',
           userInput,

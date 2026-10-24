@@ -64,12 +64,15 @@ export function userKey(login: string): string {
   return login.trim().replace(/^@+/, '').toLowerCase();
 }
 
-export function isIgnoredUser(login: string, broadcasterLogin: string | undefined, includeStreamer: boolean): boolean {
+/**
+ * Accounts that never appear on a leaderboard or in the chatter count: bots, the streamer, and the app's own bot account.
+ * `excluded` is the streamer's login and the bot account's login (either can be missing).
+ */
+export function isIgnoredUser(login: string, ...excluded: Array<string | null | undefined>): boolean {
   const key = userKey(login);
   if (!key) return true;
   if (KNOWN_BOTS.includes(key)) return true;
-  if (!includeStreamer && broadcasterLogin && key === userKey(broadcasterLogin)) return true;
-  return false;
+  return excluded.some((other) => !!other && userKey(other) === key);
 }
 
 export function emptyUser(login: string, name?: string): UserStats {

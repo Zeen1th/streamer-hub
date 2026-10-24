@@ -32,3 +32,22 @@ export function chatMessageMatchesTrigger(
     return rawMsg === cmd || rawMsg.startsWith(`${cmd} `);
   });
 }
+
+/** The chat command (of the trigger list) that a chat line used, longest first, or null when none did. */
+export function matchedChatCommand(
+  triggers: ReadonlyArray<Pick<ActionTrigger, 'type' | 'enabled' | 'chatCommand' | 'chatCommands' | 'matchMode'>> | undefined,
+  chatMessage: string,
+): string | null {
+  const rawMsg = chatMessage.trim().toLowerCase();
+  let best: string | null = null;
+  for (const trigger of triggers ?? []) {
+    if (trigger.type !== 'twitch_chat' || !trigger.enabled) continue;
+    const mode = trigger.matchMode || 'startsWith';
+    for (const command of triggerChatCommands(trigger)) {
+      const cmd = command.toLowerCase();
+      const hit = mode === 'exact' ? rawMsg === cmd : mode === 'contains' ? rawMsg.includes(cmd) : rawMsg === cmd || rawMsg.startsWith(`${cmd} `);
+      if (hit && (best === null || command.length > best.length)) best = command;
+    }
+  }
+  return best;
+}

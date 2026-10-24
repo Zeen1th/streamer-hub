@@ -44,5 +44,7 @@ public interface ITwitchClient : IAsyncDisposable
     Task<(bool Ok, string? Id, string? Url, string? Title, string? Error)> CreateClipAsync(string? title = null, int? durationSeconds = null, bool hasDelay = false, CancellationToken cancellationToken = default);
     /// <summary>Recent clips of any channel (up to 100, newest window first as Helix returns them).</summary>
     Task<(bool Ok, IReadOnlyList<TwitchClipInfo> Clips, string? Login, string? DisplayName, string? Error)> GetClipsAsync(string targetUsernameOrId, DateTimeOffset? startedAt, CancellationToken cancellationToken = default);
+    /// <summary>Is the streamer's channel live right now (and since when, according to Twitch)?</summary>
+    Task<(bool Ok, bool Live, DateTimeOffset? StartedAt, string? Error)> GetStreamStatusAsync(CancellationToken cancellationToken = default);
     Task<(bool Ok, bool WasMod, string? TargetUser, string? Error)> SmartModTimeoutAsync(string targetUsernameOrId, int durationSeconds, string? reason = null, CancellationToken cancellationToken = default);
 }

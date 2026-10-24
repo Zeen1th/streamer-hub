@@ -19,6 +19,27 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.26',
+    en: {
+      added: [],
+      fixed: [
+        'Stream Pulse now follows your real stream. The On air time starts when Twitch says you went live (not when you open the app), shows a dash while you are offline, and nothing is counted in Stream Pulse or the leaderboards while the channel is offline. A new live stream starts a fresh "this stream" automatically.',
+        'The streamer is fully removed from the leaderboards (the "Include me" option is gone), together with the app bot account and known bots. What the app itself says in chat is no longer counted as messages.',
+        'The clips leaderboard was wrong: a clip made through a chat command was credited to a made-up "streamer" user instead of the viewer who asked for it. Clips now count for the right viewer. Duel wins and losses also land on the viewer\'s own row instead of a second row under their display name.',
+        'A sequence started by a chat command now gets only what follows the command as {input} (it used to get the whole message, command included, when the trigger was set up in the Triggers list), and it works for every command of a trigger that has more than one.',
+      ],
+    },
+    ar: {
+      added: [],
+      fixed: [
+        'أصبح Stream Pulse يتبع بثك الحقيقي. وقت "على الهواء" يبدأ عندما تقول تويتش إنك بدأت البث (وليس عند فتح التطبيق)، ويظهر شرطة عندما تكون غير مباشر، ولا يُحتسب شيء في Stream Pulse أو لوحات المتصدرين والقناة غير مباشرة. وكل بث جديد يبدأ "هذا البث" من الصفر تلقائياً.',
+        'أُزيل الستريمر تماماً من لوحات المتصدرين (اختفى خيار "أضفني")، ومعه حساب البوت الخاص بالتطبيق والبوتات المعروفة. وما ينشره التطبيق نفسه في الشات لم يعد يُحسب كرسائل.',
+        'كانت لوحة المقاطع خاطئة: المقطع الذي يُصنع بأمر شات كان يُنسب إلى مستخدم وهمي اسمه "streamer" بدل المشاهد الذي طلبه. الآن تُحسب المقاطع للمشاهد الصحيح. كما أن انتصارات وخسائر المبارزات تذهب إلى صف المشاهد نفسه بدل صف ثانٍ باسم العرض.',
+        'التسلسل الذي يبدأ بأمر شات صار يحصل على ما بعد الأمر فقط في {input} (كان يحصل على الرسالة كاملة مع الأمر عندما يكون المشغّل في قائمة المشغّلات)، ويعمل ذلك مع كل أمر من المشغّل الذي له أكثر من أمر.',
+      ],
+    },
+  },
+  {
     version: '0.4.25',
     en: {
       added: [

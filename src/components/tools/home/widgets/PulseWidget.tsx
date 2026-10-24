@@ -38,22 +38,25 @@ export function PulseWidget({ chrome, config, setConfig }: WidgetProps) {
   const [picking, setPicking] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
   const broadcaster = useConnectionStore((s) => s.twitchChannel);
+  const botLogin = useConnectionStore((s) => s.botLogin);
   const session = useStatsStore((s) => s.session);
   const minutes = useStatsStore((s) => s.minutes);
   const rev = useStatsStore((s) => s.rev);
   const newStream = useStatsStore((s) => s.newStream);
+  const live = useStatsStore((s) => s.streamLive) === 'live';
   const tiles = parseTiles(config.tiles);
 
   const { chatters, perMinute } = useMemo(() => {
     const login = broadcaster?.replace(/^#+/, '');
-    const count = Object.values(session.users).filter((u) => u.messages > 0 && !isIgnoredUser(u.login, login, true)).length;
+    const count = Object.values(session.users).filter((u) => u.messages > 0 && !isIgnoredUser(u.login, login, botLogin)).length;
     return { chatters: count, perMinute: recentRate(activitySeries(minutes, Date.now(), 5)) };
     // rev changes whenever the (mutated) maps do
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rev, session, minutes, broadcaster, now]);
+  }, [rev, session, minutes, broadcaster, botLogin, now]);
 
   const values: Record<TileId, { value: string; hint?: string }> = {
-    time: { value: formatDuration(now - session.startedAt) },
+    // Only a stream Twitch says is live has an on-air time; opening the app does not start the clock
+    time: live ? { value: formatDuration(now - session.startedAt) } : { value: '—', hint: h('pulse.offline') },
     messages: { value: formatCompact(session.totals.messages), hint: h('pulse.perMin', { n: perMinute.toFixed(1).replace(/\.0$/, '') }) },
     chatters: { value: formatCompact(chatters) },
     follows: { value: formatCompact(session.totals.follows) },
