@@ -1071,6 +1071,13 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
               onChange={(hideCommands) => patch({ filters: { hideCommands } })}
             />
             <ListEditor
+              label={t(lang, 'chat.alwaysShowMessages')}
+              hint={t(lang, 'chat.alwaysShowMessagesHint')}
+              values={settings.filters.alwaysShowMessages}
+              placeholder={t(lang, 'chat.alwaysShowMessagesPlaceholder')}
+              onChange={(alwaysShowMessages) => patch({ filters: { alwaysShowMessages } })}
+            />
+            <ListEditor
               label={t(lang, 'chat.blockedWords')}
               values={settings.filters.blockedWords}
               placeholder={t(lang, 'chat.blockedWordsPlaceholder')}
@@ -1436,9 +1443,9 @@ function ListEditor({
                 key={entry}
                 type="button"
                 onClick={() => onChange(values.filter((v) => v !== entry))}
-                className="inline-flex items-center gap-1 border border-ink/25 bg-surface-2 px-2 py-0.5 font-mono text-xs text-ink/80 hover:border-danger hover:text-danger"
+                className="inline-flex max-w-full items-center gap-1 border border-ink/25 bg-surface-2 px-2 py-0.5 text-start font-mono text-xs text-ink/80 hover:border-danger hover:text-danger"
               >
-                {entry} <span aria-hidden>x</span>
+                <span className="min-w-0 break-words">{entry}</span> <span aria-hidden>x</span>
               </button>
             ))}
           </div>

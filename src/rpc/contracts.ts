@@ -603,6 +603,8 @@ export interface ChatOverlayEmoteSettings {
 
 export interface ChatOverlayFilterSettings {
   blockedUsernames: string[];
+  /** Messages that are always shown, even when the sender is hidden or a filter would drop them. Exact text, or a trailing * for a start. */
+  alwaysShowMessages: string[];
   hideCommands: boolean;
   hideBots: boolean;
   botList: string[];

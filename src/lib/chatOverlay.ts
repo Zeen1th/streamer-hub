@@ -91,6 +91,7 @@ export function createDefaultChatOverlaySettings(): ChatOverlaySettings {
     },
     filters: {
       blockedUsernames: [],
+      alwaysShowMessages: [],
       hideCommands: false,
       hideBots: true,
       botList: [...CHAT_OVERLAY_DEFAULT_BOTS],
@@ -248,6 +249,8 @@ function normalizeV2(input: Record<string, unknown>): ChatOverlaySettings {
     },
     filters: {
       blockedUsernames: stringList(filters.blockedUsernames, 200),
+      // whole chat messages (a bot's timer text can be long), so they are not cut to the 64 characters a name gets
+      alwaysShowMessages: stringList(filters.alwaysShowMessages, 100, 500),
       hideCommands: bool(filters.hideCommands, d.filters.hideCommands),
       hideBots: bool(filters.hideBots, d.filters.hideBots),
       botList: Array.isArray(filters.botList) ? stringList(filters.botList, 200) : [...CHAT_OVERLAY_DEFAULT_BOTS],
@@ -430,7 +433,7 @@ function normalizeBlock(value: Record<string, unknown>, fallback: ChatOverlaySet
   };
 }
 
-function stringList(value: unknown, maxEntries: number): string[] {
+function stringList(value: unknown, maxEntries: number, maxLength = 64): string[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
   const out: string[] = [];
@@ -441,7 +444,7 @@ function stringList(value: unknown, maxEntries: number): string[] {
     const key = trimmed.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(trimmed.slice(0, 64));
+    out.push(trimmed.slice(0, maxLength));
     if (out.length >= maxEntries) break;
   }
   return out;

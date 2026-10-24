@@ -136,3 +136,26 @@ test('handles missing fields without throwing', () => {
   assert.equal(applyChatFilters({}, filters()).visible, true);
   assert.equal(applyChatFilters({ username: null, message: undefined }, filters()).visible, true);
 });
+
+test('a listed message is shown even when its sender is hidden', async () => {
+  const { applyChatFilters, matchesAlwaysShowMessage } = await import('./chatOverlayFilters.ts');
+  const filters = {
+    blockedUsernames: [],
+    alwaysShowMessages: ['Follow me on Twitter: example', 'Thanks for the sub*'],
+    hideCommands: true,
+    hideBots: true,
+    botList: ['nightbot'],
+    blockedWords: [],
+    blockedWordAction: 'drop',
+    minLength: 0,
+  };
+  const shown = applyChatFilters({ username: 'Nightbot', message: '  follow me on   twitter: EXAMPLE ' }, filters);
+  assert.equal(shown.visible, true);
+  assert.equal(applyChatFilters({ username: 'Nightbot', message: 'Thanks for the sub, bob!' }, filters).visible, true);
+  assert.deepEqual(applyChatFilters({ username: 'Nightbot', message: 'Some other bot line' }, filters), { visible: false, reason: 'bot' });
+  assert.equal(matchesAlwaysShowMessage('anything', ['*']), false);
+  assert.equal(matchesAlwaysShowMessage('anything', undefined), false);
+  // old settings without the list still work
+  const { alwaysShowMessages, ...old } = filters;
+  assert.equal(applyChatFilters({ username: 'Nightbot', message: 'hi' }, old).visible, false);
+});

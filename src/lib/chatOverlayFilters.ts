@@ -30,6 +30,11 @@ export function applyChatFilters(
   const username = typeof input.username === 'string' ? input.username : '';
   const original = typeof input.message === 'string' ? input.message : '';
 
+  // A message the streamer listed is shown whoever sent it, for example one line of a hidden bot
+  if (matchesAlwaysShowMessage(original, filters.alwaysShowMessages)) {
+    return { visible: true, message: original };
+  }
+
   if (matchesAnyPattern(username, filters.blockedUsernames)) {
     return { visible: false, reason: 'blocked-username' };
   }
@@ -59,6 +64,33 @@ export function applyChatFilters(
   }
 
   return { visible: true, message: original };
+}
+
+function normalizeMessage(text: string): string {
+  return text.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * True when the whole message equals one of the listed messages (ignoring case and extra spaces), or starts with a listed
+ * message that ends in `*`.
+ */
+export function matchesAlwaysShowMessage(message: string, listed: readonly string[] | undefined): boolean {
+  if (!message || !Array.isArray(listed) || listed.length === 0) return false;
+  const candidate = normalizeMessage(message);
+  if (!candidate) return false;
+  for (const raw of listed) {
+    if (typeof raw !== 'string') continue;
+    const entry = normalizeMessage(raw);
+    if (!entry) continue;
+    if (entry.endsWith('*')) {
+      const prefix = entry.slice(0, -1).trimEnd();
+      // A bare "*" would show everything; treat it as a no-op
+      if (prefix && candidate.startsWith(prefix)) return true;
+    } else if (candidate === entry) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

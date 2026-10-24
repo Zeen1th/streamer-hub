@@ -19,6 +19,21 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.27',
+    en: {
+      added: [
+        'Chat overlay filters can now let single messages through. The new "Always show these messages" list (Chat Overlay > Filters) takes a message you copy from chat and paste in. That message is shown even when its sender is hidden, so Nightbot can stay hidden while one of its lines still appears. The text must match exactly (capitals and extra spaces do not matter), or end with * to match the start of a message.',
+      ],
+      fixed: [],
+    },
+    ar: {
+      added: [
+        'يمكن الآن لفلاتر أوفرلاي الشات أن تسمح برسائل محددة. قائمة "أظهر هذه الرسائل دائماً" الجديدة (أوفرلاي الشات > الفلاتر) تأخذ رسالة تنسخها من الشات وتلصقها. تظهر هذه الرسالة حتى لو كان مرسلها مخفياً، فيبقى Nightbot مخفياً بينما يظهر سطر واحد منه. يجب أن يتطابق النص تماماً (الأحرف الكبيرة والمسافات الزائدة لا تهم)، أو يُنهى بـ * ليطابق بداية الرسالة.',
+      ],
+      fixed: [],
+    },
+  },
+  {
     version: '0.4.26',
     en: {
       added: [],
