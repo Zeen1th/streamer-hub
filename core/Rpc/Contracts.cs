@@ -151,6 +151,7 @@ public sealed record SequenceStep
     public string? CounterId { get; init; }
     public string? CounterAction { get; init; } // "increase" | "decrease" | "reset"
     public string? CommandTrigger { get; init; }
+    public int? ModerationMaxTargets { get; init; }
     public string? ModerationAction { get; init; } // "smart_timeout" | "timeout" | "ban" | "unban" | "mod" | "unmod" | "vip" | "unvip" | "clear_chat" | "shoutout"
     public string? TargetUser { get; init; }
     public int? DurationSeconds { get; init; }
@@ -242,6 +243,8 @@ public sealed record SequenceStep
     public bool? ClipShowCaption { get; init; }
     public string? ClipCaption { get; init; }
     public bool? ClipWaitForEnd { get; init; }
+    public string? ClipSkipCommand { get; init; }
+    public string? ClipSkipWho { get; init; }
 }
 
 public sealed record ModerationTargetPayload(string? Target);
@@ -292,6 +295,25 @@ public sealed record CommandSequence
     public List<SequenceStep> Steps { get; init; } = new();
     public List<ActionTrigger> Triggers { get; init; } = new();
 }
+
+/// <summary>
+/// One complete set of commands. Only one profile is live at a time: its lists are the top-level Counters, AutoReplies,
+/// Sequences and Keybinds of settings.json, and the others sit here until they are switched to.
+/// </summary>
+public sealed record CommandProfile
+{
+    public string Id { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public List<Counter> Counters { get; init; } = new();
+    public List<AutoReply> AutoReplies { get; init; } = new();
+    public List<CommandSequence> Sequences { get; init; } = new();
+    public List<ActionKeybind> Keybinds { get; init; } = new();
+}
+
+/// <summary>What the profile picker needs about one profile.</summary>
+public sealed record ProfileSummary(string Id, string Name, int Counters, int Replies, int Sequences, int Keybinds);
+
+public sealed record ProfilesState(IReadOnlyList<ProfileSummary> Profiles, string ActiveId, bool StarterSeeded);
 
 public sealed record ChannelPointsRedemption
 {

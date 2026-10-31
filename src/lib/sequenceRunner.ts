@@ -69,6 +69,8 @@ export interface SequenceExecutionSinks {
   createClip?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<{ ok: boolean; url?: string; count?: number; error?: string }>;
   /** Plays a clip from `step.clipChannel` (tokens already resolved). `ok: false` (no clips, unknown channel, Twitch down) is logged and the sequence continues. */
   showObsClip?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<{ ok: boolean; durationSeconds?: number; error?: string }>;
+  /** Waits for the clip just shown to end; resolves early when chat skips it. Falls back to a plain wait. */
+  waitForClipEnd?: (ms: number) => Promise<void>;
   executeDuel?: (
     step: SequenceStep,
     ctx: SequenceExecutionContext,
@@ -110,6 +112,22 @@ export function extractTargetUsername(input?: string): string {
   const trimmed = input.trim();
   const firstToken = trimmed.split(/\s+/)[0] || '';
   return firstToken.replace(/^[@#!]+/, '').replace(/[,:;.!?]+$/, '');
+}
+
+/** Most usernames a single timeout step may hit when it is set to several viewers. */
+export const MAX_MODERATION_TARGETS = 10;
+
+/** Every distinct username in the text ("@a @b, c"), in order, at most `max`. */
+export function extractTargetUsernames(input: string | undefined, max: number): string[] {
+  if (!input) return [];
+  const names: string[] = [];
+  for (const token of input.trim().split(/[\s,،]+/)) {
+    const name = token.replace(/^[@#!]+/, '').replace(/[,:;.!?]+$/, '');
+    if (!name || names.some((n) => n.toLowerCase() === name.toLowerCase())) continue;
+    names.push(name);
+    if (names.length >= max) break;
+  }
+  return names;
 }
 
 export function replaceSequenceTokens(template: string, ctx: SequenceExecutionContext): string {
@@ -426,9 +444,12 @@ export async function executeSequence(
           const action = step.moderationAction || 'smart_timeout';
           const rawTarget = step.targetUser !== undefined ? step.targetUser.trim() : '{input}';
           const resolvedTarget = replaceSequenceTokens(rawTarget, ctx).trim();
-          const cleanTarget = extractTargetUsername(resolvedTarget);
+          const maxTargets = Math.min(MAX_MODERATION_TARGETS, Math.max(1, Math.floor(step.moderationMaxTargets ?? 1)));
+          const multi = maxTargets > 1 && (action === 'smart_timeout' || action === 'timeout');
+          const targets = multi ? extractTargetUsernames(resolvedTarget, maxTargets) : [extractTargetUsername(resolvedTarget)];
+          const firstTarget = targets[0] ?? '';
 
-          if (action !== 'clear_chat' && !cleanTarget) {
+          if (action !== 'clear_chat' && !firstTarget) {
             const errMsg = `Moderation action "${action}" skipped — empty target username. (Usage: ${sequence.chatTrigger || sequence.name} @username)`;
             log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: ${errMsg}`);
             if (topLevel) sinks.onStepComplete?.(i, step);
@@ -438,36 +459,48 @@ export async function executeSequence(
           const duration = step.durationSeconds && step.durationSeconds > 0 ? step.durationSeconds : 60;
           const reason = step.reason ? replaceSequenceTokens(step.reason, ctx) : `Triggered by ${ctx.username} via Streamer Hub`;
 
-          log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Moderation "${action}" on "${cleanTarget}" (duration: ${duration}s)`);
+          if (multi) log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Moderation "${action}" on ${targets.length} viewer(s): ${targets.join(', ')}`);
 
-          if (
-            (action === 'smart_timeout' || action === 'timeout' || action === 'ban') &&
-            sinks.isModerationProtected?.(step, cleanTarget)
-          ) {
-            log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Skipped "${action}", @${cleanTarget} is protected.`);
-            const template = protectedUserMessage(cleanTarget, step.modProtectedUserMessages) ?? step.modProtectedMessage?.trim();
-            if (template && sinks.sendChatMessage) {
-              await sinks.sendChatMessage(replaceSequenceTokens(template.replace(/\{protected\}/gi, cleanTarget), ctx));
-            }
-            break;
-          }
+          let failure: string | null = null;
+          for (const cleanTarget of targets) {
+            log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Moderation "${action}" on "${cleanTarget}" (duration: ${duration}s)`);
 
-          if (sinks.executeModerationAction) {
-            const res = await sinks.executeModerationAction(action, cleanTarget, duration, reason);
-            if (!res.ok) {
-              const rawErr = res.error || 'UNKNOWN';
-              let userFriendlyMsg = rawErr;
-              if (rawErr === 'CANNOT_TIMEOUT_BROADCASTER' || rawErr === 'CANNOT_BAN_BROADCASTER') {
-                userFriendlyMsg = 'Cannot timeout or ban the channel broadcaster (Twitch does not allow self-moderation of the channel owner).';
-              } else if (rawErr.includes('403') || rawErr.includes('Forbidden') || rawErr.includes('401') || rawErr.includes('Unauthorized')) {
-                userFriendlyMsg = `Twitch permission denied (${rawErr}). Ensure you have moderator privileges and re-authenticate Twitch if scopes were updated.`;
+            if (
+              (action === 'smart_timeout' || action === 'timeout' || action === 'ban') &&
+              sinks.isModerationProtected?.(step, cleanTarget)
+            ) {
+              log('trigger', `[Sequence ${sequence.name}] Step ${i + 1}: Skipped "${action}", @${cleanTarget} is protected.`);
+              const template = protectedUserMessage(cleanTarget, step.modProtectedUserMessages) ?? step.modProtectedMessage?.trim();
+              if (template && sinks.sendChatMessage) {
+                await sinks.sendChatMessage(replaceSequenceTokens(template.replace(/\{protected\}/gi, cleanTarget), ctx));
               }
-              log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1} moderation failed: ${userFriendlyMsg}`);
-              if (topLevel) sinks.onStepComplete?.(i, step);
-              return { ok: false, executedSteps: executedCount, error: userFriendlyMsg };
-            } else if (res.wasMod) {
-              log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Note: ${cleanTarget} is a mod — temporarily unmodded, timed out for ${duration}s, and will be re-modded automatically.`);
+              continue;
             }
+
+            if (sinks.executeModerationAction) {
+              const res = await sinks.executeModerationAction(action, cleanTarget, duration, reason);
+              if (!res.ok) {
+                const rawErr = res.error || 'UNKNOWN';
+                let userFriendlyMsg = rawErr;
+                if (rawErr === 'CANNOT_TIMEOUT_BROADCASTER' || rawErr === 'CANNOT_BAN_BROADCASTER') {
+                  userFriendlyMsg = 'Cannot timeout or ban the channel broadcaster (Twitch does not allow self-moderation of the channel owner).';
+                } else if (rawErr.includes('403') || rawErr.includes('Forbidden') || rawErr.includes('401') || rawErr.includes('Unauthorized')) {
+                  userFriendlyMsg = `Twitch permission denied (${rawErr}). Ensure you have moderator privileges and re-authenticate Twitch if scopes were updated.`;
+                }
+                log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1} moderation failed${multi ? ` for ${cleanTarget}` : ''}: ${userFriendlyMsg}`);
+                // With several viewers, one failure (a typo, the streamer's own name) does not spare the others
+                if (!multi) {
+                  failure = userFriendlyMsg;
+                  break;
+                }
+              } else if (res.wasMod) {
+                log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Note: ${cleanTarget} is a mod — temporarily unmodded, timed out for ${duration}s, and will be re-modded automatically.`);
+              }
+            }
+          }
+          if (failure) {
+            if (topLevel) sinks.onStepComplete?.(i, step);
+            return { ok: false, executedSteps: executedCount, error: failure };
           }
           break;
         }
@@ -588,7 +621,8 @@ export async function executeSequence(
             if (!res.ok) {
               log('system', `[Sequence ${sequence.name}] Step ${i + 1}: No clip shown for "${channel}" (${res.error ?? 'unknown'}); continuing`);
             } else if (step.clipWaitForEnd && res.durationSeconds) {
-              await delay(Math.round(res.durationSeconds * 1000));
+              const ms = Math.round(res.durationSeconds * 1000);
+              await (sinks.waitForClipEnd ? sinks.waitForClipEnd(ms) : delay(ms));
             }
           }
           break;

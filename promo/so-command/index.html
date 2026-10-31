@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --ground: #0d1117;
+        --panel: #161b22;
+        --panel-2: #1c232c;
+        --rule: rgba(255, 255, 255, 0.09);
+        --ink: #f0f3f7;
+        --muted: #9aa3af;
+        --accent: #6366f1;
+        --accent-2: #818cf8;
+        --twitch: #a970ff;
+        --ok: #22c55e;
+        --live: #ef4444;
+        --font: 'IBM Plex Sans Arabic', sans-serif;
+        --mono: 'IBM Plex Mono', monospace;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--ground);
+        font-family: var(--font);
+        color: var(--ink);
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background:
+          radial-gradient(1100px 700px at 50% 38%, rgba(99, 102, 241, 0.16), transparent 70%),
+          radial-gradient(900px 600px at 85% 90%, rgba(169, 112, 255, 0.10), transparent 70%),
+          var(--ground);
+      }
+      .clip { position: absolute; inset: 0; }
+      bdi, .ltr { unicode-bidi: isolate; direction: ltr; }
+
+      /* ---------- intro / outro ---------- */
+      .center-stack {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
+        text-align: center;
+      }
+      .brand {
+        display: flex; align-items: center; gap: 18px; direction: ltr;
+        font-weight: 700; font-size: 44px; letter-spacing: -0.01em;
+      }
+      .brand-mark {
+        width: 64px; height: 64px; border-radius: 16px;
+        background: linear-gradient(135deg, #7c5ce0, #1e8fe0);
+        display: grid; place-items: center;
+        box-shadow: 0 18px 50px rgba(99, 102, 241, 0.45);
+      }
+      .headline { font-size: 104px; font-weight: 700; line-height: 1.1; }
+      .headline .accent { color: var(--accent-2); }
+      .sub { font-size: 36px; color: var(--muted); font-weight: 500; }
+      .pills { display: flex; gap: 14px; }
+      .pill {
+        padding: 10px 22px; border-radius: 999px; border: 1px solid var(--rule);
+        background: rgba(255, 255, 255, 0.04); font-size: 26px; color: #c3cad3;
+      }
+
+      /* ---------- main stage ---------- */
+      .panel {
+        position: absolute; top: 140px;
+        background: var(--panel); border: 1px solid var(--rule); border-radius: 22px;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+      }
+      .panel-head {
+        display: flex; align-items: center; gap: 12px;
+        height: 68px; padding: 0 24px; border-bottom: 1px solid var(--rule);
+        font-weight: 600; font-size: 28px;
+      }
+      .dot { width: 12px; height: 12px; border-radius: 50%; }
+      .caption {
+        position: absolute; top: 84px; font-size: 28px; color: var(--muted); font-weight: 500;
+        display: flex; align-items: center; gap: 10px;
+      }
+      .caption b { color: var(--ink); font-weight: 600; }
+
+      /* chat (right side, start of the RTL row) */
+      #chat { right: 60px; width: 470px; height: 820px; }
+      #chat .panel-head .dot { background: var(--twitch); }
+      .chat-list { display: flex; flex-direction: column; gap: 14px; padding: 22px 22px; }
+      .msg {
+        position: relative;
+        font-size: 28px; line-height: 1.45; padding: 10px 16px; border-radius: 12px;
+      }
+      .msg .name { font-weight: 700; margin-inline-end: 6px; }
+      .msg .text { color: #dfe4ea; }
+      .msg.cmd { background: rgba(169, 112, 255, 0.10); border: 1px solid rgba(169, 112, 255, 0.35); }
+      .msg.cmd .text { font-family: var(--mono); font-weight: 600; color: #e9dcff; }
+      .msg.bot { background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(129, 140, 248, 0.40); }
+      .msg .glow {
+        position: absolute; inset: -6px; border-radius: 16px;
+        border: 2px solid var(--twitch);
+        box-shadow: 0 0 28px rgba(169, 112, 255, 0.65);
+        opacity: 0;
+      }
+      .badge-bot {
+        font-family: var(--mono); font-size: 15px; padding: 2px 8px; border-radius: 6px;
+        background: #4338ca; color: white; margin-inline-end: 8px; vertical-align: 3px;
+      }
+
+      /* sequence (middle) */
+      #seq { right: 590px; width: 560px; height: 820px; }
+      #seq .panel-head .dot { background: var(--accent-2); }
+      .trigger {
+        margin: 22px 24px 8px; display: flex; align-items: center; gap: 14px;
+        padding: 16px 18px; border-radius: 14px; border: 1px dashed rgba(169, 112, 255, 0.5);
+        background: rgba(169, 112, 255, 0.07); font-size: 28px; color: #c3cad3;
+        position: relative;
+      }
+      .chip {
+        font-family: var(--mono); font-weight: 600; font-size: 24px; color: white;
+        background: var(--twitch); padding: 4px 14px; border-radius: 9px;
+      }
+      .trigger .glow {
+        position: absolute; inset: -4px; border-radius: 16px; border: 2px solid var(--twitch);
+        box-shadow: 0 0 30px rgba(169, 112, 255, 0.7); opacity: 0;
+      }
+      .steps-title { margin: 22px 26px 12px; font-size: 20px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em; }
+      .step {
+        position: relative; margin: 0 24px 14px; height: 104px;
+        display: flex; align-items: center; gap: 18px; padding: 0 18px;
+        border-radius: 14px; border: 1px solid var(--rule); background: var(--panel-2);
+      }
+      .step .active-bg {
+        position: absolute; inset: -1px; border-radius: 14px;
+        border: 2px solid var(--accent-2); background: rgba(99, 102, 241, 0.14);
+        box-shadow: 0 0 34px rgba(99, 102, 241, 0.45); opacity: 0;
+      }
+      .step .num { position: relative; font-family: var(--mono); font-size: 20px; color: var(--muted); width: 24px; text-align: center; }
+      .step .icon {
+        position: relative; width: 56px; height: 56px; border-radius: 13px; display: grid; place-items: center;
+      }
+      .step .label { position: relative; flex: 1; }
+      .step .label strong { display: block; font-size: 29px; font-weight: 600; }
+      .step .label span { display: block; font-size: 19px; color: var(--muted); margin-top: 2px; }
+      .status { position: relative; width: 40px; height: 40px; }
+      .status .ring {
+        position: absolute; inset: 0; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.14);
+      }
+      .status .spin {
+        position: absolute; inset: 0; border-radius: 50%; border: 3px solid transparent;
+        border-top-color: var(--accent-2); border-right-color: var(--accent-2); opacity: 0;
+      }
+      .status .done {
+        position: absolute; inset: 0; border-radius: 50%; background: var(--ok);
+        display: grid; place-items: center; opacity: 0;
+      }
+      .run-state {
+        margin-inline-start: auto; font-size: 19px; font-weight: 600; padding: 4px 14px; border-radius: 999px;
+        position: relative; height: 34px; min-width: 120px;
+      }
+      .run-state span {
+        position: absolute; inset: 0; display: grid; place-items: center; border-radius: 999px; opacity: 0;
+      }
+      .run-state .idle { background: rgba(255, 255, 255, 0.06); color: var(--muted); opacity: 1; }
+      .run-state .running { background: rgba(99, 102, 241, 0.2); color: #c7d2fe; }
+      .run-state .finished { background: rgba(34, 197, 94, 0.18); color: #86efac; }
+
+      /* beam from the chat line into the trigger */
+      #beam {
+        position: absolute; top: 527px; right: 520px; width: 100px; height: 6px; border-radius: 6px;
+        background: linear-gradient(270deg, var(--twitch), var(--accent-2));
+        box-shadow: 0 0 20px rgba(169, 112, 255, 0.8);
+        transform-origin: 100% 50%;
+      }
+
+      /* stream preview (left) */
+      #stream { left: 60px; width: 690px; height: 820px; }
+      #stream .panel-head .dot { background: var(--live); }
+      .live-tag {
+        margin-inline-start: auto; font-family: var(--mono); font-size: 17px; font-weight: 600;
+        background: #b91c1c; color: white; padding: 3px 10px; border-radius: 6px; direction: ltr;
+      }
+      .screen {
+        position: absolute; top: 88px; left: 24px; right: 24px; height: 360px; border-radius: 14px; overflow: hidden;
+        background:
+          linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55)),
+          linear-gradient(160deg, #263b5e 0%, #1f2f4a 35%, #3a2a4f 70%, #4a2f3c 100%);
+      }
+      .hills {
+        position: absolute; left: -10%; right: -10%; bottom: -40px; height: 190px;
+        background: radial-gradient(60% 100% at 30% 100%, #15233a 60%, transparent 61%),
+                    radial-gradient(55% 90% at 75% 100%, #1a2b45 60%, transparent 61%);
+      }
+      .sun { position: absolute; top: 60px; left: 120px; width: 90px; height: 90px; border-radius: 50%; background: radial-gradient(#ffd8a8, #f59e0b 60%, transparent 70%); opacity: 0.7; }
+      .cam {
+        position: absolute; bottom: 16px; right: 16px; width: 150px; height: 100px; border-radius: 10px;
+        background: linear-gradient(135deg, #3b3355, #252a40); border: 2px solid rgba(255,255,255,0.18);
+        display: grid; place-items: center;
+      }
+      .cam-head { width: 46px; height: 46px; border-radius: 50%; background: #6b6f8a; box-shadow: 0 34px 0 10px #575b78; }
+      /* overlay items drawn on the "stream" */
+      #clip-card {
+        position: absolute; top: 34px; left: 70px; width: 400px; height: 240px; border-radius: 14px; overflow: hidden;
+        border: 3px solid rgba(255, 255, 255, 0.9); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+        background: linear-gradient(135deg, #1e3a8a, #7c3aed 55%, #db2777);
+      }
+      #clip-card .clip-art {
+        position: absolute; inset: 0;
+        background:
+          radial-gradient(120px 80px at 30% 60%, rgba(255,255,255,0.25), transparent 70%),
+          radial-gradient(160px 100px at 75% 35%, rgba(0,0,0,0.25), transparent 70%);
+      }
+      #clip-card .play {
+        position: absolute; top: 50%; left: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%;
+        background: rgba(0, 0, 0, 0.45); display: grid; place-items: center;
+      }
+      #clip-card .bar-track { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: rgba(0,0,0,0.45); }
+      #clip-card .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #f43f5e; transform-origin: 0 50%; }
+      #clip-card .clip-cap {
+        position: absolute; right: 12px; top: 10px; font-size: 28px; font-weight: 600; padding: 3px 10px; border-radius: 8px;
+        background: rgba(0, 0, 0, 0.55);
+      }
+      #sound-badge {
+        position: absolute; top: 18px; left: 18px; display: flex; align-items: center; gap: 12px; direction: ltr;
+        padding: 10px 16px; border-radius: 12px; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255,255,255,0.2);
+      }
+      .wave { display: flex; align-items: center; gap: 5px; height: 36px; }
+      .wave i { display: block; width: 6px; height: 36px; border-radius: 3px; background: #a5f3fc; transform-origin: 50% 50%; }
+      #sound-badge .fname { font-family: var(--mono); font-size: 18px; color: #e5e7eb; }
+      #counter-overlay {
+        position: absolute; bottom: 18px; left: 18px; display: flex; align-items: center; gap: 12px;
+        padding: 8px 16px; border-radius: 12px; background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255,255,255,0.2);
+        font-size: 28px; font-weight: 600;
+      }
+      .flip { position: relative; display: inline-block; width: 48px; height: 36px; overflow: hidden; direction: ltr; }
+      .flip b { position: absolute; left: 0; right: 0; text-align: center; font-family: var(--mono); font-size: 28px; line-height: 36px; }
+      .flip .new { color: #86efac; }
+
+      .obs-list { position: absolute; top: 472px; left: 24px; right: 24px; }
+      .obs-title { font-size: 20px; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
+      .obs-row {
+        display: flex; align-items: center; gap: 14px; height: 70px; padding: 0 18px; margin-bottom: 10px;
+        border-radius: 12px; background: var(--panel-2); border: 1px solid var(--rule); font-size: 28px; position: relative;
+      }
+      .obs-row .eye { width: 12px; height: 12px; border-radius: 50%; background: #4b5563; }
+      .obs-row .eye-on { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 12px var(--ok); opacity: 0; }
+      .obs-row code { margin-inline-start: auto; font-family: var(--mono); font-size: 17px; color: var(--muted); direction: ltr; }
+
+      .tagline-bar {
+        position: absolute; bottom: 40px; left: 0; right: 0; text-align: center; font-size: 34px; font-weight: 600; color: #c3cad3;
+      }
+      .tagline-bar .accent { color: var(--accent-2); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="22" data-width="1920" data-height="1080">
+
+      <!-- ================= INTRO ================= -->
+      <section id="intro" class="clip" data-start="0" data-duration="3.2" data-track-index="0">
+        <div class="center-stack">
+          <div class="brand" id="intro-brand">
+            <div class="brand-mark">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            </div>
+            <span>Streamer Hub</span>
+          </div>
+          <h1 class="headline" id="intro-head">أمر واحد… <span class="accent">وكل شيء يتحرك</span></h1>
+          <p class="sub" id="intro-sub">شاهد ماذا يفعل الأمر <bdi class="ltr">!so</bdi></p>
+        </div>
+      </section>
+
+      <!-- ================= MAIN STAGE ================= -->
+      <section id="stage" class="clip" data-start="2.9" data-duration="15.6" data-track-index="1">
+
+        <!-- chat -->
+        <div class="caption" id="cap-chat" style="right: 64px;">١ · <b>المشاهد يكتب الأمر</b></div>
+        <div class="panel" id="chat">
+          <div class="panel-head"><i class="dot"></i>شات تويتش</div>
+          <div class="chat-list">
+            <div class="msg" id="m1"><span class="name" style="color:#f59e0b">أبو_فهد:</span><span class="text">الجيم هذا رهيب 🔥</span></div>
+            <div class="msg" id="m2"><span class="name" style="color:#38bdf8"><bdi>sara_gg</bdi>:</span><span class="text">وصلت الرايد! 👋</span></div>
+            <div class="msg" id="m3"><span class="name" style="color:#4ade80">نورة:</span><span class="text">مساء الخير يا الشباب</span></div>
+            <div class="msg cmd" id="m-cmd">
+              <div class="glow" id="m-cmd-glow"></div>
+              <span class="name" style="color:#c4b5fd">زينث:</span><span class="text"><bdi>!so @basil_raider</bdi></span>
+            </div>
+            <div class="msg bot" id="m-bot">
+              <span class="badge-bot" data-layout-ignore>BOT</span><span class="name" style="color:#a5b4fc">StreamerHub:</span>
+              <span class="text">تابعوا <bdi>@basil_raider</bdi> ❤️ قناة رهيبة وتستاهل!</span>
+            </div>
+            <div class="msg" id="m4"><span class="name" style="color:#f472b6">فيصل:</span><span class="text">هههه المقطع أسطوري 😂</span></div>
+            <div class="msg" id="m5"><span class="name" style="color:#fbbf24"><bdi>basil_raider</bdi>:</span><span class="text">شكراً على الشوت أوت 💜</span></div>
+          </div>
+        </div>
+
+        <div id="beam"></div>
+
+        <!-- sequence -->
+        <div class="caption" id="cap-seq" style="right: 594px;">٢ · <b>التسلسل يشتغل خطوة بخطوة</b></div>
+        <div class="panel" id="seq">
+          <div class="panel-head">
+            <i class="dot"></i>شوت أوت للرايدر
+            <div class="run-state" data-layout-allow-overlap data-layout-ignore>
+              <span class="idle" id="rs-idle">جاهز</span>
+              <span class="running" id="rs-run">يعمل…</span>
+              <span class="finished" id="rs-done">اكتمل ✓</span>
+            </div>
+          </div>
+          <div class="trigger" id="trigger">
+            <div class="glow" id="trigger-glow"></div>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#c4b5fd" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            المشغّل: أمر في الشات <span class="chip"><bdi>!so</bdi></span>
+          </div>
+          <p class="steps-title" data-layout-ignore>الإجراءات الفرعية</p>
+
+          <div class="step" id="s1">
+            <div class="active-bg"></div>
+            <span class="num" data-layout-ignore>1</span>
+            <div class="icon" style="background: rgba(56, 189, 248, 0.16)">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7dd3fc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <div class="label"><strong>رسالة في الشات</strong><span data-layout-ignore>يرحّب بالرايدر باسمه</span></div>
+            <div class="status"><i class="ring"></i><i class="spin"></i><i class="done"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></i></div>
+          </div>
+
+          <div class="step" id="s2">
+            <div class="active-bg"></div>
+            <span class="num" data-layout-ignore>2</span>
+            <div class="icon" style="background: rgba(165, 243, 252, 0.12)">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#a5f3fc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+            </div>
+            <div class="label"><strong>تشغيل صوت</strong><span data-layout-ignore>صوت ترحيب على البث</span></div>
+            <div class="status"><i class="ring"></i><i class="spin"></i><i class="done"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></i></div>
+          </div>
+
+          <div class="step" id="s3">
+            <div class="active-bg"></div>
+            <span class="num" data-layout-ignore>3</span>
+            <div class="icon" style="background: rgba(244, 63, 94, 0.14)">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fda4af" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+            </div>
+            <div class="label"><strong>عرض مقطع للرايدر</strong><span data-layout-ignore>من قناته، في OBS بالصوت وبدقة 1080p</span></div>
+            <div class="status"><i class="ring"></i><i class="spin"></i><i class="done"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></i></div>
+          </div>
+
+          <div class="step" id="s4">
+            <div class="active-bg"></div>
+            <span class="num" data-layout-ignore>4</span>
+            <div class="icon" style="background: rgba(34, 197, 94, 0.14)">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#86efac" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </div>
+            <div class="label"><strong>زيادة العدّاد</strong><span data-layout-ignore>عدد الشوت أوتات في ملف OBS</span></div>
+            <div class="status"><i class="ring"></i><i class="spin"></i><i class="done"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></i></div>
+          </div>
+        </div>
+
+        <!-- stream preview -->
+        <div class="caption" id="cap-stream" style="left: 64px;">٣ · <b>والنتيجة على البث مباشرة</b></div>
+        <div class="panel" id="stream">
+          <div class="panel-head"><i class="dot"></i>البث في OBS <span class="live-tag" data-layout-ignore>● LIVE</span></div>
+          <div class="screen">
+            <div class="sun"></div>
+            <div class="hills" data-layout-allow-overflow></div>
+            <div class="cam"><div class="cam-head"></div></div>
+
+            <div id="clip-card">
+              <div class="clip-art"></div>
+              <div class="play"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><polygon points="7 4 20 12 7 20 7 4"/></svg></div>
+              <div class="clip-cap">مقطع من <bdi>@basil_raider</bdi></div>
+              <div class="bar-track"><div class="bar" id="clip-bar"></div></div>
+            </div>
+
+            <div id="sound-badge">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#a5f3fc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              <div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <span class="fname" data-layout-ignore>welcome.mp3</span>
+            </div>
+
+            <div id="counter-overlay">
+              الشوت أوتات:
+              <span class="flip" data-layout-allow-overflow><b class="old" id="cnt-old" data-layout-allow-occlusion data-layout-allow-overflow>41</b><b class="new" id="cnt-new" data-layout-allow-occlusion data-layout-allow-overflow>42</b></span>
+            </div>
+          </div>
+
+          <div class="obs-list">
+            <p class="obs-title" data-layout-ignore>مصادر OBS من Streamer Hub</p>
+            <div class="obs-row"><i class="eye"></i><i class="eye-on" id="eye-sound"></i>الأصوات <code data-layout-ignore>sounds</code></div>
+            <div class="obs-row"><i class="eye"></i><i class="eye-on" id="eye-clip"></i>مقاطع الرايدرز <code data-layout-ignore>clip-overlay</code></div>
+            <div class="obs-row"><i class="eye"></i><i class="eye-on" id="eye-count"></i>ملف العدّاد <code data-layout-ignore>shoutouts.txt</code></div>
+          </div>
+        </div>
+
+        <div class="tagline-bar" id="tagline">كل هذا من أمر واحد — <span class="accent">بدون أي كود</span></div>
+      </section>
+
+      <!-- ================= OUTRO ================= -->
+      <section id="outro" class="clip" data-start="18.1" data-duration="3.9" data-track-index="2">
+        <div class="center-stack">
+          <div class="brand" id="outro-brand">
+            <div class="brand-mark">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            </div>
+            <span>Streamer Hub</span>
+          </div>
+          <h2 class="headline" id="outro-head" style="font-size: 88px;">أوامر وإجراءات فرعية <span class="accent">لبثك</span></h2>
+          <div class="pills" id="outro-pills">
+            <span class="pill">رسائل</span><span class="pill">أصوات</span><span class="pill">مقاطع</span><span class="pill">عدّادات</span><span class="pill">مبارزات</span><span class="pill">صور و GIF</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const E = 'power3.out';
+
+      // ---------- intro ----------
+      tl.fromTo('#intro-brand', { opacity: 1, scale: 1.04 }, { opacity: 1, scale: 1, duration: 1.2, ease: E }, 0);
+      tl.fromTo('#intro-head', { opacity: 1, y: 14, scale: 0.985 }, { opacity: 1, y: 0, scale: 1, duration: 1.2, ease: E }, 0);
+      tl.fromTo('#intro-sub', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: E }, 0.4);
+      tl.to(['#intro-brand', '#intro-head', '#intro-sub'], { opacity: 0, y: -30, duration: 0.45, ease: 'power2.in', stagger: 0.05 }, 2.55);
+
+      // ---------- stage in ----------
+      tl.fromTo('#chat', { opacity: 0, x: 90 }, { opacity: 1, x: 0, duration: 0.7, ease: E }, 3.0);
+      tl.fromTo('#seq', { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.7, ease: E }, 3.15);
+      tl.fromTo('#stream', { opacity: 0, x: -90 }, { opacity: 1, x: 0, duration: 0.7, ease: E }, 3.3);
+      tl.fromTo(['#cap-chat', '#cap-seq', '#cap-stream'], { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5, ease: E, stagger: 0.12 }, 3.35);
+      tl.set(['#m1', '#m2', '#m3', '#m-cmd', '#m-bot', '#m4', '#m5', '#beam', '#clip-card', '#sound-badge', '#counter-overlay', '#tagline'], { opacity: 0 }, 0);
+      tl.set(['#rs-run', '#rs-done'], { opacity: 0 }, 0);
+      tl.set('#beam', { scaleX: 0 }, 0);
+      tl.set('#cnt-new', { y: 36 }, 0);
+      tl.set('#counter-overlay', { opacity: 1 }, 3.3);
+
+      // ---------- chat lines ----------
+      const pop = (sel, at) => tl.fromTo(sel, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, at);
+      pop('#m1', 3.9);
+      pop('#m2', 4.35);
+      pop('#m3', 4.8);
+      pop('#m-cmd', 5.4);
+      tl.fromTo('#m-cmd-glow', { opacity: 0 }, { opacity: 1, duration: 0.3, yoyo: true, repeat: 3 }, 5.75);
+
+      // ---------- trigger ----------
+      tl.set('#beam', { opacity: 1 }, 6.4);
+      tl.fromTo('#beam', { scaleX: 0 }, { scaleX: 1, duration: 0.35, ease: 'power2.inOut' }, 6.4);
+      tl.to('#beam', { opacity: 0, duration: 0.3 }, 6.95);
+      tl.fromTo('#trigger-glow', { opacity: 0 }, { opacity: 1, duration: 0.25, yoyo: true, repeat: 1 }, 6.7);
+      tl.to('#rs-idle', { opacity: 0, duration: 0.2 }, 6.85);
+      tl.to('#rs-run', { opacity: 1, duration: 0.2 }, 6.85);
+
+      // A step lights up, its spinner turns, then it is ticked
+      const runStep = (id, start, end) => {
+        tl.to(`${id} .active-bg`, { opacity: 1, duration: 0.25 }, start);
+        tl.to(`${id} .spin`, { opacity: 1, duration: 0.15 }, start);
+        tl.fromTo(`${id} .spin`, { rotation: 0 }, { rotation: 360 * Math.max(1, Math.round((end - start) / 0.7)), duration: end - start, ease: 'none' }, start);
+        tl.to(`${id} .spin`, { opacity: 0, duration: 0.15 }, end);
+        tl.fromTo(`${id} .done`, { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.35, ease: 'back.out(2.2)' }, end);
+        tl.to(`${id} .active-bg`, { opacity: 0, duration: 0.3 }, end + 0.15);
+      };
+
+      // 1 · chat message
+      runStep('#s1', 7.0, 8.2);
+      pop('#m-bot', 7.6);
+
+      // 2 · sound
+      runStep('#s2', 8.3, 9.9);
+      tl.fromTo('#sound-badge', { opacity: 0, y: -14 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, 8.4);
+      tl.to('#eye-sound', { opacity: 1, duration: 0.2 }, 8.4);
+      const heights = [0.35, 0.8, 0.5, 1, 0.6, 0.9, 0.4];
+      document.querySelectorAll('#sound-badge .wave i').forEach((bar, i) => {
+        tl.fromTo(bar, { scaleY: 0.2 }, { scaleY: heights[i], duration: 0.18 + (i % 3) * 0.05, ease: 'sine.inOut', yoyo: true, repeat: 7 }, 8.45 + i * 0.03);
+      });
+      tl.to('#sound-badge', { opacity: 0, y: -10, duration: 0.3 }, 9.9);
+      tl.to('#eye-sound', { opacity: 0, duration: 0.2 }, 9.9);
+
+      // 3 · clip from the raider's channel
+      runStep('#s3', 10.0, 13.6);
+      tl.to('#eye-clip', { opacity: 1, duration: 0.2 }, 10.1);
+      tl.fromTo('#clip-card', { opacity: 0, scale: 0.6, rotation: -4 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.55, ease: 'back.out(1.6)' }, 10.15);
+      tl.fromTo('#clip-bar', { scaleX: 0 }, { scaleX: 1, duration: 2.9, ease: 'none' }, 10.6);
+      tl.to('#clip-card', { opacity: 0, scale: 0.85, duration: 0.35, ease: 'power2.in' }, 13.5);
+      tl.to('#eye-clip', { opacity: 0, duration: 0.2 }, 13.6);
+
+      pop('#m4', 12.2);
+      pop('#m5', 14.7);
+
+      // 4 · counter goes up
+      runStep('#s4', 13.75, 14.9);
+      tl.to('#eye-count', { opacity: 1, duration: 0.2 }, 13.85);
+      tl.fromTo('#counter-overlay', { scale: 1 }, { scale: 1.12, duration: 0.25, yoyo: true, repeat: 1, ease: 'power2.out' }, 14.1);
+      tl.to('#cnt-old', { y: -36, duration: 0.35, ease: 'power2.inOut' }, 14.15);
+      tl.to('#cnt-new', { y: 0, duration: 0.35, ease: 'power2.inOut' }, 14.15);
+      tl.to('#eye-count', { opacity: 0, duration: 0.2 }, 15.2);
+
+      // done
+      tl.to('#rs-run', { opacity: 0, duration: 0.2 }, 15.05);
+      tl.fromTo('#rs-done', { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.3, ease: 'back.out(2)' }, 15.05);
+      tl.fromTo('#tagline', { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, ease: E }, 15.2);
+
+      // ---------- stage out ----------
+      tl.to(['#chat', '#seq', '#stream', '#cap-chat', '#cap-seq', '#cap-stream', '#tagline'], { opacity: 0, scale: 0.96, duration: 0.45, ease: 'power2.in', stagger: 0.03 }, 17.8);
+
+      // ---------- outro ----------
+      tl.fromTo('#outro-brand', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: E }, 18.3);
+      tl.fromTo('#outro-head', { opacity: 0, y: 36 }, { opacity: 1, y: 0, duration: 0.7, ease: E }, 18.55);
+      tl.fromTo('#outro-pills .pill', { opacity: 0, y: 20, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: E, stagger: 0.07 }, 18.95);
+      tl.to({}, { duration: 0.01 }, 21.99);
+
+      window.__timelines['main'] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

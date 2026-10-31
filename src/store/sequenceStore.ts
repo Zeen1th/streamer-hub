@@ -47,6 +47,10 @@ import { duelGameManager } from '../lib/duelGameManager';
 import { DEFAULT_OPTION_COLORS } from '../lib/voteRules';
 import { evaluatePollOutcome, type PollOutcome } from '../lib/pollOutcome';
 import { MessageDeduplicator } from '../lib/autoReplyRules';
+import { canSkipClip, clipSkipRule, matchClipSkip } from '../lib/clipSkip';
+
+/** The shoutout clip on screen right now, so chat can skip it. */
+let playingClip: { requesterLogin?: string; until: number; endWait?: () => void } | null = null;
 
 interface SequenceState {
   sequences: CommandSequence[];
@@ -1039,7 +1043,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
             return { ok: false, error: err instanceof Error ? err.message : 'RPC_FAILED' };
           }
         },
-        showObsClip: async (step) => {
+        showObsClip: async (step, ctx) => {
           try {
             const res = await rpc.invoke(Channels.ChatOverlayShowClip, {
               channel: step.clipChannel ?? '',
@@ -1054,11 +1058,24 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
               showCaption: step.clipShowCaption,
               caption: step.clipCaption,
             }, 20_000);
+            if (res?.ok && clipSkipRule(step).who !== 'off') {
+              playingClip = { requesterLogin: ctx.userLogin, until: Date.now() + (res.durationSeconds ?? 60) * 1000 + 2000 };
+            }
             return { ok: Boolean(res?.ok), durationSeconds: res?.durationSeconds, error: res?.error ?? undefined };
           } catch (err) {
             return { ok: false, error: err instanceof Error ? err.message : 'RPC_FAILED' };
           }
         },
+        waitForClipEnd: (ms) =>
+          new Promise<void>((resolve) => {
+            const timer = window.setTimeout(resolve, ms);
+            if (playingClip) {
+              playingClip.endWait = () => {
+                window.clearTimeout(timer);
+                resolve();
+              };
+            }
+          }),
         executeDuel: async (step, ctx) => {
           const broadcaster = useConnectionStore.getState().twitchChannel?.replace(/^#+/, '');
           const appLang = useSettingsStore.getState().language;
@@ -1287,6 +1304,29 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     }
 
     const sequences = get().sequences;
+
+    // "!so skip" stops the playing shoutout clip and never starts a shoutout itself
+    const skipRule = matchClipSkip(sequences, message.message);
+    if (skipRule) {
+      const login = message.userLogin || message.username;
+      const clip = playingClip && playingClip.until > Date.now() ? playingClip : null;
+      if (!clip) {
+        useLogStore.getState().addLocal({ kind: 'system', message: `${skipRule.command} from ${login}: no clip is playing` });
+      } else if (!canSkipClip(skipRule.who, { login, isMod: message.isMod, isBroadcaster: message.isBroadcaster }, clip.requesterLogin)) {
+        useLogStore.getState().addLocal({ kind: 'system', message: `${skipRule.command} from ${login} ignored: not allowed to skip this clip` });
+      } else {
+        playingClip = null;
+        clip.endWait?.();
+        try {
+          await rpc.invoke(Channels.ChatOverlayHideImage, undefined);
+        } catch {
+          // the clip ends on its own
+        }
+        useLogStore.getState().addLocal({ kind: 'trigger', message: `Clip skipped by ${login}` });
+      }
+      return true;
+    }
+
     let handled = false;
 
     for (const seq of sequences) {

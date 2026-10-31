@@ -16,6 +16,9 @@ import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
+import { DEFAULT_CLIP_SKIP_COMMAND, DEFAULT_CLIP_SKIP_WHO, type ClipSkipWho } from '../../lib/clipSkip';
+
+const SKIP_WHO: ClipSkipWho[] = ['requester_mods', 'mods', 'everyone', 'off'];
 
 /** Everything the "Show a clip" sub-action lets the streamer tweak. */
 export interface ClipSettings {
@@ -31,6 +34,8 @@ export interface ClipSettings {
   showCaption: boolean;
   caption: string;
   waitForEnd: boolean;
+  skipCommand: string;
+  skipWho: ClipSkipWho;
 }
 
 export const CLIP_DEFAULT_CAPTION = 'Go follow {channel}!';
@@ -49,6 +54,8 @@ export function clipSettingsFromStep(step: SequenceStep): ClipSettings {
     showCaption: step.clipShowCaption ?? true,
     caption: step.clipCaption ?? CLIP_DEFAULT_CAPTION,
     waitForEnd: step.clipWaitForEnd ?? false,
+    skipCommand: step.clipSkipCommand ?? DEFAULT_CLIP_SKIP_COMMAND,
+    skipWho: step.clipSkipWho ?? DEFAULT_CLIP_SKIP_WHO,
   };
 }
 
@@ -66,6 +73,8 @@ export function clipSettingsToStep(clip: ClipSettings): Partial<SequenceStep> {
     clipShowCaption: clip.showCaption,
     clipCaption: clip.caption.trim(),
     clipWaitForEnd: clip.waitForEnd,
+    clipSkipCommand: clip.skipCommand.trim() || DEFAULT_CLIP_SKIP_COMMAND,
+    clipSkipWho: clip.skipWho,
   };
 }
 
@@ -95,6 +104,14 @@ const TEXT = {
     captionText: 'Caption',
     captionTokens: 'The caption can use {channel}, {clip_title} and {clip_creator}.',
     waitForEnd: 'Wait for the clip to finish before the next sub-action',
+    skip: 'Skip from chat',
+    skipHint: 'Typing this in chat stops the clip that is playing. It never starts a shoutout.',
+    skipWho: 'Who can skip',
+    skipCommand: 'Skip command',
+    requester_mods: 'The viewer who started it, and mods',
+    mods: 'Mods only',
+    everyone: 'Everyone',
+    off: 'Nobody (off)',
     source: 'OBS browser source for clips',
     sourceHint: 'Add this URL as its own Browser Source in OBS (1920 x 1080) and turn on "Control audio via OBS" to hear the clip. It is separate from the pictures and GIFs source. Until you add it, clips use the pictures and GIFs source.',
     copy: 'Copy',
@@ -145,6 +162,14 @@ const TEXT = {
     captionText: 'العنوان',
     captionTokens: 'يمكن استخدام {channel} و {clip_title} و {clip_creator} في العنوان.',
     waitForEnd: 'انتظر حتى ينتهي المقطع قبل الإجراء التالي',
+    skip: 'التخطي من الشات',
+    skipHint: 'كتابة هذا الأمر في الشات توقف المقطع المعروض. لا يبدأ شوت أوت أبداً.',
+    skipWho: 'من يستطيع التخطي',
+    skipCommand: 'أمر التخطي',
+    requester_mods: 'المشاهد الذي طلبه، والمشرفون',
+    mods: 'المشرفون فقط',
+    everyone: 'الجميع',
+    off: 'لا أحد (متوقف)',
     source: 'مصدر المتصفح في OBS للمقاطع',
     sourceHint: 'أضف هذا الرابط كـ Browser Source مستقل في OBS بدقة 1920 × 1080، وفعّل "Control audio via OBS" لسماع المقطع. وهو منفصل عن مصدر الصور والـ GIF. وإلى أن تضيفه تستخدم المقاطع مصدر الصور والـ GIF.',
     copy: 'نسخ',
@@ -415,6 +440,38 @@ export function ClipStepEditor({ lang, value, onChange }: ClipStepEditorProps) {
       <div className="flex items-center justify-between gap-3 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
         <span className={labelClass}>{tx.waitForEnd}</span>
         <Switch checked={value.waitForEnd} onChange={(waitForEnd) => onChange({ waitForEnd })} label={tx.waitForEnd} />
+      </div>
+
+      <div className={boxClass}>
+        <span className={labelClass}>{tx.skip}</span>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] text-muted">{tx.skipWho}</label>
+            <select
+              value={value.skipWho}
+              onChange={(e) => onChange({ skipWho: e.target.value as ClipSkipWho })}
+              className={selectClass}
+              aria-label={tx.skipWho}
+            >
+              {SKIP_WHO.map((w) => (
+                <option key={w} value={w}>{tx[w]}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] text-muted">{tx.skipCommand}</label>
+            <Input
+              value={value.skipCommand}
+              onChange={(e) => onChange({ skipCommand: e.target.value })}
+              placeholder={DEFAULT_CLIP_SKIP_COMMAND}
+              aria-label={tx.skipCommand}
+              disabled={value.skipWho === 'off'}
+              dir="auto"
+              className="h-9 font-mono text-[12.5px]"
+            />
+          </div>
+        </div>
+        <p className="text-[11px] text-muted">{tx.skipHint}</p>
       </div>
 
       {/* OBS browser source */}

@@ -58,7 +58,14 @@ public sealed class SettingsStore : IDisposable
         public bool StartupEnabled { get; init; } = true;
         public bool? CloseToTray { get; init; }
         public PollState ActivePoll { get; init; } = new();
+        /// <summary>Every command profile. The active one is also held in the top-level lists above, which are what the rest of the host reads.</summary>
+        public List<CommandProfile> Profiles { get; init; } = new();
+        public string ActiveProfileId { get; init; } = string.Empty;
+        /// <summary>Set once the Starter profile has been added, so deleting it does not bring it back.</summary>
+        public bool StarterSeeded { get; init; }
     }
+
+    private const int MaxProfileNameLength = 40;
 
     private readonly string _filePath;
     private readonly string _backupPath;
@@ -108,6 +115,192 @@ public sealed class SettingsStore : IDisposable
         lock (_lock) _document = _document with { Keybinds = bindings.ToList() };
         ScheduleSave();
     }
+
+    public string ActiveProfileId
+    {
+        get { lock (_lock) return _document.ActiveProfileId; }
+    }
+
+    public bool StarterSeeded
+    {
+        get { lock (_lock) return _document.StarterSeeded; }
+    }
+
+    public ProfilesState GetProfilesState()
+    {
+        lock (_lock)
+        {
+            var doc = WithActiveProfileSynced(_document);
+            return new ProfilesState(
+                doc.Profiles.Select(p => new ProfileSummary(p.Id, p.Name, p.Counters.Count, p.AutoReplies.Count, p.Sequences.Count, p.Keybinds.Count)).ToList(),
+                doc.ActiveProfileId,
+                doc.StarterSeeded);
+        }
+    }
+
+    /// <summary>
+    /// Makes another profile the live one: what is live is first saved into its own profile, then the target's commands become
+    /// the top-level lists and everything is written to disk. Nothing from either profile is lost.
+    /// </summary>
+    public bool SwitchProfile(string id)
+    {
+        lock (_lock)
+        {
+            var doc = WithActiveProfileSynced(_document);
+            var target = doc.Profiles.FirstOrDefault(p => p.Id == id);
+            if (target is null) return false;
+            _document = MakeActive(doc, target);
+        }
+        Flush();
+        return true;
+    }
+
+    /// <summary>A new empty profile (not switched to). Returns its id, or null when the name is empty.</summary>
+    public string? AddProfile(string name)
+    {
+        var clean = CleanProfileName(name);
+        if (clean is null) return null;
+        var profile = new CommandProfile { Id = Guid.NewGuid().ToString(), Name = clean };
+        lock (_lock)
+        {
+            var doc = WithActiveProfileSynced(_document);
+            _document = doc with { Profiles = doc.Profiles.Append(profile).ToList() };
+        }
+        Flush();
+        return profile.Id;
+    }
+
+    /// <summary>A copy of a profile under a new name (not switched to). The copy keeps the same command ids: only one profile is live at a time.</summary>
+    public string? DuplicateProfile(string id, string name)
+    {
+        var clean = CleanProfileName(name);
+        if (clean is null) return null;
+        string newId;
+        lock (_lock)
+        {
+            var doc = WithActiveProfileSynced(_document);
+            var source = doc.Profiles.FirstOrDefault(p => p.Id == id);
+            if (source is null) return null;
+            newId = Guid.NewGuid().ToString();
+            var copy = source with
+            {
+                Id = newId,
+                Name = clean,
+                Counters = source.Counters.ToList(),
+                AutoReplies = source.AutoReplies.ToList(),
+                Sequences = source.Sequences.ToList(),
+                Keybinds = source.Keybinds.ToList(),
+            };
+            _document = doc with { Profiles = doc.Profiles.Append(copy).ToList() };
+        }
+        Flush();
+        return newId;
+    }
+
+    public bool RenameProfile(string id, string name)
+    {
+        var clean = CleanProfileName(name);
+        if (clean is null) return false;
+        lock (_lock)
+        {
+            var doc = WithActiveProfileSynced(_document);
+            if (!doc.Profiles.Any(p => p.Id == id)) return false;
+            _document = doc with { Profiles = doc.Profiles.Select(p => p.Id == id ? p with { Name = clean } : p).ToList() };
+        }
+        Flush();
+        return true;
+    }
+
+    /// <summary>
+    /// Deletes a profile; the last one cannot be deleted. Deleting the live profile switches to its neighbour
+    /// (<paramref name="activeChanged"/> tells the caller to reload the commands).
+    /// </summary>
+    public bool DeleteProfile(string id, out bool activeChanged)
+    {
+        activeChanged = false;
+        lock (_lock)
+        {
+            var doc = WithActiveProfileSynced(_document);
+            var index = doc.Profiles.FindIndex(p => p.Id == id);
+            if (index < 0 || doc.Profiles.Count <= 1) return false;
+            var remaining = doc.Profiles.Where(p => p.Id != id).ToList();
+            doc = doc with { Profiles = remaining };
+            if (doc.ActiveProfileId == id)
+            {
+                activeChanged = true;
+                doc = MakeActive(doc, remaining[Math.Min(Math.Max(index - 1, 0), remaining.Count - 1)]);
+            }
+            _document = doc;
+        }
+        Flush();
+        return true;
+    }
+
+    /// <summary>
+    /// Adds the Starter profile once (the page builds it in the app language). A streamer with no commands yet gets it as the
+    /// live profile; everyone else gets it next to their own, not switched to. Does nothing when it was already added.
+    /// </summary>
+    public bool SeedStarter(CommandProfile starter, out bool activated)
+    {
+        activated = false;
+        var clean = CleanProfileName(starter.Name);
+        if (clean is null) return false;
+        lock (_lock)
+        {
+            if (_document.StarterSeeded) return false;
+            var doc = WithActiveProfileSynced(_document);
+            var entry = starter with { Id = Guid.NewGuid().ToString(), Name = clean };
+            if (doc.Profiles.All(IsEmptyProfile))
+            {
+                // Nothing to protect yet: Starter replaces the empty placeholder profile and is live straight away
+                doc = doc with { Profiles = new List<CommandProfile> { entry }, StarterSeeded = true };
+                _document = MakeActive(doc, entry);
+                activated = true;
+            }
+            else
+            {
+                _document = doc with { Profiles = doc.Profiles.Append(entry).ToList(), StarterSeeded = true };
+            }
+        }
+        Flush();
+        return true;
+    }
+
+    private static string? CleanProfileName(string? name)
+    {
+        var clean = string.Join(' ', (name ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (clean.Length == 0) return null;
+        return clean.Length > MaxProfileNameLength ? clean[..MaxProfileNameLength].TrimEnd() : clean;
+    }
+
+    /// <summary>Whether any profile (not just the live one) holds a command worth backing up.</summary>
+    private static bool HasCommands(SettingsDocument doc) =>
+        doc.Counters.Count + doc.AutoReplies.Count + doc.Sequences.Count + doc.Keybinds.Count > 0 || doc.Profiles.Any(p => !IsEmptyProfile(p));
+
+    private static bool IsEmptyProfile(CommandProfile p) =>
+        p.Counters.Count + p.AutoReplies.Count + p.Sequences.Count + p.Keybinds.Count == 0;
+
+    /// <summary>The document with the live commands written back into the active profile's entry.</summary>
+    private static SettingsDocument WithActiveProfileSynced(SettingsDocument doc)
+    {
+        if (!doc.Profiles.Any(p => p.Id == doc.ActiveProfileId)) return doc;
+        return doc with
+        {
+            Profiles = doc.Profiles.Select(p => p.Id == doc.ActiveProfileId
+                ? p with { Counters = doc.Counters, AutoReplies = doc.AutoReplies, Sequences = doc.Sequences, Keybinds = doc.Keybinds }
+                : p).ToList(),
+        };
+    }
+
+    /// <summary>The document with this profile's commands as the live (top-level) lists.</summary>
+    private static SettingsDocument MakeActive(SettingsDocument doc, CommandProfile profile) => doc with
+    {
+        ActiveProfileId = profile.Id,
+        Counters = profile.Counters.ToList(),
+        AutoReplies = profile.AutoReplies.ToList(),
+        Sequences = profile.Sequences.ToList(),
+        Keybinds = profile.Keybinds.ToList(),
+    };
 
     public AutoReplySettings AutoReplySettings
     {
@@ -443,7 +636,7 @@ public sealed class SettingsStore : IDisposable
         foreach (var (name, kind, path) in EnumerateBackupFiles())
         {
             if (!TryReadDocument(path, out var doc)) continue;
-            if (doc.Counters.Count + doc.AutoReplies.Count + doc.Sequences.Count + doc.Keybinds.Count == 0) continue;
+            if (!HasCommands(doc)) continue;
             long bytes = 0;
             try { bytes = new FileInfo(path).Length; } catch { }
             found.Add(new SettingsBackupInfo(name, kind, File.GetLastWriteTimeUtc(path), doc.Counters.Count, doc.AutoReplies.Count, doc.Sequences.Count, doc.Keybinds.Count, bytes));
@@ -488,6 +681,52 @@ public sealed class SettingsStore : IDisposable
         catch
         {
             error = "RESTORE FAILED";
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Settings > System > Reset everything. The current settings are kept first (backups/before-restore-*.json, listed in
+    /// Settings > Backups, so the reset can be undone), and so is the page's own storage (stats, leaderboards, layout) as
+    /// backups/before-reset-web-*.json. Everything goes back to default except the logins: the Twitch connection and bot
+    /// account, the OBS connection, the language and the window. The caller restarts the app so every part reloads.
+    /// </summary>
+    public bool ResetToDefaults(IReadOnlyDictionary<string, string>? webStorage, out string? error)
+    {
+        error = null;
+        try
+        {
+            if (webStorage is { Count: > 0 })
+            {
+                Directory.CreateDirectory(_snapshotDir);
+                File.WriteAllText(
+                    Path.Combine(_snapshotDir, $"before-reset-web-{DateTime.Now:yyyyMMdd-HHmmss}.json"),
+                    JsonSerializer.Serialize(webStorage, new JsonSerializerOptions { WriteIndented = true }),
+                    new System.Text.UTF8Encoding(false));
+            }
+            KeepBeforeRestoreCopy();
+            lock (_lock)
+            {
+                var old = _document;
+                // Profiles and the Starter flag stay at default, so Starter is added again on the next start
+                _document = NormalizeSettingsDocument(new SettingsDocument
+                {
+                    Twitch = old.Twitch,
+                    Obs = old.Obs,
+                    BotAccountEnabled = old.BotAccountEnabled,
+                    PreferredChatSender = old.PreferredChatSender,
+                    Language = old.Language,
+                    Window = old.Window,
+                    StartupEnabled = old.StartupEnabled,
+                    CloseToTray = old.CloseToTray,
+                });
+            }
+            Flush();
+            return true;
+        }
+        catch
+        {
+            error = "RESET FAILED";
             return false;
         }
     }
@@ -660,13 +899,52 @@ public sealed class SettingsStore : IDisposable
             });
         }
 
-        return value with
+        var withProfiles = NormalizeProfiles(value);
+        return withProfiles with
         {
             ChatOverlay = overlays.First(o => o.Id == "default").Settings,
             ChatOverlays = overlays,
             ObsChat = value.ObsChat ?? new(),
             Language = NormalizeLanguage(value.Language),
         };
+    }
+
+    /// <summary>
+    /// Settings written before profiles existed hold their commands only in the top-level lists: those become the first profile,
+    /// active. The live lists always win for the active profile, since that is what the rest of the host edits.
+    /// </summary>
+    private static SettingsDocument NormalizeProfiles(SettingsDocument value)
+    {
+        var profiles = (value.Profiles ?? new List<CommandProfile>())
+            .Where(p => p is not null && !string.IsNullOrWhiteSpace(p.Id))
+            .GroupBy(p => p.Id, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .Select(p => p with
+            {
+                Name = CleanProfileName(p.Name) ?? "Profile",
+                Counters = p.Counters ?? new(),
+                AutoReplies = p.AutoReplies ?? new(),
+                Sequences = p.Sequences ?? new(),
+                Keybinds = p.Keybinds ?? new(),
+            })
+            .ToList();
+
+        if (profiles.Count == 0)
+        {
+            profiles.Add(new CommandProfile
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = NormalizeLanguage(value.Language) == "ar" ? "أوامري" : "My commands",
+            });
+            return WithActiveProfileSynced(value with { Profiles = profiles, ActiveProfileId = profiles[0].Id });
+        }
+
+        if (!profiles.Any(p => p.Id == value.ActiveProfileId))
+        {
+            // The active id points nowhere (hand-edited file): the first profile becomes live
+            return MakeActive(value with { Profiles = profiles }, profiles[0]);
+        }
+        return WithActiveProfileSynced(value with { Profiles = profiles });
     }
 
     private static int Clamp(int value, int min, int max) => Math.Clamp(value, min, max);
@@ -699,7 +977,7 @@ public sealed class SettingsStore : IDisposable
     public void Flush()
     {
         SettingsDocument snapshot;
-        lock (_lock) snapshot = _document;
+        lock (_lock) snapshot = WithActiveProfileSynced(_document);
         try
         {
             var dir = Path.GetDirectoryName(_filePath);
@@ -750,7 +1028,7 @@ public sealed class SettingsStore : IDisposable
     {
         try
         {
-            if (snapshot.Counters.Count + snapshot.AutoReplies.Count + snapshot.Sequences.Count == 0) return;
+            if (!HasCommands(snapshot)) return;
             Directory.CreateDirectory(_snapshotDir);
             var existing = Directory.GetFiles(_snapshotDir, "settings-*.json").OrderByDescending(f => f, StringComparer.Ordinal).ToList();
             if (existing.Count > 0 && DateTime.UtcNow - File.GetLastWriteTimeUtc(existing[0]) < SnapshotEvery) return;

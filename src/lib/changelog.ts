@@ -19,6 +19,37 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.28',
+    en: {
+      added: [
+        'Command profiles. A profile is a full set of commands (counters, replies, sequences and keybinds). Switch between them at any time from the profile picker on the Commands page, and add, duplicate, rename or delete profiles there. Logins, overlays and stats stay the same in every profile. Your current commands become your first profile, nothing is replaced.',
+        'A ready-made Starter profile: !clip, !so with the raider clip on screen (and !so skip), a raid welcome, !duel, a death counter with !death and !deathset, !discord, !socials and !schedule replies to fill in, and a hydrate reminder every 30 minutes.',
+        'One timeout step can now hit several viewers. In a Timeout or Smart Timeout step, set "Viewers per use" above 1 and a channel points redeem like "@a @b @c" times out each of them.',
+        '!so skip stops the shoutout clip that is playing. In the Show Clip step you choose who can use it (the viewer who started it and mods, mods only, everyone, or nobody) and can change the command.',
+        'Reset everything (Settings > System): a red button that puts the whole app back to default after three "are you sure" steps. A backup is made first, and your Twitch and OBS logins are kept.',
+        'A guided tour of the basics for new users, and "See how it works" buttons with short videos on the more complicated features.',
+      ],
+      fixed: [
+        'After a smart timeout, a lead moderator only gets the normal mod role back, because Twitch does not let apps give Lead back. The app now shows you a reminder with a button to open Twitch Roles Manager, instead of a log line nobody could read.',
+        'Arabic text order in the leaderboard duel record and in sequence step summaries.',
+      ],
+    },
+    ar: {
+      added: [
+        'ملفات الأوامر. الملف مجموعة كاملة من الأوامر (العدّادات والردود والمتسلسلات والاختصارات). بدّل بينها في أي وقت من قائمة الملفات في صفحة الأوامر، وأضف أو انسخ أو أعد تسمية أو احذف الملفات من هناك. تسجيلات الدخول والأوفرلاي والإحصائيات نفسها في كل الملفات. أوامرك الحالية تصبح ملفك الأول، ولا يُستبدل شيء.',
+        'ملف "البداية" الجاهز: ‎!clip‎، و‎!so‎ مع عرض مقطع من قناة الرايدر (و‎!so skip‎)، وترحيب بالرايد، و‎!duel‎، وعدّاد موت مع ‎!death‎ و‎!deathset‎، وردود ‎!discord‎ و‎!socials‎ و‎!schedule‎ لتعبئتها، وتذكير بشرب الماء كل 30 دقيقة.',
+        'خطوة تايم آوت واحدة يمكنها الآن إسكات عدة مشاهدين. في خطوة التايم آوت أو التايم آوت الذكي اجعل "عدد المشاهدين في كل مرة" أكثر من 1، فيُسكت استبدال نقاط القناة مثل "@a @b @c" كل واحد منهم.',
+        '‎!so skip‎ يوقف مقطع الشوت أوت المعروض. في خطوة عرض المقطع تختار من يستطيع استخدامه (المشاهد الذي طلبه والمشرفون، أو المشرفون فقط، أو الجميع، أو لا أحد) ويمكنك تغيير الأمر.',
+        'إعادة ضبط كل شيء (الإعدادات > النظام): زر أحمر يُرجع التطبيق كله للوضع الافتراضي بعد ثلاث خطوات "هل أنت متأكد". تُحفظ نسخة احتياطية أولاً، ويبقى تسجيل دخولك لتويتش وOBS.',
+        'جولة إرشادية للأساسيات للمستخدمين الجدد، وأزرار "شاهد كيف يعمل" بفيديوهات قصيرة للميزات الأصعب.',
+      ],
+      fixed: [
+        'بعد التايم آوت الذكي، يعود المشرف الرئيسي برتبة المشرف العادي فقط، لأن تويتش لا يسمح للتطبيقات بإرجاع الرتبة الرئيسية. يعرض التطبيق الآن تذكيراً مع زر يفتح مدير الأدوار في تويتش، بدل سطر في السجل لم يكن مفهوماً.',
+        'ترتيب النص العربي في سجل التحديات في لوحة الصدارة وفي ملخصات خطوات المتسلسلات.',
+      ],
+    },
+  },
+  {
     version: '0.4.27',
     en: {
       added: [

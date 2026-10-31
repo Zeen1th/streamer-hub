@@ -1,4 +1,4 @@
-import type { ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayClipRequest, ShowOverlayImagePayload, TwitchRewardInfo, TwitchSettings } from './contracts';
+import type { CommandProfileData, ProfilesState, ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayClipRequest, ShowOverlayImagePayload, TwitchRewardInfo, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -9,6 +9,7 @@ const TWITCH_STORAGE_KEY = 'streamer-hub-mock-settings';
 const AUTO_REPLY_STORAGE_KEY = 'streamer-hub-mock-auto-replies';
 const SEQUENCES_STORAGE_KEY = 'streamer-hub-mock-sequences';
 const KEYBIND_STORAGE_KEY = 'streamer-hub-mock-keybinds';
+const PROFILES_STORAGE_KEY = 'streamer-hub-mock-profiles';
 const AUTO_REPLY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-auto-reply-settings';
 const CHAT_OVERLAY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-chat-overlay-settings';
 const CHAT_OVERLAYS_STORAGE_KEY = 'streamer-hub-mock-chat-overlays';
@@ -90,6 +91,10 @@ export class MockHost {
   private isMockAiGenerating = false;
   private streamTitle = 'Chill Gaming Stream';
   private readonly timers: number[] = [];
+  /** Command profiles: the active one is also held in the live lists above, like the real host. */
+  private profiles: CommandProfileData[] = [];
+  private activeProfileId = '';
+  private starterSeeded = false;
 
   constructor(options: { twitchConnected?: boolean } = {}) {
     this.counters = this.loadCounters();
@@ -100,6 +105,7 @@ export class MockHost {
     this.chatOverlaySettings = this.loadChatOverlaySettings();
     this.chatOverlays = this.loadChatOverlays();
     this.obsChatSettings = this.loadObsChatSettings();
+    this.loadProfiles();
     if (options.twitchConnected !== undefined) {
       this.twitchConnected = options.twitchConnected;
     }
@@ -179,6 +185,80 @@ export class MockHost {
       case 'counters/get-state':
         this.respond(request, structuredClone(this.counters));
         break;
+      case Channels.ProfilesGetState:
+        this.respond(request, this.profilesState());
+        break;
+      case Channels.ProfilesSwitch: {
+        const target = this.profiles.find((p) => p.id === (request.payload as { id: string }).id);
+        if (!target) { this.respond(request, { ok: false, state: this.profilesState() }); break; }
+        this.syncActiveProfile();
+        this.makeProfileActive(target);
+        this.respond(request, { ok: true, state: this.profilesState() });
+        this.emitEvent(Events.ProfilesChanged, this.profilesState());
+        break;
+      }
+      case Channels.ProfilesAdd: {
+        const name = this.cleanProfileName((request.payload as { name: string }).name);
+        if (!name) { this.respond(request, { ok: false, state: this.profilesState() }); break; }
+        this.syncActiveProfile();
+        const id = crypto.randomUUID();
+        this.profiles.push({ id, name, counters: [], autoReplies: [], sequences: [], keybinds: [] });
+        this.persistProfiles();
+        this.respond(request, { ok: true, id, state: this.profilesState() });
+        break;
+      }
+      case Channels.ProfilesDuplicate: {
+        const payload = request.payload as { id: string; name: string };
+        const name = this.cleanProfileName(payload.name);
+        this.syncActiveProfile();
+        const source = this.profiles.find((p) => p.id === payload.id);
+        if (!name || !source) { this.respond(request, { ok: false, state: this.profilesState() }); break; }
+        const id = crypto.randomUUID();
+        this.profiles.push({ ...structuredClone(source), id, name });
+        this.persistProfiles();
+        this.respond(request, { ok: true, id, state: this.profilesState() });
+        break;
+      }
+      case Channels.ProfilesRename: {
+        const payload = request.payload as { id: string; name: string };
+        const name = this.cleanProfileName(payload.name);
+        const target = this.profiles.find((p) => p.id === payload.id);
+        if (name && target) { target.name = name; this.persistProfiles(); }
+        this.respond(request, { ok: Boolean(name && target), state: this.profilesState() });
+        break;
+      }
+      case Channels.ProfilesDelete: {
+        const id = (request.payload as { id: string }).id;
+        const index = this.profiles.findIndex((p) => p.id === id);
+        if (index < 0 || this.profiles.length <= 1) { this.respond(request, { ok: false, state: this.profilesState() }); break; }
+        this.syncActiveProfile();
+        const wasActive = id === this.activeProfileId;
+        this.profiles.splice(index, 1);
+        if (wasActive) this.makeProfileActive(this.profiles[Math.min(Math.max(index - 1, 0), this.profiles.length - 1)]);
+        else this.persistProfiles();
+        this.respond(request, { ok: true, state: this.profilesState() });
+        if (wasActive) this.emitEvent(Events.ProfilesChanged, this.profilesState());
+        break;
+      }
+      case Channels.ProfilesSeedStarter: {
+        const payload = request.payload as CommandProfileData;
+        const name = this.cleanProfileName(payload.name);
+        if (this.starterSeeded || !name) { this.respond(request, { ok: false, activated: false, state: this.profilesState() }); break; }
+        this.syncActiveProfile();
+        const entry: CommandProfileData = { ...structuredClone(payload), id: crypto.randomUUID(), name };
+        this.starterSeeded = true;
+        const activated = this.profiles.every((p) => !p.counters.length && !p.autoReplies.length && !p.sequences.length && !p.keybinds.length);
+        if (activated) {
+          this.profiles = [entry];
+          this.makeProfileActive(entry);
+        } else {
+          this.profiles.push(entry);
+          this.persistProfiles();
+        }
+        this.respond(request, { ok: true, activated, state: this.profilesState() });
+        if (activated) this.emitEvent(Events.ProfilesChanged, this.profilesState());
+        break;
+      }
       case 'keybinds/get-state':
         this.respond(request, { bindings: structuredClone(this.keybinds), registrations: this.keybinds.map((binding) => ({ bindingId: binding.id, status: binding.enabled ? 'registered' : 'disabled' })) });
         break;
@@ -898,6 +978,7 @@ export class MockHost {
         break;
       }
       case Channels.SettingsRestoreBackup:
+      case Channels.SettingsResetAll:
         this.respond(request, { ok: true, restarting: false });
         break;
       case Channels.SettingsExportShare:
@@ -1127,6 +1208,76 @@ export class MockHost {
         ],
       },
     ];
+  }
+
+  private cleanProfileName(name: string | undefined): string | null {
+    const clean = (name ?? '').trim().split(/\s+/).filter(Boolean).join(' ').slice(0, 40).trim();
+    return clean || null;
+  }
+
+  private profilesState(): ProfilesState {
+    this.syncActiveProfile();
+    return {
+      profiles: this.profiles.map((p) => ({ id: p.id ?? '', name: p.name, counters: p.counters.length, replies: p.autoReplies.length, sequences: p.sequences.length, keybinds: p.keybinds.length })),
+      activeId: this.activeProfileId,
+      starterSeeded: this.starterSeeded,
+    };
+  }
+
+  /** The live lists are what edits go to: write them back into the entry of the active profile. */
+  private syncActiveProfile(): void {
+    const active = this.profiles.find((p) => p.id === this.activeProfileId);
+    if (!active) return;
+    active.counters = structuredClone(this.counters);
+    active.autoReplies = structuredClone(this.autoReplies);
+    active.sequences = structuredClone(this.sequences);
+    active.keybinds = structuredClone(this.keybinds);
+  }
+
+  private makeProfileActive(profile: CommandProfileData): void {
+    this.activeProfileId = profile.id ?? '';
+    this.counters = structuredClone(profile.counters);
+    this.autoReplies = structuredClone(profile.autoReplies);
+    this.sequences = structuredClone(profile.sequences);
+    this.keybinds = structuredClone(profile.keybinds);
+    this.persist();
+    this.persistAutoReplies();
+    this.persistSequences();
+    try { localStorage.setItem(KEYBIND_STORAGE_KEY, JSON.stringify(this.keybinds)); } catch { void 0; }
+    this.persistProfiles();
+  }
+
+  private persistProfiles(): void {
+    try {
+      this.syncActiveProfile();
+      localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify({ profiles: this.profiles, activeId: this.activeProfileId, starterSeeded: this.starterSeeded }));
+    } catch {
+      void 0;
+    }
+  }
+
+  private loadProfiles(): void {
+    try {
+      const raw = localStorage.getItem(PROFILES_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { profiles?: CommandProfileData[]; activeId?: string; starterSeeded?: boolean };
+        if (parsed.profiles?.length) {
+          this.profiles = parsed.profiles;
+          this.activeProfileId = parsed.profiles.some((p) => p.id === parsed.activeId) ? parsed.activeId! : parsed.profiles[0].id!;
+          this.starterSeeded = Boolean(parsed.starterSeeded);
+          // The live lists win for the active profile (they are saved on every edit)
+          this.syncActiveProfile();
+          return;
+        }
+      }
+    } catch {
+      void 0;
+    }
+    // First start (or older storage): the commands that exist become the first profile
+    const id = crypto.randomUUID();
+    this.profiles = [{ id, name: 'My commands', counters: structuredClone(this.counters), autoReplies: structuredClone(this.autoReplies), sequences: structuredClone(this.sequences), keybinds: structuredClone(this.keybinds) }];
+    this.activeProfileId = id;
+    this.persistProfiles();
   }
 
   private persistSequences(): void {

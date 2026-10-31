@@ -18,6 +18,12 @@
     FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
     -->
     <div id="root"></div>
+    <!-- After Settings > Reset everything: wipe the page's storage before any store reads it (also drops late writes) -->
+    <script>
+      try {
+        if (localStorage.getItem('streamer-hub-reset-pending') === '1') localStorage.clear();
+      } catch (e) {}
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

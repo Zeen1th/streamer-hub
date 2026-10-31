@@ -1,4 +1,4 @@
-import { AlertCircle, Bot, Check, Crown, KeyRound, LogOut, Minus, Monitor, Plus, Radio, RotateCcw, Sparkles, ZoomIn } from 'lucide-react';
+import { AlertCircle, Bot, Check, Compass, Crown, KeyRound, LogOut, Minus, Monitor, Plus, Radio, RotateCcw, Sparkles, ZoomIn } from 'lucide-react';
 import { useState } from 'react';
 import { t } from '../../../i18n/translations';
 import { THEME_OPTIONS } from '../../../lib/theme';
@@ -7,6 +7,7 @@ import { Channels } from '../../../rpc/contracts';
 import { useConnectionStore } from '../../../store/connectionStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { useToolStore, type SettingsSection } from '../../../store/toolStore';
+import { useTourStore } from '../../../store/tourStore';
 import { useUpdateStore } from '../../../store/updateStore';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
@@ -17,6 +18,7 @@ import { Switch } from '../../ui/Switch';
 import { TriggerGlobalSettings } from '../auto-replies/TriggerGlobalSettings';
 import { BackupsCard } from './BackupsCard';
 import { ShareCard } from './ShareCard';
+import { ResetCard } from './ResetCard';
 import { KeybindSettings } from './KeybindSettings';
 import { ObsSettings } from './ObsSettings';
 
@@ -349,6 +351,7 @@ export function SettingsView() {
           </Card>
           <ShareCard />
           <BackupsCard />
+          <ResetCard />
           <Card title={t(lang, 'updates.settingsTitle')}>
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-4">
@@ -772,7 +775,13 @@ export function SettingsView() {
       {activeSection === 'guide' && (
         <section className="space-y-6">
           <Card title={t(lang, 'settings.guide')}>
-            <p className="font-sans text-xs text-ink/70">{t(lang, 'settings.guideIntro')}</p>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/30 bg-primary/10 p-3">
+              <p className="min-w-0 flex-1 font-sans text-xs text-ink/80">{t(lang, 'settings.tourHint')}</p>
+              <Button size="sm" onClick={() => useTourStore.getState().start()}>
+                <Compass size={13} /> {t(lang, 'settings.takeTour')}
+              </Button>
+            </div>
+            <p className="mt-4 font-sans text-xs text-ink/70">{t(lang, 'settings.guideIntro')}</p>
             <ol className="mt-5 space-y-4">
               {guideSteps.map((step, index) => (
                 <li key={index} className="flex items-start gap-3.5">

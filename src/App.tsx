@@ -23,11 +23,14 @@ import { useChatOverlayStore, useObsChatOverlayStore } from './store/chatOverlay
 import { useObsChatStore } from './store/obsChatStore';
 import { useLogStore } from './store/logStore';
 import { useKeybindStore } from './store/keybindStore';
+import { useProfileStore } from './store/profileStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useToolStore } from './store/toolStore';
 import { useUpdateStore } from './store/updateStore';
 import { useStatsStore } from './store/statsStore';
 import { startStreamStatusPolling } from './store/streamStatus';
+import { useTourStore } from './store/tourStore';
+import { GuidedTour } from './components/tour/GuidedTour';
 import { useChatterStore } from './store/chatterStore';
 import { useVoteStore } from './store/voteStore';
 import { ObsChatView } from './components/tools/chat/ObsChatView';
@@ -35,6 +38,7 @@ import { VotesView } from './components/tools/votes/VotesView';
 import { AlertCompressorView } from './components/tools/alerts/AlertCompressorView';
 import { useAlertCompressorStore } from './store/alertCompressorStore';
 import { AutoUpdateToast } from './components/updates/AutoUpdateToast';
+import { LeadModReminder } from './components/moderation/LeadModReminder';
 import { UndoToast } from './components/undo/UndoToast';
 import { undoManager } from './store/undoStore';
 import { shortcutKey } from './lib/shortcutKey';
@@ -42,6 +46,12 @@ import { useEmoteStore } from './store/emoteStore';
 import { useGiftStore } from './store/giftStore';
 import { WhatsNewDialog } from './components/updates/WhatsNewDialog';
 import { ReauthPromptModal } from './components/modals/ReauthPromptModal';
+
+/** First run: once the language is picked, a new streamer gets the guided tour (after the app has drawn itself). */
+function chooseFirstLanguage(language: 'en' | 'ar') {
+  useSettingsStore.getState().setLanguage(language);
+  window.setTimeout(() => useTourStore.getState().startIfNew(), 700);
+}
 
 export default function App() {
   const tab = useToolStore((s) => s.activeTab);
@@ -141,6 +151,8 @@ export default function App() {
 
   useEffect(() => { void useUpdateStore.getState().check(); }, []);
   useEffect(() => { startStreamStatusPolling(); }, []);
+  // Once the language is known (first run: once it is picked) a streamer with no commands gets the Starter profile, built in that language
+  useEffect(() => { if (language) void useProfileStore.getState().ensureStarter(); }, [language]);
 
   // Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) on the Commands tab. Text fields keep their own undo, and an open dialog
   // owns the keyboard, so neither is intercepted.
@@ -245,6 +257,7 @@ export default function App() {
       useObsChatStore.getState().clearByScope(payload.scope, payload.id);
     });
     const offCoreLog = rpc.on(Events.CoreLog, (payload) => useLogStore.getState().addLocal({ kind: 'system', message: payload.message }));
+    const offProfiles = rpc.on(Events.ProfilesChanged, (state) => { void useProfileStore.getState().applyState(state); });
     const offKeybind = rpc.on(Events.KeybindTriggered, ({ bindingId }) => useKeybindStore.getState().trigger(bindingId));
     const offTitle = rpc.on(Events.TwitchTitleChanged, (payload) => {
       window.dispatchEvent(new CustomEvent('twitch-title-changed', { detail: payload.title }));
@@ -278,6 +291,7 @@ export default function App() {
         }
       }
       try { const maximized = await rpc.invoke(Channels.WindowIsMaximized); if (!disposed) useConnectionStore.getState().setMaximized(maximized.isMaximized); } catch { void 0; }
+      try { await useProfileStore.getState().load(); } catch { void 0; }
       try { await useKeybindStore.getState().load(); } catch { void 0; }
       try { const counters = await rpc.invoke(Channels.CountersGetState); if (!disposed) useCounterStore.getState().hydrate(counters); } catch { void 0; }
       try {
@@ -334,7 +348,7 @@ export default function App() {
 
     return () => {
       disposed = true;
-      offStatus(); offMaximized(); offChat(); offRedemption(); offRaid(); offFollow(); offWatchStreak(); offObsStatus(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offTitle(); offVotes();
+      offStatus(); offMaximized(); offChat(); offRedemption(); offRaid(); offFollow(); offWatchStreak(); offObsStatus(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offProfiles(); offTitle(); offVotes();
       offAlertsProgress(); offAlertsCompleted(); offAlertsDownload();
       window.clearInterval(poll);
     };
@@ -378,8 +392,8 @@ export default function App() {
           <section className="w-[420px] rounded-xl border border-rule bg-surface-3 p-6 text-center shadow-xl" aria-labelledby="language-title">
             <h1 id="language-title" className="font-sans text-xl font-bold tracking-tight text-ink">{t(lang, 'firstrun.title')}</h1>
             <div className="mt-5 grid grid-cols-2 gap-2">
-              <Button size="lg" variant="outline" onClick={() => useSettingsStore.getState().setLanguage('ar')}>{t(lang, 'firstrun.arabic')}</Button>
-              <Button size="lg" variant="outline" onClick={() => useSettingsStore.getState().setLanguage('en')}>{t(lang, 'firstrun.english')}</Button>
+              <Button size="lg" variant="outline" onClick={() => chooseFirstLanguage('ar')}>{t(lang, 'firstrun.arabic')}</Button>
+              <Button size="lg" variant="outline" onClick={() => chooseFirstLanguage('en')}>{t(lang, 'firstrun.english')}</Button>
             </div>
           </section>
         </main>
@@ -401,7 +415,9 @@ export default function App() {
       <ReauthPromptModal />
       <UndoToast />
       <WhatsNewDialog />
+      <GuidedTour />
       <AutoUpdateToast />
+      <LeadModReminder />
       <WindowResizeHandles />
     </div>
   );

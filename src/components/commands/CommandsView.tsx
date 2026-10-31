@@ -34,6 +34,7 @@ import { CounterActionsGridView } from './CounterActionsGridView';
 import { AiReplyStudioView } from './AiReplyStudioView';
 import { ReplyStudioView } from './ReplyStudioView';
 import { SequenceStudioView } from './SequenceStudioView';
+import { ProfilePicker } from './ProfilePicker';
 import { AddCommandModal, type CommandCreationType } from './AddCommandModal';
 
 const RANKS: PermissionLevel[] = ['everyone', 'subscriber', 'vip', 'mod', 'broadcaster'];
@@ -398,6 +399,8 @@ export function CommandsView() {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-transparent" aria-label={t(lang, 'workspace.commands')}>
       <div className="flex h-[38px] shrink-0 items-center gap-2 border-b border-white/[0.08] bg-[#1a2228] px-2.5">
+        <ProfilePicker lang={lang} />
+        <span aria-hidden className="mx-0.5 h-[22px] w-px bg-white/[0.12]" />
         <Button size="sm" onClick={createCommand}><Plus size={13} />{t(lang, 'workspace.new')}</Button>
         <Button size="sm" variant="outline" disabled={selectedRows.length === 0} onClick={duplicateSelected}><Copy size={12} />{t(lang, 'workspace.duplicate')}</Button>
         <Button size="sm" variant="outline" disabled={selectedRows.length === 0} onClick={deleteSelected}><Trash2 size={12} />{t(lang, 'workspace.delete')}</Button>

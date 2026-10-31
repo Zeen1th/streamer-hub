@@ -45,6 +45,7 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Slider } from '../../ui/Slider';
 import { Switch } from '../../ui/Switch';
 import { editSampleMessages } from './sampleMessages';
+import { FeatureDemoButton } from '../../ui/FeatureDemoButton';
 
 type SectionId =
   | 'presets'
@@ -1070,6 +1071,7 @@ export function ChatSettingsPanel({ selectedPart }: ChatSettingsPanelProps) {
               checked={settings.filters.hideCommands}
               onChange={(hideCommands) => patch({ filters: { hideCommands } })}
             />
+            <FeatureDemoButton feature="always_show" lang={lang} className="-mb-1 self-start" />
             <ListEditor
               label={t(lang, 'chat.alwaysShowMessages')}
               hint={t(lang, 'chat.alwaysShowMessagesHint')}

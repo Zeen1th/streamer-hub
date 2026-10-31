@@ -1,0 +1,11 @@
+.hyperframes/
+*.mp4
+node_modules/
+shots/
+
+# rendered by demos/build.mjs from the specs; rebuild instead of committing
+demos/always-show/
+demos/shoutout-clip/
+demos/if-branch/
+demos/duel/
+demos/counter-set/

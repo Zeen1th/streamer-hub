@@ -54,8 +54,16 @@ public static class Channels
     public const string TwitchBotSimulate = "twitch/bot-simulate";
     public const string SettingsGetState = "settings/get-state";
     public const string SettingsSave = "settings/save";
+    public const string ProfilesGetState = "profiles/get-state";
+    public const string ProfilesSwitch = "profiles/switch";
+    public const string ProfilesAdd = "profiles/add";
+    public const string ProfilesDuplicate = "profiles/duplicate";
+    public const string ProfilesRename = "profiles/rename";
+    public const string ProfilesDelete = "profiles/delete";
+    public const string ProfilesSeedStarter = "profiles/seed-starter";
     public const string SettingsListBackups = "settings/list-backups";
     public const string SettingsRestoreBackup = "settings/restore-backup";
+    public const string SettingsResetAll = "settings/reset-all";
     public const string SettingsExportShare = "settings/export-share";
     public const string SettingsImportShareChoose = "settings/import-share-choose";
     public const string SettingsImportShareApply = "settings/import-share-apply";
@@ -152,9 +160,13 @@ public static class Events
     public const string TwitchChatCleared = "twitch/chat-cleared";
     public const string TwitchChannelPointsRedeemed = "twitch/channel-points-redeemed";
     public const string TwitchTitleChanged = "twitch/title-changed";
+    /// <summary>A lead moderator got mod back after a timeout; only the streamer can give Lead back in Twitch.</summary>
+    public const string TwitchLeadModRestoreNeeded = "twitch/lead-mod-restore-needed";
     public const string WindowMaximizedChanged = "window/maximized-changed";
     public const string CoreLog = "core/log";
     public const string KeybindTriggered = "keybind/triggered";
+    /// <summary>The active command profile changed (switched, or the active one was deleted or seeded): the page reloads its commands.</summary>
+    public const string ProfilesChanged = "profiles/changed";
     public const string TwitchRaid = "twitch/raid";
     public const string TwitchEmotes = "twitch/emotes";
     public const string TwitchGift = "twitch/gift";

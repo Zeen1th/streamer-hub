@@ -599,8 +599,8 @@ public sealed class TwitchIrcClient : ITwitchClient
                         {
                             if (entry.WasLeadMod)
                             {
-                                // Only the streamer's log hears about it; nothing is posted in chat
-                                Info?.Invoke(new TwitchInfo("remod-lead-mod-notice", $"{safeLogin}: Moderator privileges restored. (Lead Moderator: check Twitch Roles Manager if badge re-grant is needed)"));
+                                // Twitch has no API to give Lead Moderator back, so the streamer is reminded in the app (never in chat)
+                                Info?.Invoke(new TwitchInfo("remod-lead-mod-notice", safeLogin));
                             }
                         }
                         else

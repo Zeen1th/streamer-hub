@@ -136,7 +136,7 @@ export function LeaderboardWidget({ chrome, config, setConfig }: WidgetProps) {
                   <Avatar name={row.user.name} src={avatars.get(row.user.login)} size={26} />
                   <span className="min-w-0 flex-1 truncate text-start text-[12.5px] font-semibold text-white" dir="ltr">
                     <bdi>{row.user.name}</bdi>
-                    {detail && <span className="ms-2 font-mono text-[10.5px] font-normal text-[#9aa3af]">{detail}</span>}
+                    {detail && <span dir="auto" className="ml-2 font-mono text-[10.5px] font-normal text-[#9aa3af]">{detail}</span>}
                   </span>
                   <span className="font-mono text-[13px] font-bold tabular-nums text-white">{formatCompact(row.value)}</span>
                 </div>

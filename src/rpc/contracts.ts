@@ -334,6 +334,8 @@ export interface SequenceStep {
   moderationAction?: ModerationAction;
   targetUser?: string;
   durationSeconds?: number;
+  /** Timeout / Smart Timeout: how many viewers named in the target ("@a @b @c") are timed out, 1 to 10. Missing = 1. */
+  moderationMaxTargets?: number;
   reason?: string;
   /** Shield for Smart Timeout / Timeout / Ban: these viewers (and roles) are never punished by this step. */
   modProtectedUsers?: string[];
@@ -406,6 +408,10 @@ export interface SequenceStep {
   clipCaption?: string;
   /** Hold the next sub-action until the clip is over. */
   clipWaitForEnd?: boolean;
+  /** Chat command that stops this clip while it plays. Missing = "!so skip". */
+  clipSkipCommand?: string;
+  /** Who may use the skip command: off, everyone, mods, or the viewer who started it plus mods (default). */
+  clipSkipWho?: 'off' | 'everyone' | 'mods' | 'requester_mods';
 
   // Mini-Game: Timeout Duel
   duelMode?: 'random' | 'ai_trivia';
@@ -461,6 +467,33 @@ export interface CommandSequence {
   cooldownSeconds: number;
   steps: SequenceStep[];
   triggers?: ActionTrigger[];
+}
+
+/** What the profile picker shows about one command profile (a complete set of counters, replies, sequences and keybinds). */
+export interface ProfileSummary {
+  id: string;
+  name: string;
+  counters: number;
+  replies: number;
+  sequences: number;
+  keybinds: number;
+}
+
+export interface ProfilesState {
+  profiles: ProfileSummary[];
+  activeId: string;
+  /** True once Starter has been added (it is never added again, even if deleted). */
+  starterSeeded: boolean;
+}
+
+/** A whole profile, as sent when Starter is seeded. The host picks the id. */
+export interface CommandProfileData {
+  id?: string;
+  name: string;
+  counters: Counter[];
+  autoReplies: AutoReply[];
+  sequences: CommandSequence[];
+  keybinds: ActionKeybind[];
 }
 
 export interface ChannelPointsRedemption {
@@ -803,10 +836,18 @@ export const Channels = {
   SettingsGetState: 'settings/get-state',
   SettingsListBackups: 'settings/list-backups',
   SettingsRestoreBackup: 'settings/restore-backup',
+  SettingsResetAll: 'settings/reset-all',
   SettingsExportShare: 'settings/export-share',
   SettingsImportShareChoose: 'settings/import-share-choose',
   SettingsImportShareApply: 'settings/import-share-apply',
   SettingsSave: 'settings/save',
+  ProfilesGetState: 'profiles/get-state',
+  ProfilesSwitch: 'profiles/switch',
+  ProfilesAdd: 'profiles/add',
+  ProfilesDuplicate: 'profiles/duplicate',
+  ProfilesRename: 'profiles/rename',
+  ProfilesDelete: 'profiles/delete',
+  ProfilesSeedStarter: 'profiles/seed-starter',
   ChatOverlayGetState: 'chat-overlay/get-state',
   ChatOverlaySaveSettings: 'chat-overlay/save-settings',
   ChatOverlayGetUrl: 'chat-overlay/get-url',
@@ -901,9 +942,11 @@ export const Events = {
   TwitchChatCleared: 'twitch/chat-cleared',
   TwitchChannelPointsRedeemed: 'twitch/channel-points-redeemed',
   TwitchTitleChanged: 'twitch/title-changed',
+  TwitchLeadModRestoreNeeded: 'twitch/lead-mod-restore-needed',
   WindowMaximizedChanged: 'window/maximized-changed',
   CoreLog: 'core/log',
   KeybindTriggered: 'keybind/triggered',
+  ProfilesChanged: 'profiles/changed',
   TwitchRaid: 'twitch/raid',
   TwitchEmotes: 'twitch/emotes',
   TwitchGift: 'twitch/gift',
@@ -954,6 +997,13 @@ export interface HostApi {
     response: { ok: boolean; simulated: boolean; botLogin: string };
   };
   [Channels.SettingsGetState]: { request: undefined; response: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; preferredChatSender?: ChatSenderRole; startupEnabled?: boolean; closeToTray?: boolean; recovery?: SettingsRecovery | null } };
+  [Channels.ProfilesGetState]: { request: undefined; response: ProfilesState };
+  [Channels.ProfilesSwitch]: { request: { id: string }; response: { ok: boolean; state: ProfilesState } };
+  [Channels.ProfilesAdd]: { request: { name: string }; response: { ok: boolean; id?: string; state: ProfilesState } };
+  [Channels.ProfilesDuplicate]: { request: { id: string; name: string }; response: { ok: boolean; id?: string; state: ProfilesState } };
+  [Channels.ProfilesRename]: { request: { id: string; name: string }; response: { ok: boolean; state: ProfilesState } };
+  [Channels.ProfilesDelete]: { request: { id: string }; response: { ok: boolean; state: ProfilesState } };
+  [Channels.ProfilesSeedStarter]: { request: CommandProfileData; response: { ok: boolean; activated: boolean; state: ProfilesState } };
   [Channels.SettingsSave]: {
     request: { twitch: TwitchSettings; language: string; botAccountEnabled?: boolean; preferredChatSender?: ChatSenderRole; startupEnabled?: boolean; closeToTray?: boolean };
     response: { ok: boolean };
@@ -970,6 +1020,7 @@ export interface HostApi {
   [Channels.AutoRepliesSettingsGet]: { request: undefined; response: AutoReplySettings };
   [Channels.SettingsListBackups]: { request: undefined; response: { backups: SettingsBackupInfo[] } };
   [Channels.SettingsRestoreBackup]: { request: { name: string }; response: { ok: boolean; restarting?: boolean; error?: string } };
+  [Channels.SettingsResetAll]: { request: { webStorage: Record<string, string> }; response: { ok: boolean; restarting?: boolean; error?: string } };
   [Channels.SettingsExportShare]: {
     request: { commands: boolean; overlays: boolean };
     response: { ok: boolean; cancelled?: boolean; error?: string; path?: string } & Partial<ShareCounts>;
@@ -1258,9 +1309,11 @@ export interface EventMap {
   [Events.TwitchChatCleared]: { scope: 'message' | 'user' | 'all'; id?: string };
   [Events.TwitchChannelPointsRedeemed]: ChannelPointsRedemption;
   [Events.TwitchTitleChanged]: { title: string };
+  [Events.TwitchLeadModRestoreNeeded]: { login: string };
   [Events.WindowMaximizedChanged]: { isMaximized: boolean };
   [Events.CoreLog]: { message: string };
   [Events.KeybindTriggered]: { bindingId: string };
+  [Events.ProfilesChanged]: ProfilesState;
   [Events.TwitchRaid]: TwitchRaidEvent;
   [Events.TwitchGift]: TwitchGiftEvent;
   [Events.TwitchEmotes]: Record<string, Record<string, string>>;

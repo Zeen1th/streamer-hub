@@ -28,6 +28,11 @@ public static class CoreStrings
         ["refresh-failed"] = "TWITCH TOKEN REFRESH FAILED — CLICK THE TWITCH CHIP TO RECONNECT",
         ["token-invalid"] = "TWITCH TOKEN INVALID — CLICK THE TWITCH CHIP TO RECONNECT",
         ["chat-relayed"] = "CHAT RELAYED · ",
+        ["remod-success"] = "MOD RESTORED AFTER TIMEOUT · {0}",
+        ["remod-lead-mod-notice"] = "{0} IS A MOD AGAIN — TWITCH DOES NOT LET APPS GIVE LEAD MODERATOR BACK, DO IT IN TWITCH ROLES MANAGER",
+        ["remod-warning"] = "MOD RESTORE WARNING · {0}",
+        ["remod-status"] = "MOD RESTORE · {0}",
+        ["remod-error"] = "MOD RESTORE FAILED · {0}",
     };
 
     private static readonly Dictionary<string, string> Ar = new()
@@ -56,6 +61,11 @@ public static class CoreStrings
         ["refresh-failed"] = "فشل تجديد الرمز — انقر على شارة تويتش لإعادة الاتصال",
         ["token-invalid"] = "الرمز غير صالح — انقر على شارة تويتش لإعادة الاتصال",
         ["chat-relayed"] = "تم تمرير الدردشة · ",
+        ["remod-success"] = "أُعيد الإشراف بعد التايم آوت · {0}",
+        ["remod-lead-mod-notice"] = "{0} مشرف من جديد — تويتش لا يسمح للتطبيقات بإرجاع رتبة المشرف الرئيسي، أرجعها من مدير الأدوار في تويتش",
+        ["remod-warning"] = "تنبيه إعادة الإشراف · {0}",
+        ["remod-status"] = "إعادة الإشراف · {0}",
+        ["remod-error"] = "فشلت إعادة الإشراف · {0}",
     };
 
     public static string L(string language, string key)

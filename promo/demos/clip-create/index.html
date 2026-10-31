@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1280, height=720" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600&family=IBM+Plex+Sans+Arabic:wght@500;600;700&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* Real Streamer Hub screenshots (captured from the app in mock mode), staged and highlighted. */
+      :root {
+        --ground: #0d1117;
+        --accent: #818cf8;
+        --twitch: #a970ff;
+        --ok: #22c55e;
+        --font: 'IBM Plex Sans Arabic', sans-serif;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1280px; height: 720px; overflow: hidden; background: var(--ground); font-family: var(--font); color: #f0f3f7; }
+      #root {
+        position: relative; width: 1280px; height: 720px; overflow: hidden;
+        background: radial-gradient(900px 520px at 50% 45%, rgba(99, 102, 241, 0.18), transparent 70%), var(--ground);
+      }
+      .clip { position: absolute; inset: 0; }
+      /* hidden until their beat */
+      #shot2, #shot3, #cap2, #cap3, #working, #board, #plus { opacity: 0; }
+
+      .caption {
+        position: absolute; top: 86px; left: 0; right: 0; height: 60px;
+        display: flex; justify-content: center;
+      }
+      .caption span {
+        position: absolute; padding: 10px 26px; border-radius: 999px; font-size: 32px; font-weight: 700;
+        background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); white-space: nowrap;
+      }
+      .caption bdi { font-family: 'IBM Plex Mono', monospace; color: #d8b4fe; direction: ltr; unicode-bidi: isolate; }
+
+      /* chat window: the chat area of the real OBS Streamer Chat page */
+      #chatwin {
+        position: absolute; left: 50px; top: 236px; width: 1180px; height: 268px;
+        border-radius: 18px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.12);
+        background: #12161c; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+      }
+      #chatwin img {
+        position: absolute; left: 0; top: -353px; width: 1180px; height: auto;
+      }
+      .ring {
+        position: absolute; border-radius: 12px; border: 3px solid var(--accent);
+        box-shadow: 0 0 26px rgba(129, 140, 248, 0.55); opacity: 0;
+      }
+      #ring-cmd { left: 26px; width: 1124px; top: 212px; height: 46px; border-color: var(--twitch); box-shadow: 0 0 26px rgba(169, 112, 255, 0.6); }
+      #ring-ann { left: 26px; width: 1124px; top: 212px; height: 46px; }
+
+      #working {
+        position: absolute; top: 546px; left: 0; right: 0; display: flex; justify-content: center;
+      }
+      #working div {
+        display: flex; align-items: center; gap: 14px; padding: 12px 24px; border-radius: 14px;
+        background: rgba(99, 102, 241, 0.16); border: 1px solid rgba(129, 140, 248, 0.45); font-size: 30px; font-weight: 600;
+      }
+      .spin { width: 28px; height: 28px; border-radius: 50%; border: 4px solid rgba(255,255,255,0.18); border-top-color: var(--accent); }
+
+      /* leaderboard card (real Home > Leaderboards > Clips) */
+      #board {
+        position: absolute; left: 50%; top: 186px; width: 520px; height: 444px; margin-left: -260px;
+        border-radius: 18px; overflow: hidden; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+      }
+      #board img { width: 520px; height: auto; display: block; }
+      #ring-top { left: 24px; width: 472px; top: 208px; height: 74px; border-color: #fbbf24; box-shadow: 0 0 26px rgba(251, 191, 36, 0.5); }
+      #plus {
+        position: absolute; left: 424px; top: 168px; padding: 2px 12px; border-radius: 999px; font-size: 28px; font-weight: 700;
+        background: var(--ok); color: #052e16; direction: ltr;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="8.5" data-width="1280" data-height="720">
+      <section id="scene" class="clip" data-start="0" data-duration="8.5" data-track-index="0">
+        <div class="caption">
+          <span id="cap1">المشاهد يكتب <bdi>!clip</bdi></span>
+          <span id="cap2">يُصنع المقطع ويُنشر رابطه في الشات</span>
+          <span id="cap3">ويُحسب للمشاهد في لوحة المقاطع</span>
+        </div>
+
+        <div id="chatwin">
+          <img id="shot1" src="assets/clip-1-chat.png" alt="" />
+          <img id="shot2" src="assets/clip-2-command.png" alt="" />
+          <img id="shot3" src="assets/clip-3-announce.png" alt="" />
+          <div class="ring" id="ring-cmd"></div>
+          <div class="ring" id="ring-ann"></div>
+        </div>
+
+        <div id="working"><div><i class="spin" id="spin"></i>جاري صنع المقطع على تويتش…</div></div>
+
+        <div id="board">
+          <img src="assets/clip-4-leaderboard.png" alt="" />
+          <div class="ring" id="ring-top"></div>
+          <span id="plus">+1</span>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const E = 'power3.out';
+
+      // start state: the chat before the command (also the last frame, so the loop is seamless)
+      tl.set(['#shot1', '#cap1', '#chatwin'], { opacity: 1 }, 0);
+
+      // 1 · the viewer types !clip (the chat moves up one line, like the real chat)
+      tl.fromTo('#shot2', { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, 1.0);
+      tl.to('#shot1', { opacity: 0, y: -22, duration: 0.35, ease: E }, 1.0);
+      tl.fromTo('#ring-cmd', { opacity: 0, scale: 1.03 }, { opacity: 1, scale: 1, duration: 0.3, ease: E }, 1.25);
+
+      // the app makes the clip
+      tl.fromTo('#working', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.3, ease: E }, 1.8);
+      tl.fromTo('#spin', { rotation: 0 }, { rotation: 900, duration: 1.7, ease: 'none' }, 1.8);
+      tl.to('#working', { opacity: 0, duration: 0.25 }, 3.5);
+
+      // 2 · the link is posted in chat
+      tl.to('#ring-cmd', { opacity: 0, duration: 0.2 }, 3.45);
+      tl.to('#cap1', { opacity: 0, duration: 0.25 }, 3.45);
+      tl.fromTo('#cap2', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, 3.6);
+      tl.fromTo('#shot3', { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, 3.6);
+      tl.to('#shot2', { opacity: 0, y: -22, duration: 0.35, ease: E }, 3.6);
+      tl.fromTo('#ring-ann', { opacity: 0, scale: 1.02 }, { opacity: 1, scale: 1, duration: 0.3, ease: E }, 3.85);
+
+      // 3 · it counts for the viewer
+      tl.to('#cap2', { opacity: 0, duration: 0.25 }, 5.9);
+      tl.to('#chatwin', { opacity: 0, scale: 0.94, duration: 0.35, ease: 'power2.in' }, 5.9);
+      tl.fromTo('#cap3', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, 6.15);
+      tl.fromTo('#board', { opacity: 0, scale: 0.9, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.45, ease: 'back.out(1.6)' }, 6.15);
+      tl.fromTo('#ring-top', { opacity: 0 }, { opacity: 1, duration: 0.3 }, 6.55);
+      tl.fromTo('#plus', { opacity: 0, scale: 0.4, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.35, ease: 'back.out(2.4)' }, 6.65);
+
+      // back to the start for the loop
+      tl.to(['#board', '#cap3'], { opacity: 0, duration: 0.3 }, 7.9);
+      tl.set(['#ring-ann', '#shot3'], { opacity: 0 }, 7.9);
+      tl.set('#shot1', { y: 0 }, 7.9);
+      tl.fromTo('#chatwin', { opacity: 0, scale: 0.98 }, { opacity: 1, scale: 1, duration: 0.35, ease: E }, 8.05);
+      tl.fromTo('#shot1', { opacity: 0 }, { opacity: 1, duration: 0.01 }, 8.05);
+      tl.fromTo('#cap1', { opacity: 0 }, { opacity: 1, duration: 0.35 }, 8.05);
+      tl.to({}, { duration: 0.01 }, 8.49);
+
+      window.__timelines['main'] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

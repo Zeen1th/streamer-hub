@@ -287,6 +287,27 @@ using (var release = JsonDocument.Parse("""
             AssertEqual(1, reopened.Counters.Count, "the restore survives a restart");
         }
 
+        // Settings > System > Reset everything: backed up first, logins kept, everything else back to default
+        using (var resetting = new SettingsStore(file))
+        {
+            resetting.SetTwitch(new TwitchSettings { ClientId = "my-client" });
+            resetting.SaveCounter(new Counter { Id = "c3", Name = "Deaths", Count = 9 });
+            resetting.Flush();
+            var countersBefore = resetting.Counters.Count;
+            var web = new Dictionary<string, string> { ["streamer-hub-stats"] = "{\"wins\":3}" };
+            AssertTrue(resetting.ResetToDefaults(web, out var resetError) && resetError is null, "reset succeeds");
+            AssertEqual(0, resetting.Counters.Count, "counters are gone after the reset");
+            AssertEqual("my-client", resetting.Twitch.ClientId, "the Twitch login is kept");
+            AssertTrue(resetting.ListBackups().Any(b => b.Kind == "before-restore" && b.Counters == countersBefore), "the settings before the reset can be restored");
+            var webBackup = Directory.GetFiles(Path.Combine(recoveryRoot, "backups"), "before-reset-web-*.json").Single();
+            AssertTrue(File.ReadAllText(webBackup).Contains("streamer-hub-stats"), "the page's stats are backed up too");
+        }
+        using (var afterReset = new SettingsStore(file))
+        {
+            AssertEqual(0, afterReset.Counters.Count, "the reset survives a restart");
+            AssertEqual("my-client", afterReset.Twitch.ClientId, "the Twitch login survives the reset and a restart");
+        }
+
         // a first run is not a problem
         var fresh = Path.Combine(recoveryRoot, "fresh", "settings.json");
         using (var firstRun = new SettingsStore(fresh))
@@ -297,6 +318,87 @@ using (var release = JsonDocument.Parse("""
     finally
     {
         try { Directory.Delete(recoveryRoot, recursive: true); } catch { }
+    }
+}
+
+// Command profiles: migration, switching, delete rules, reset
+{
+    var profRoot = Path.Combine(Path.GetTempPath(), $"streamer-hub-profiles-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(profRoot);
+    try
+    {
+        var file = Path.Combine(profRoot, "settings.json");
+        // an old settings.json without profiles: its commands become the first profile, Starter not seeded yet
+        File.WriteAllText(file, "{ \"language\": \"ar\", \"counters\": [ { \"id\": \"c1\", \"name\": \"Deaths\", \"count\": 4 } ], \"autoReplies\": [ { \"id\": \"r1\", \"triggers\": [\"!hi\"] } ] }");
+        using (var migrated = new SettingsStore(file))
+        {
+            var state = migrated.GetProfilesState();
+            AssertEqual(1, state.Profiles.Count, "migration makes one profile");
+            AssertEqual("أوامري", state.Profiles[0].Name, "the first profile is named in the app language");
+            AssertEqual(state.Profiles[0].Id, state.ActiveId, "the first profile is active");
+            AssertEqual(1, state.Profiles[0].Counters, "existing commands are in the first profile");
+            AssertEqual(1, migrated.Counters.Count, "live commands are untouched");
+            AssertTrue(!state.StarterSeeded, "Starter is not seeded by migration");
+
+            // Starter is added next to existing commands, not active
+            var starter = new CommandProfile { Name = "البداية", Counters = new List<Counter> { new() { Id = "s1", Name = "Deaths" } } };
+            AssertTrue(migrated.SeedStarter(starter, out var activated) && !activated, "Starter is added without taking over");
+            AssertEqual(1, migrated.Counters.Count, "live commands are still the user's");
+            AssertTrue(!migrated.SeedStarter(starter, out _), "Starter is seeded only once");
+            var first = migrated.ActiveProfileId;
+            var starterId = migrated.GetProfilesState().Profiles.Single(p => p.Name == "البداية").Id;
+
+            // A -> B -> A keeps both sets, including edits made while live
+            migrated.SaveCounter(new Counter { Id = "c2", Name = "Wins", Count = 2 });
+            AssertTrue(migrated.SwitchProfile(starterId), "switch to Starter");
+            AssertEqual("s1", migrated.Counters.Single().Id, "Starter's commands are live");
+            migrated.SaveCounter(new Counter { Id = "s2", Name = "Extra" });
+            AssertTrue(!migrated.SwitchProfile("nope"), "unknown profile is rejected");
+            AssertTrue(migrated.SwitchProfile(first), "switch back");
+            AssertEqual(2, migrated.Counters.Count, "the first set is back with the edit made earlier");
+            AssertEqual(1, migrated.AutoReplies.Count, "replies are switched too");
+        }
+        using (var reopened = new SettingsStore(file))
+        {
+            var state = reopened.GetProfilesState();
+            AssertEqual(2, state.Profiles.Count, "both profiles survive a restart");
+            AssertTrue(state.StarterSeeded, "the Starter flag survives a restart");
+            AssertEqual(2, reopened.Counters.Count, "the active set survives a restart");
+            var other = state.Profiles.Single(p => p.Id != state.ActiveId);
+            AssertEqual(2, other.Counters, "the inactive set survives a restart");
+
+            // rename, duplicate, delete rules
+            AssertTrue(reopened.RenameProfile(other.Id, "  Just   chatting "), "rename");
+            AssertEqual("Just chatting", reopened.GetProfilesState().Profiles.Single(p => p.Id == other.Id).Name, "name is cleaned");
+            AssertTrue(!reopened.RenameProfile(other.Id, "   "), "empty name is rejected");
+            var copyId = reopened.DuplicateProfile(state.ActiveId, "Copy")!;
+            AssertEqual(2, reopened.GetProfilesState().Profiles.Single(p => p.Id == copyId).Counters, "a duplicate holds the same commands");
+            AssertTrue(reopened.DeleteProfile(copyId, out var changed) && !changed, "delete an inactive profile");
+            AssertTrue(reopened.DeleteProfile(state.ActiveId, out changed) && changed, "delete the active profile switches");
+            AssertEqual(other.Id, reopened.ActiveProfileId, "the remaining profile is live");
+            AssertEqual(2, reopened.Counters.Count, "its commands are live");
+            AssertTrue(!reopened.DeleteProfile(other.Id, out _), "the last profile cannot be deleted");
+            AssertTrue(reopened.StarterSeeded, "deleting Starter or others never resets the flag");
+
+            // reset: profiles cleared, Starter can be seeded again
+            AssertTrue(reopened.ResetToDefaults(null, out var resetError) && resetError is null, "reset");
+            var afterReset = reopened.GetProfilesState();
+            AssertEqual(1, afterReset.Profiles.Count, "reset leaves one empty profile");
+            AssertEqual(0, afterReset.Profiles[0].Counters, "reset empties it");
+            AssertTrue(!afterReset.StarterSeeded, "reset allows Starter again");
+        }
+        using (var fresh = new SettingsStore(file))
+        {
+            AssertTrue(!fresh.StarterSeeded, "reset survives a restart");
+            AssertTrue(fresh.SeedStarter(new CommandProfile { Name = "Starter", Counters = new List<Counter> { new() { Id = "s1", Name = "Deaths" } } }, out var activated) && activated, "a fresh start gets Starter live");
+            var state = fresh.GetProfilesState();
+            AssertEqual(1, state.Profiles.Count, "Starter replaces the empty placeholder");
+            AssertEqual(1, fresh.Counters.Count, "Starter's commands are live");
+        }
+    }
+    finally
+    {
+        try { Directory.Delete(profRoot, recursive: true); } catch { }
     }
 }
 

@@ -1083,3 +1083,46 @@ test('a clip that could not be made announces nothing but the failure message', 
   assert.equal(result.ok, false);
   assert.deepEqual(chats, ['no clip']);
 });
+
+// ---- One redeem, several timeouts ---------------------------------------
+const multiTimeout = (extra) => ({ id: 'm', type: 'moderation', moderationAction: 'smart_timeout', targetUser: '{input}', durationSeconds: 30, ...extra });
+
+async function runModeration(step, userInput, sinks = {}) {
+  const hit = [];
+  const logs = [];
+  const result = await executeSequence(ifSeq([step, chatStep('after', 'done')]), { ...baseCtx, userInput }, {
+    sendChatMessage: async () => true,
+    log: (_k, m) => logs.push(m),
+    executeModerationAction: async (action, target, duration) => {
+      hit.push(`${action}:${target}:${duration}`);
+      return target === 'typo' ? { ok: false, error: 'USER_NOT_FOUND' } : { ok: true };
+    },
+    ...sinks,
+  });
+  return { result, hit, logs };
+}
+
+test('a timeout step set to 3 viewers times out each named viewer once, up to 3', async () => {
+  const { result, hit } = await runModeration(multiTimeout({ moderationMaxTargets: 3 }), '@bob @Sara, bob @omar @extra');
+  assert.equal(result.ok, true);
+  assert.deepEqual(hit, ['smart_timeout:bob:30', 'smart_timeout:Sara:30', 'smart_timeout:omar:30']);
+});
+
+test('with several viewers, a failed name does not spare the others', async () => {
+  const { result, hit } = await runModeration(multiTimeout({ moderationMaxTargets: 3 }), '@typo @bob');
+  assert.equal(result.ok, true);
+  assert.deepEqual(hit, ['smart_timeout:typo:30', 'smart_timeout:bob:30']);
+});
+
+test('a protected viewer among several is skipped and the rest are still timed out', async () => {
+  const { hit } = await runModeration(multiTimeout({ moderationMaxTargets: 5 }), '@mod1 @bob', {
+    isModerationProtected: (_step, target) => target === 'mod1',
+  });
+  assert.deepEqual(hit, ['smart_timeout:bob:30']);
+});
+
+test('a step made before this option still times out only the first name', async () => {
+  const { result, hit } = await runModeration(multiTimeout(), '@bob @sara');
+  assert.equal(result.ok, true);
+  assert.deepEqual(hit, ['smart_timeout:bob:30']);
+});

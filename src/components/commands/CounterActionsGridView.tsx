@@ -8,6 +8,7 @@ import { Input } from '../ui/Input';
 import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
 import { Slider } from '../ui/Slider';
 import { Switch } from '../ui/Switch';
+import { FeatureDemoButton } from '../ui/FeatureDemoButton';
 import { Field } from '../ui/Field';
 import { CounterOutputsSection } from './CounterOutputsSection';
 
@@ -196,6 +197,7 @@ function SetCommandCard({ counter, lang }: { counter: Counter; lang: 'en' | 'ar'
           <div>
             <h3 className="font-sans text-[14px] font-bold tracking-tight text-ink">{t(lang, 'workspace.actionSet')}</h3>
             <p className="font-sans text-[11px] text-muted">{t(lang, 'workspace.actionSetDesc')}</p>
+            <FeatureDemoButton feature="counter_set" lang={lang} className="mt-2" />
           </div>
         </div>
         <Switch checked={command.enabled} onChange={(enabled) => updateSetCommand(counter.id, { enabled })} label={t(lang, 'workspace.setEnabled')} />

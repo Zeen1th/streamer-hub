@@ -1,7 +1,8 @@
 import { DEFAULT_PROTECTED_MESSAGES } from '../../lib/duelGameManager';
 import { shieldKey } from '../../lib/shield';
+import { FeatureDemoButton } from '../ui/FeatureDemoButton';
 import { triggerChatCommands } from '../../lib/triggerCommands';
-import { DEFAULT_CLIP_ANNOUNCE_MESSAGE, DEFAULT_CLIP_FAIL_MESSAGE, replaceSequenceTokens } from '../../lib/sequenceRunner';
+import { DEFAULT_CLIP_ANNOUNCE_MESSAGE, DEFAULT_CLIP_FAIL_MESSAGE, MAX_MODERATION_TARGETS, replaceSequenceTokens } from '../../lib/sequenceRunner';
 import { attachedGameIndex } from '../../lib/stepGroups';
 import { groupSubActions, type SubActionGroup } from '../../lib/subActionCatalog';
 import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../../lib/sequenceTimers';
@@ -952,6 +953,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
     step.targetUser ?? (step.moderationAction === 'shoutout' ? '{raider}' : '{input}')
   );
   const [durationSeconds, setDurationSeconds] = useState(step.durationSeconds ?? 60);
+  const [maxTargets, setMaxTargets] = useState(step.moderationMaxTargets ?? 1);
   const [reason, setReason] = useState(step.reason ?? '');
 
   // Sound state
@@ -1224,6 +1226,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
           moderationAction,
           targetUser: targetUser.trim(),
           durationSeconds: Math.max(1, Number(durationSeconds) || 60),
+          moderationMaxTargets: moderationAction === 'smart_timeout' || moderationAction === 'timeout' ? maxTargets : undefined,
           reason: reason.trim(),
         });
         break;
@@ -1380,6 +1383,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
             </div>
           </div>
 
+          <FeatureDemoButton feature={step.type} lang={lang} className="ms-auto me-2" />
           <button
             type="button"
             onClick={onClose}
@@ -1502,6 +1506,22 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                     label={t(lang, 'sequence.modDuration')}
                     accentColor="rose"
                   />
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                    <div className="min-w-0">
+                      <div className="font-sans text-[12px] font-medium text-zinc-300">{t(lang, 'sequence.modMaxTargets')}</div>
+                      <div className="mt-0.5 text-[11px] text-muted">{t(lang, 'sequence.modMaxTargetsHint')}</div>
+                    </div>
+                    <select
+                      value={maxTargets}
+                      onChange={(e) => setMaxTargets(Number(e.target.value))}
+                      aria-label={t(lang, 'sequence.modMaxTargets')}
+                      className="h-8 shrink-0 rounded-md border border-white/[0.1] bg-[#0d0f14] px-2 font-mono text-[12px] text-ink outline-none focus:border-accent/60"
+                    >
+                      {Array.from({ length: MAX_MODERATION_TARGETS }, (_, n) => n + 1).map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
                   {moderationAction === 'smart_timeout' && (
                     <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-300">
                       <Zap size={14} className="mt-0.5 shrink-0 text-amber-400" />
@@ -4722,7 +4742,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                               ) : (
                                 <Terminal size={13} className="text-violet-400 shrink-0" />
                               )}
-                              <span className="truncate text-[12px]">{getSubActionSummary(st)}</span>
+                              <span dir="auto" className="truncate text-[12px]">{getSubActionSummary(st)}</span>
                             </div>
                           )}
                         </div>
@@ -4801,7 +4821,10 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                     <li key={b.id} className="text-zinc-300">
                                       <span className="font-medium text-zinc-100">{branchStepLabel(b, lang)}</span>
                                       {branchStepDetail(b, sequenceNames) && (
-                                        <span dir="auto" className="text-zinc-500"> — {branchStepDetail(b, sequenceNames).slice(0, 70)}</span>
+                                        <>
+                                          <span className="text-zinc-500"> — </span>
+                                          <span dir="auto" className="text-zinc-500">{branchStepDetail(b, sequenceNames).slice(0, 70)}</span>
+                                        </>
                                       )}
                                     </li>
                                   ))}

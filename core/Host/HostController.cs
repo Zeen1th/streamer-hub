@@ -733,6 +733,47 @@ public sealed class HostController : IDisposable
         });
         _dispatcher.Register(Channels.SettingsGetState, (_, _) =>
             Task.FromResult<object?>(new { twitch = _settings.Twitch, language = _settings.Language, botAccountEnabled = _settings.BotAccountEnabled, preferredChatSender = _settings.PreferredChatSender, startupEnabled = _settings.StartupEnabled, closeToTray = _settings.CloseToTray ?? true, recovery = _settings.TakeRecoveryNotice() }));
+        _dispatcher.Register(Channels.ProfilesGetState, (_, _) => Task.FromResult<object?>(_settings.GetProfilesState()));
+        _dispatcher.Register(Channels.ProfilesSwitch, (payload, _) =>
+        {
+            var request = Json.Deserialize<ProfileIdPayload>(payload ?? default);
+            if (request is null || string.IsNullOrWhiteSpace(request.Id) || !_settings.SwitchProfile(request.Id))
+                return Task.FromResult<object?>(new { ok = false, state = _settings.GetProfilesState() });
+            return Task.FromResult<object?>(new { ok = true, state = CommandsReloaded() });
+        });
+        _dispatcher.Register(Channels.ProfilesAdd, (payload, _) =>
+        {
+            var request = Json.Deserialize<ProfileNamePayload>(payload ?? default);
+            var id = _settings.AddProfile(request?.Name ?? string.Empty);
+            return Task.FromResult<object?>(new { ok = id is not null, id, state = _settings.GetProfilesState() });
+        });
+        _dispatcher.Register(Channels.ProfilesDuplicate, (payload, _) =>
+        {
+            var request = Json.Deserialize<ProfileRenamePayload>(payload ?? default);
+            var id = request is null ? null : _settings.DuplicateProfile(request.Id, request.Name);
+            return Task.FromResult<object?>(new { ok = id is not null, id, state = _settings.GetProfilesState() });
+        });
+        _dispatcher.Register(Channels.ProfilesRename, (payload, _) =>
+        {
+            var request = Json.Deserialize<ProfileRenamePayload>(payload ?? default);
+            var ok = request is not null && _settings.RenameProfile(request.Id, request.Name);
+            return Task.FromResult<object?>(new { ok, state = _settings.GetProfilesState() });
+        });
+        _dispatcher.Register(Channels.ProfilesDelete, (payload, _) =>
+        {
+            var request = Json.Deserialize<ProfileIdPayload>(payload ?? default);
+            if (request is null || !_settings.DeleteProfile(request.Id, out var activeChanged))
+                return Task.FromResult<object?>(new { ok = false, state = _settings.GetProfilesState() });
+            return Task.FromResult<object?>(new { ok = true, state = activeChanged ? CommandsReloaded() : _settings.GetProfilesState() });
+        });
+        _dispatcher.Register(Channels.ProfilesSeedStarter, (payload, _) =>
+        {
+            var request = Json.Deserialize<CommandProfile>(payload ?? default);
+            if (request is null || !_settings.SeedStarter(request, out var activated))
+                return Task.FromResult<object?>(new { ok = false, activated = false, state = _settings.GetProfilesState() });
+            Log("system", "STARTER PROFILE ADDED");
+            return Task.FromResult<object?>(new { ok = true, activated, state = activated ? CommandsReloaded() : _settings.GetProfilesState() });
+        });
         _dispatcher.Register(Channels.SettingsListBackups, (_, _) =>
             Task.FromResult<object?>(new
             {
@@ -754,6 +795,14 @@ public sealed class HostController : IDisposable
             if (request is null || string.IsNullOrWhiteSpace(request.Name)) return Task.FromResult<object?>(new { ok = false, error = "BACKUP NOT FOUND" });
             if (!_settings.RestoreBackup(request.Name, out var error)) return Task.FromResult<object?>(new { ok = false, error });
             Log("system", $"SETTINGS RESTORED FROM {request.Name}");
+            if (!RelaunchApp()) return Task.FromResult<object?>(new { ok = true, restarting = false });
+            return Task.FromResult<object?>(new { ok = true, restarting = true });
+        });
+        _dispatcher.Register(Channels.SettingsResetAll, (payload, _) =>
+        {
+            var request = Json.Deserialize<ResetAllPayload>(payload ?? default);
+            if (!_settings.ResetToDefaults(request?.WebStorage, out var error)) return Task.FromResult<object?>(new { ok = false, error });
+            Log("system", "EVERYTHING RESET TO DEFAULT · A BACKUP WAS KEPT IN SETTINGS > BACKUPS");
             if (!RelaunchApp()) return Task.FromResult<object?>(new { ok = true, restarting = false });
             return Task.FromResult<object?>(new { ok = true, restarting = true });
         });
@@ -2066,9 +2115,11 @@ public sealed class HostController : IDisposable
                 "chat-joined" => CoreStrings.LF(Lang, "chat-joined", $"#{info.Arg}"),
                 "notice" => CoreStrings.L(Lang, "notice") + ": " + info.Arg,
                 "connect-failed" => CoreStrings.L(Lang, "connect-failed") + ": " + info.Arg,
+                _ when info.Key.StartsWith("remod-", StringComparison.Ordinal) => CoreStrings.LF(Lang, info.Key, info.Arg ?? ""),
                 _ => CoreStrings.L(Lang, info.Key),
             };
             Log("system", message);
+            if (info.Key == "remod-lead-mod-notice") PostEvent(Events.TwitchLeadModRestoreNeeded, new { login = info.Arg });
         };
         _twitch.StateChanged += state =>
         {
@@ -2316,6 +2367,10 @@ public sealed class HostController : IDisposable
     }
 
     private sealed record RestoreBackupPayload(string Name);
+    private sealed record ProfileIdPayload(string Id);
+    private sealed record ProfileNamePayload(string Name);
+    private sealed record ProfileRenamePayload(string Id, string Name);
+    private sealed record ResetAllPayload(Dictionary<string, string>? WebStorage);
     private sealed record ExportSharePayload(bool Commands, bool Overlays);
     private ShareBundle? _pendingShare;
 
@@ -2615,6 +2670,18 @@ public sealed class HostController : IDisposable
             if (dialog.ShowDialog(_form) == DialogResult.OK) path = dialog.FileName;
         });
         return path;
+    }
+
+    /// <summary>
+    /// The live commands just changed (profile switch, or the live profile was deleted or seeded): hotkeys are registered again
+    /// for the new set and the page is told to reload its stores. Everything else reads the settings on demand.
+    /// </summary>
+    private ProfilesState CommandsReloaded()
+    {
+        RefreshKeybinds();
+        var state = _settings.GetProfilesState();
+        PostEvent(Events.ProfilesChanged, state);
+        return state;
     }
 
     private void RefreshKeybinds()
