@@ -43,7 +43,8 @@ export interface StartDuelOptions {
   streamerLoseMessage?: string;
   /**
    * Shield check. A shielded viewer still plays the duel; if they lose (or time runs out) they are not
-   * timed out and `protectedMessage` is sent instead. If they win, the duel goes on as usual.
+   * timed out and `protectedMessage` is sent instead. If they win, the duel goes on as usual. The shield only
+   * covers a duel someone else started against them: a shielded viewer who starts a duel can lose it.
    */
   isProtected?: (username: string) => boolean;
   /** Reply sent when a shielded viewer would have been timed out. Tokens: {challenger} {opponent} {protected} {winner} {loser}. */
@@ -404,7 +405,9 @@ class DuelGameManager {
     winner?: string,
   ): Promise<{ ok: boolean; wasMod?: boolean; error?: string }> {
     const user = target.trim().replace(/^@+/, '');
-    if (!shield.isProtected?.(user)) {
+    // Whoever started the duel accepted the risk: the shield never covers the challenger
+    const startedIt = user.toLowerCase() === shield.challenger.trim().replace(/^@+/, '').toLowerCase();
+    if (startedIt || !shield.isProtected?.(user)) {
       return sinks.smartModTimeout(target, durationSeconds, reason);
     }
     const ar = shield.language === 'ar';

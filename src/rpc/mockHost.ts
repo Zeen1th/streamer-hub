@@ -1,7 +1,22 @@
-import type { CommandProfileData, ProfilesState, ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayClipRequest, ShowOverlayImagePayload, TwitchRewardInfo, TwitchSettings } from './contracts';
+import type { CommandProfileData, ProfilesState, ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayClipRequest, ShowOverlayImagePayload, TwitchCategory, TwitchRewardInfo, TwitchSettings } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
+
+const MOCK_CATEGORIES: TwitchCategory[] = [
+  { id: '516575', name: 'VALORANT' },
+  { id: '27471', name: 'Minecraft' },
+  { id: '33214', name: 'Fortnite' },
+  { id: '509658', name: 'Just Chatting' },
+  { id: '21779', name: 'League of Legends' },
+  { id: '32399', name: 'Counter-Strike' },
+  { id: '32982', name: 'Grand Theft Auto V' },
+  { id: '2011938005', name: 'EA Sports FC 25' },
+  { id: '512710', name: 'Call of Duty: Warzone' },
+  { id: '511224', name: 'Apex Legends' },
+  { id: '29595', name: 'Dota 2' },
+  { id: '18122', name: 'World of Warcraft' },
+];
 
 const STORAGE_KEY = 'streamer-hub-mock-counters';
 const LEGACY_STORAGE_KEY = 'streamer-hub-mock-state';
@@ -398,6 +413,15 @@ export class MockHost {
         this.respond(request, { ok: true });
         break;
       }
+      case Channels.TwitchSearchCategories: {
+        const query = ((request.payload as { query?: string })?.query ?? '').trim().toLowerCase();
+        const items = query ? MOCK_CATEGORIES.filter((category) => category.name.toLowerCase().includes(query)) : [];
+        this.respond(request, { ok: true, items });
+        break;
+      }
+      case Channels.TwitchSetCategory:
+        this.respond(request, { ok: true });
+        break;
       case Channels.TwitchGetTitleFilePath:
       case 'twitch/get-title-file-path':
         this.respond(request, { path: 'C:\\StreamerHub\\title.txt' });
@@ -1013,6 +1037,12 @@ export class MockHost {
         break;
       case Channels.DialogPickFolder:
         this.respond(request, { path: 'C:\\StreamerHub\\Temp' });
+        break;
+      case Channels.DialogPickTextFile:
+        this.respond(request, { path: 'C:\\StreamerHub\\questions.txt' });
+        break;
+      case Channels.FilesReadLines:
+        this.respond(request, { ok: true, lines: ['What game should I play next?', 'وش أفضل لعبة لعبتها هالسنة؟', 'Pineapple on pizza: yes or no?'] });
         break;
       case Channels.AlertsSaveDroppedFile: {
         const payload = request.payload as { fileName?: string; fileBase64?: string } | undefined;

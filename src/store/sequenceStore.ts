@@ -909,6 +909,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
             {
               roles: {
                 moderator: !!step.modProtectedRoles?.includes('moderator'),
+                leadModerator: !!step.modProtectedRoles?.includes('lead_moderator'),
                 vip: !!step.modProtectedRoles?.includes('vip'),
                 subscriber: !!step.modProtectedRoles?.includes('subscriber'),
               },
@@ -1066,6 +1067,14 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
             return { ok: false, error: err instanceof Error ? err.message : 'RPC_FAILED' };
           }
         },
+        readTextLines: async (path) => {
+          try {
+            const res = await rpc.invoke(Channels.FilesReadLines, { path });
+            return res?.ok ? res.lines ?? [] : [];
+          } catch {
+            return [];
+          }
+        },
         waitForClipEnd: (ms) =>
           new Promise<void>((resolve) => {
             const timer = window.setTimeout(resolve, ms);
@@ -1100,6 +1109,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
                 {
                   roles: {
                     moderator: !!step.duelProtectedRoles?.includes('moderator'),
+                    leadModerator: !!step.duelProtectedRoles?.includes('lead_moderator'),
                     vip: !!step.duelProtectedRoles?.includes('vip'),
                     subscriber: !!step.duelProtectedRoles?.includes('subscriber'),
                   },

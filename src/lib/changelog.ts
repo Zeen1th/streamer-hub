@@ -19,6 +19,33 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.29',
+    en: {
+      added: [
+        'Category in the automatic stream title. Pick a category from Twitch (search with box art, like on Twitch) in the counter title or the prepared-reply title setup, and every time the title updates the stream switches to that category too. The Home title widget can also change the category right away.',
+        'Send one random line. A Send Chat Message step can now post one random line from a list (one message per line) or from a .txt file, for example a random question for a channel points redeem. No line repeats until every line has been sent.',
+        'Shield option "Lead mods": lead moderators are never timed out, so they keep their Lead role (Twitch does not let apps give Lead back after a timeout).',
+      ],
+      fixed: [
+        'Shielded viewers in "Timeout Anyone" and other timeout steps were forgotten after a restart. The shield (names, roles and its message) is now saved.',
+        'The duel shield only protects a viewer when someone else challenged them. A shielded viewer who starts a duel can lose it like anyone else.',
+        'The Home dashboard no longer counts the streamer: your own chat lines, clips and test redemptions are left out of the totals, the chat activity curve and the feed.',
+      ],
+    },
+    ar: {
+      added: [
+        'الفئة في العنوان التلقائي للبث. اختر فئة من تويتش (بحث مع صور الألعاب كما في تويتش) في عنوان العدّاد أو إعداد عنوان الرد الجاهز، وفي كل مرة يتحدث فيها العنوان يتحول البث إلى هذه الفئة أيضاً. ويمكن أيضاً تغيير الفئة فوراً من أداة العنوان في الرئيسية.',
+        'إرسال سطر عشوائي واحد. خطوة إرسال رسالة في الشات يمكنها الآن إرسال سطر عشوائي من قائمة (رسالة في كل سطر) أو من ملف ‎.txt‎، مثل سؤال عشوائي عند استبدال نقاط القناة. لا يتكرر سطر حتى تُرسل كل الأسطر.',
+        'خيار حماية "المشرفون الرئيسيون": لا يُسكت المشرفون الرئيسيون أبداً، فتبقى رتبتهم (تويتش لا يسمح للتطبيقات بإرجاع الرتبة الرئيسية بعد التايم آوت).',
+      ],
+      fixed: [
+        'المحميون في "Timeout Anyone" وخطوات التايم آوت الأخرى كانوا يُنسون بعد إعادة التشغيل. الحماية (الأسماء والرتب ورسالتها) تُحفظ الآن.',
+        'حماية التحدي تحمي المشاهد فقط عندما يتحداه شخص آخر. المشاهد المحمي الذي يبدأ التحدي بنفسه يمكن أن يخسر مثل أي أحد.',
+        'لوحة الرئيسية لم تعد تحسب الستريمر: رسائلك في الشات ومقاطعك واستبدالاتك التجريبية لا تدخل في الإجماليات ولا منحنى نشاط الشات ولا الأحداث.',
+      ],
+    },
+  },
+  {
     version: '0.4.28',
     en: {
       added: [

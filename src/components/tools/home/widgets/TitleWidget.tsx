@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Check, RefreshCw, Tv } from 'lucide-react';
 import { rpc } from '../../../../rpc';
-import { Channels } from '../../../../rpc/contracts';
+import { Channels, type TwitchCategory } from '../../../../rpc/contracts';
+import { useSettingsStore } from '../../../../store/settingsStore';
+import { CategoryPicker } from '../../../ui/CategoryPicker';
 import { useConnectionStore } from '../../../../store/connectionStore';
 import { useCounterStore } from '../../../../store/counterStore';
 import { Button } from '../../../ui/Button';
@@ -19,6 +21,22 @@ export function TitleWidget({ chrome }: WidgetProps) {
   const [draft, setDraft] = useState('');
   const [updating, setUpdating] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [category, setCategory] = useState<TwitchCategory | null>(null);
+  const [categoryStatus, setCategoryStatus] = useState<'ok' | 'failed' | null>(null);
+  const lang = useSettingsStore((s) => (s.language === 'ar' ? 'ar' : 'en'));
+
+  const changeCategory = async (next: TwitchCategory | null) => {
+    setCategory(next);
+    setCategoryStatus(null);
+    if (!next) return;
+    try {
+      const res = await rpc.invoke(Channels.TwitchSetCategory, { gameId: next.id });
+      setCategoryStatus(res.ok ? 'ok' : 'failed');
+    } catch {
+      setCategoryStatus('failed');
+    }
+    window.setTimeout(() => setCategoryStatus(null), 3000);
+  };
 
   const fetchLiveTitle = () => {
     if (!twitchConnected) return;
@@ -86,6 +104,15 @@ export function TitleWidget({ chrome }: WidgetProps) {
           </Button>
         </div>
         {success && <div className="font-mono text-[11px] text-emerald-400">{h('title.updated')}</div>}
+        <CategoryPicker
+          value={category}
+          onChange={(next) => void changeCategory(next)}
+          lang={lang}
+          disabled={!twitchConnected}
+          hint={lang === 'ar' ? 'اختر فئة لتحويل البث إليها الآن.' : 'Pick a category to switch the stream to it now.'}
+        />
+        {categoryStatus === 'ok' && <div className="font-mono text-[11px] text-emerald-400">{lang === 'ar' ? 'تم تغيير الفئة' : 'Category changed'}</div>}
+        {categoryStatus === 'failed' && <div className="font-mono text-[11px] text-amber-400">{lang === 'ar' ? 'تعذّر تغيير الفئة' : 'Could not change the category'}</div>}
         <div className="flex flex-wrap gap-1">
           {PRESETS.map((preset) => (
             <button key={preset} type="button" onClick={() => setDraft(preset)} className="rounded-[6px] border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[10.5px] text-[#9aa3af] transition-colors hover:border-white/[0.15] hover:text-white">

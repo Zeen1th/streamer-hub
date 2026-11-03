@@ -2,6 +2,10 @@ import type { DuelOutcome } from './duelGameManager.ts';
 import { chatMessageMatchesTrigger } from './triggerCommands.ts';
 import type { PollOutcome } from './pollOutcome.ts';
 import { protectedUserMessage } from './shield.ts';
+import { LineDeck, linesFromText } from './randomLine.ts';
+
+/** One deck per chat step, so "one random line" does not repeat a line until all were sent. */
+const chatLineDeck = new LineDeck();
 import type { CommandSequence, CounterAction, LogKind, ModerationAction, SequenceIfCondition, SequenceStep } from '../rpc/contracts';
 
 export interface SequenceExecutionContext {
@@ -69,6 +73,8 @@ export interface SequenceExecutionSinks {
   createClip?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<{ ok: boolean; url?: string; count?: number; error?: string }>;
   /** Plays a clip from `step.clipChannel` (tokens already resolved). `ok: false` (no clips, unknown channel, Twitch down) is logged and the sequence continues. */
   showObsClip?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<{ ok: boolean; durationSeconds?: number; error?: string }>;
+  /** Reads a text file's non-empty lines (chat step "one random line" from a .txt file). */
+  readTextLines?: (path: string) => Promise<string[]>;
   /** Waits for the clip just shown to end; resolves early when chat skips it. Falls back to a plain wait. */
   waitForClipEnd?: (ms: number) => Promise<void>;
   executeDuel?: (
@@ -373,6 +379,19 @@ export async function executeSequence(
         }
 
         case 'chat': {
+          if (step.chatRandom) {
+            const file = step.chatLinesFile?.trim();
+            const lines = file ? (sinks.readTextLines ? await sinks.readTextLines(file) : []) : linesFromText(step.chatMessage);
+            const line = chatLineDeck.next(step.id, lines);
+            if (!line) {
+              log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: No line to send${file ? ` (file "${file}" is missing or empty)` : ' (the list is empty)'}`);
+              break;
+            }
+            const formatted = replaceSequenceTokens(line, ctx);
+            log('chat', `[Sequence ${sequence.name}] Step ${i + 1}: Send random line "${formatted}"`);
+            if (sinks.sendChatMessage) await sinks.sendChatMessage(formatted);
+            break;
+          }
           if (step.chatMessage?.trim()) {
             const formatted = replaceSequenceTokens(step.chatMessage, ctx);
             log('chat', `[Sequence ${sequence.name}] Step ${i + 1}: Send chat "${formatted}"`);

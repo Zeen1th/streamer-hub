@@ -21,7 +21,10 @@ public interface ITwitchClient : IAsyncDisposable
     void Disconnect();
     Task<bool> SendChatMessageAsync(string message);
     Task<(bool Ok, string? Title, string? Error)> GetChannelTitleAsync();
-    Task<(bool Ok, string? Error)> UpdateChannelTitleAsync(string title);
+    /// <summary>Sets the stream title, and the category too when <paramref name="gameId"/> is given (one Twitch call).</summary>
+    Task<(bool Ok, string? Error)> UpdateChannelTitleAsync(string title, string? gameId = null);
+    Task<(IReadOnlyList<TwitchCategory> Items, string? Error)> SearchCategoriesAsync(string query, CancellationToken ct);
+    Task<(bool Ok, string? Error)> SetCategoryAsync(string gameId);
     void SetLastKnownTitle(string? title);
     Task<IReadOnlyDictionary<string, string?>> GetUserProfileImagesAsync(IReadOnlyList<string> userIds, CancellationToken cancellationToken);
     Task<(bool Ok, string? UserId, string? Login, string? DisplayName, string? AvatarUrl, string? Error)> CheckUserProfileAsync(string? usernameOrId, CancellationToken cancellationToken = default);

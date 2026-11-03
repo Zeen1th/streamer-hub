@@ -1,4 +1,5 @@
 import { FileText, FolderOpen, Trash2 } from 'lucide-react';
+import { CategoryPicker } from '../../ui/CategoryPicker';
 import type { Counter, CounterAction, PermissionLevel } from '../../../rpc/contracts';
 import { Channels } from '../../../rpc/contracts';
 import { rpc } from '../../../rpc';
@@ -187,6 +188,7 @@ export function CounterConfigPanel({ counter, onClose }: CounterConfigPanelProps
                 aria-label={t(lang, "config.counterTitleTemplate")}
               />
             </Field>
+            <CategoryPicker value={counter.titleCategory} onChange={(titleCategory) => updateTitle(counter.id, { titleCategory })} lang={lang} />
             <div className="border border-ink/20 bg-surface-2 px-4 py-3">
               <div className="font-sans text-xs font-bold uppercase tracking-[0.2em] text-ink/70">{t(lang, "config.counterTitlePreview")}</div>
               <div dir="auto" className="mt-1.5 break-all text-start font-mono text-sm text-ink">

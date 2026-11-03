@@ -1,13 +1,15 @@
 import { chatterIdentifiersMatch } from './chatterNormalization.ts';
 
 export interface ShieldSettings {
-  roles: { moderator: boolean; vip: boolean; subscriber: boolean };
+  /** leadModerator keeps lead mods out of timeouts: Twitch gives a timed-out lead mod back only the normal mod role. */
+  roles: { moderator: boolean; vip: boolean; subscriber: boolean; leadModerator?: boolean };
   /** Viewers who are always protected, by login or display name. */
   names: string[];
 }
 
 export interface ShieldChatterInfo {
   isMod?: boolean;
+  isLeadMod?: boolean;
   isVip?: boolean;
   isSubscriber?: boolean;
 }
@@ -31,6 +33,7 @@ export function isShielded(username: string, settings: ShieldSettings, chatter?:
   if (settings.names.some((n) => chatterIdentifiersMatch(n, name))) return true;
   if (!chatter) return false;
   if (settings.roles.moderator && chatter.isMod) return true;
+  if (settings.roles.leadModerator && chatter.isLeadMod) return true;
   if (settings.roles.vip && chatter.isVip) return true;
   if (settings.roles.subscriber && chatter.isSubscriber) return true;
   return false;

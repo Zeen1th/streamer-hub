@@ -151,7 +151,9 @@ public sealed class HostController : IDisposable
     private sealed record SaveAutoReplySettingsPayload(AutoReplySettings? Settings);
     private sealed record DeleteAutoReplyPayload(string RuleId);
     private sealed record SendChatMessagePayload(string Message, string? SenderRole = null);
-    private sealed record UpdateTitlePayload(string Title);
+    private sealed record UpdateTitlePayload(string Title, string? GameId = null);
+    private sealed record SearchCategoriesPayload(string? Query);
+    private sealed record SetCategoryPayload(string? GameId);
     private sealed record CheckAvatarPayload(string? Username, string? UserId);
     private sealed record SaveOpenRouterPayload(string Provider, string? ApiKey);
     private sealed record GenerateAutoReplyPayload(string RuleId, ChatMessage? Message, bool? Send = null, string? OverrideInstructions = null, string? SenderRole = null);
@@ -1103,7 +1105,7 @@ public sealed class HostController : IDisposable
             var request = Json.Deserialize<UpdateTitlePayload>(payload ?? default);
             if (request is null || string.IsNullOrWhiteSpace(request.Title)) return new { ok = false, error = "EMPTY TITLE" };
             if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
-            var result = await _twitch.UpdateChannelTitleAsync(request.Title).ConfigureAwait(false);
+            var result = await _twitch.UpdateChannelTitleAsync(request.Title, request.GameId).ConfigureAwait(false);
             if (result.Ok)
             {
                 await WriteTitleFileAsync(request.Title).ConfigureAwait(false);
@@ -1113,6 +1115,23 @@ public sealed class HostController : IDisposable
             {
                 Log("system", $"TWITCH TITLE UPDATE FAILED · {result.Error ?? "UNKNOWN ERROR"} · RECONNECT TWITCH IF THE TOKEN PREDATES TITLE PERMISSION");
             }
+            return new { ok = result.Ok, error = result.Ok ? null : result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchSearchCategories, async (payload, ct) =>
+        {
+            var request = Json.Deserialize<SearchCategoriesPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Query)) return new { ok = true, items = Array.Empty<TwitchCategory>(), error = (string?)null };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, items = Array.Empty<TwitchCategory>(), error = (string?)"TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.SearchCategoriesAsync(request.Query, ct).ConfigureAwait(false);
+            return new { ok = result.Error is null, items = result.Items, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchSetCategory, async (payload, _) =>
+        {
+            var request = Json.Deserialize<SetCategoryPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.GameId)) return new { ok = false, error = "EMPTY CATEGORY" };
+            if (_twitch.State != TwitchState.Connected) return new { ok = false, error = "TWITCH CHAT IS NOT CONNECTED" };
+            var result = await _twitch.SetCategoryAsync(request.GameId).ConfigureAwait(false);
+            if (!result.Ok) Log("system", $"TWITCH CATEGORY UPDATE FAILED · {result.Error ?? "UNKNOWN ERROR"}");
             return new { ok = result.Ok, error = result.Ok ? null : result.Error };
         });
         _dispatcher.Register(Channels.TwitchGetTitleFilePath, (_, _) =>
@@ -1651,6 +1670,32 @@ public sealed class HostController : IDisposable
         {
             var req = Json.Deserialize<PickFolderPayload>(payload ?? default);
             return Task.FromResult<object?>(new { path = ShowFolderDialog(req?.Title, req?.InitialPath) });
+        });
+        _dispatcher.Register(Channels.DialogPickTextFile, (payload, _) =>
+        {
+            var req = Json.Deserialize<PickFolderPayload>(payload ?? default);
+            return Task.FromResult<object?>(new { path = ShowOpenDialog("Text files (*.txt)|*.txt|All files (*.*)|*.*", req?.Title ?? "Choose a text file") });
+        });
+        _dispatcher.Register(Channels.FilesReadLines, (payload, _) =>
+        {
+            // A chat step's "one random line" list: one message per line, read fresh every run so edits apply live
+            var req = Json.Deserialize<ReadLinesPayload>(payload ?? default);
+            var path = req?.Path?.Trim();
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return Task.FromResult<object?>(new { ok = false, error = "FILE NOT FOUND" });
+            try
+            {
+                if (new FileInfo(path).Length > 2 * 1024 * 1024) return Task.FromResult<object?>(new { ok = false, error = "FILE TOO LARGE" });
+                var lines = File.ReadAllLines(path)
+                    .Select(l => l.Trim())
+                    .Where(l => l.Length > 0)
+                    .Take(5000)
+                    .ToArray();
+                return Task.FromResult<object?>(new { ok = true, lines });
+            }
+            catch
+            {
+                return Task.FromResult<object?>(new { ok = false, error = "READ FAILED" });
+            }
         });
         _dispatcher.Register(Channels.ChatOverlayShowImage, async (payload, ct) =>
         {
@@ -2367,6 +2412,7 @@ public sealed class HostController : IDisposable
     }
 
     private sealed record RestoreBackupPayload(string Name);
+    private sealed record ReadLinesPayload(string? Path);
     private sealed record ProfileIdPayload(string Id);
     private sealed record ProfileNamePayload(string Name);
     private sealed record ProfileRenamePayload(string Id, string Name);

@@ -39,6 +39,7 @@ public sealed record Counter
     public ObsOutputConfig Obs { get; init; } = new();
     public bool TitleEnabled { get; init; }
     public string TitleTemplate { get; init; } = string.Empty;
+    public TwitchCategory? TitleCategory { get; init; }
 }
 
 public sealed record KeybindChord
@@ -85,6 +86,7 @@ public sealed record AutoReply
     public int UserCooldownSeconds { get; init; }
     public bool TitleActionEnabled { get; init; }
     public string TitleTemplate { get; init; } = string.Empty;
+    public TwitchCategory? TitleCategory { get; init; }
     public int TitleStart { get; init; } = 1;
     public int TitleCount { get; init; } = 1;
     public string TitleIncreaseCommand { get; init; } = string.Empty;
@@ -143,11 +145,20 @@ public sealed record OpenRouterSettingsState
 
 public sealed record SequenceStep
 {
+    /// <summary>
+    /// Step fields the UI owns that are not mirrored here (for example the Smart Timeout shield: modProtectedUsers,
+    /// modProtectedRoles, modProtectedMessage). Without this they were silently dropped on every save.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; init; }
+
     public string Id { get; init; } = string.Empty;
     public string Type { get; init; } = "chat"; // "chat" | "counter" | "command" | "wait" | "moderation" | "sound" | "tts" | "obs_text" | "poll" | "mic_mute"
     public double? WaitDuration { get; init; }
     public string? WaitUnit { get; init; } = "seconds"; // "seconds" | "minutes"
     public string? ChatMessage { get; init; }
+    public bool? ChatRandom { get; init; }
+    public string? ChatLinesFile { get; init; }
     public string? CounterId { get; init; }
     public string? CounterAction { get; init; } // "increase" | "decrease" | "reset"
     public string? CommandTrigger { get; init; }
@@ -197,7 +208,7 @@ public sealed record SequenceStep
     public string? DuelMessageTimeout { get; init; }
     public int? DuelChallengerWinChance { get; init; }
     public List<string>? DuelProtectedUsers { get; init; }
-    public List<string>? DuelProtectedRoles { get; init; } // "moderator" | "vip" | "subscriber"
+    public List<string>? DuelProtectedRoles { get; init; } // "moderator" | "lead_moderator" | "vip" | "subscriber"
     public string? DuelProtectedMessage { get; init; }
     public Dictionary<string, string>? DuelProtectedUserMessages { get; init; } // lowercase login -> reply
     public string? DuelBroadcasterMuteSource { get; init; }
@@ -327,6 +338,8 @@ public sealed record ChannelPointsRedemption
     public string? UserInput { get; init; }
     public string RedeemedAt { get; init; } = string.Empty;
 }
+
+public sealed record TwitchCategory(string Id, string Name, string? BoxArtUrl);
 
 public sealed record TwitchRewardInfo
 {

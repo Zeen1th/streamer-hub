@@ -10,6 +10,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Switch } from '../ui/Switch';
 import { FeatureKeybindEditor } from '../tools/settings/FeatureKeybindEditor';
+import { CategoryPicker } from '../ui/CategoryPicker';
 
 /** Where a counter writes its value (an OBS text file, the Twitch title) and exactly what it writes. */
 
@@ -241,6 +242,8 @@ function TitleCard({ counter, lang }: SectionProps) {
             <p className="font-sans text-[11px] text-amber-400">{tx.titleNeedsTitle}</p>
           )}
         </div>
+
+        <CategoryPicker value={counter.titleCategory} onChange={(titleCategory) => updateTitle(counter.id, { titleCategory })} lang={lang} />
 
         {rendered && (
           <div className="space-y-1.5">

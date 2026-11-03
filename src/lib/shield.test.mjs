@@ -31,3 +31,10 @@ test('per-viewer replies are found by name ignoring @ and case, blank ones fall 
   assert.equal(protectedUserMessage('someone_else', perUser), undefined);
   assert.equal(protectedUserMessage('anyone', undefined), undefined);
 });
+
+test('the lead mod role protects lead mods only, so they keep their Lead role', () => {
+  const shield = { roles: { moderator: false, vip: false, subscriber: false, leadModerator: true }, names: [] };
+  assert.equal(isShielded('lead', shield, { isMod: true, isLeadMod: true }), true);
+  assert.equal(isShielded('mod', shield, { isMod: true, isLeadMod: false }), false);
+  assert.equal(isShielded('lead', DEFAULT_SHIELD, { isMod: true, isLeadMod: true }), false);
+});

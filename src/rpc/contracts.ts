@@ -73,6 +73,8 @@ export interface Counter {
   obs: ObsOutputConfig;
   titleEnabled?: boolean;
   titleTemplate?: string;
+  /** Automatic title: the stream also switches to this category whenever the title is updated. */
+  titleCategory?: TwitchCategory | null;
 }
 
 export interface ObsOutputConfig {
@@ -96,6 +98,8 @@ export interface AutoReply {
   userCooldownSeconds?: number;
   titleActionEnabled?: boolean;
   titleTemplate?: string;
+  /** Automatic title: the stream also switches to this category whenever the title is updated. */
+  titleCategory?: TwitchCategory | null;
   titleStart?: number;
   titleCount?: number;
   titleIncreaseCommand?: string;
@@ -328,6 +332,10 @@ export interface SequenceStep {
   waitDuration?: number;
   waitUnit?: SequenceWaitUnit;
   chatMessage?: string;
+  /** Chat step: post one random line instead of the whole message (lines of chatMessage, or of chatLinesFile). */
+  chatRandom?: boolean;
+  /** Chat step with chatRandom: a .txt file with one message per line, read each time the step runs. */
+  chatLinesFile?: string;
   counterId?: string;
   counterAction?: CounterAction;
   commandTrigger?: string;
@@ -339,7 +347,7 @@ export interface SequenceStep {
   reason?: string;
   /** Shield for Smart Timeout / Timeout / Ban: these viewers (and roles) are never punished by this step. */
   modProtectedUsers?: string[];
-  modProtectedRoles?: Array<'moderator' | 'vip' | 'subscriber'>;
+  modProtectedRoles?: Array<'moderator' | 'lead_moderator' | 'vip' | 'subscriber'>;
   /** Optional chat reply when the step skips a protected viewer. */
   modProtectedMessage?: string;
   /** Reply for one specific protected viewer, keyed by lowercase login. Overrides `modProtectedMessage`. */
@@ -427,7 +435,7 @@ export interface SequenceStep {
   duelChallengerWinChance?: number;
   /** Viewers (and roles) who are off-limits for this duel; challengers get `duelProtectedMessage`. */
   duelProtectedUsers?: string[];
-  duelProtectedRoles?: Array<'moderator' | 'vip' | 'subscriber'>;
+  duelProtectedRoles?: Array<'moderator' | 'lead_moderator' | 'vip' | 'subscriber'>;
   duelProtectedMessage?: string;
   /** Reply for one specific protected viewer, keyed by lowercase login. Overrides `duelProtectedMessage`. */
   duelProtectedUserMessages?: Record<string, string>;
@@ -506,6 +514,12 @@ export interface ChannelPointsRedemption {
   userLogin: string;
   userInput?: string;
   redeemedAt: string;
+}
+
+export interface TwitchCategory {
+  id: string;
+  name: string;
+  boxArtUrl?: string;
 }
 
 export interface TwitchRewardInfo {
@@ -869,6 +883,8 @@ export const Channels = {
   TwitchSendChatMessage: 'twitch/send-chat-message',
   TwitchGetTitle: 'twitch/get-title',
   TwitchUpdateTitle: 'twitch/update-title',
+  TwitchSearchCategories: 'twitch/search-categories',
+  TwitchSetCategory: 'twitch/set-category',
   TwitchGetTitleFilePath: 'twitch/get-title-file-path',
   TwitchCheckAvatar: 'twitch/check-avatar',
   TwitchModerationCheckMod: 'twitch/moderation/check-mod',
@@ -918,6 +934,8 @@ export const Channels = {
   AlertsSetTempSettings: 'alerts/set-temp-settings',
   AlertsDiscardTemp: 'alerts/discard-temp',
   DialogPickFolder: 'dialog/pick-folder',
+  DialogPickTextFile: 'dialog/pick-text-file',
+  FilesReadLines: 'files/read-lines',
   ChatOverlayShowImage: 'chat-overlay/show-image',
   ChatOverlayHideImage: 'chat-overlay/hide-image',
   ChatOverlayShowClip: 'chat-overlay/show-clip',
@@ -1043,7 +1061,10 @@ export interface HostApi {
   [Channels.TwitchChannelPointsGetRewards]: { request: undefined; response: { ok: boolean; rewards: TwitchRewardInfo[]; error?: string } };
   [Channels.TwitchSendChatMessage]: { request: { message: string; senderRole?: ChatSenderRole }; response: { ok: boolean; senderRole?: ChatSenderRole; senderLogin?: string; error?: string } };
   [Channels.TwitchGetTitle]: { request: undefined; response: { ok: boolean; title?: string | null; error?: string } };
-  [Channels.TwitchUpdateTitle]: { request: { title: string }; response: { ok: boolean; error?: string } };
+  /** `gameId` also switches the category in the same Twitch call (automatic title with a category). */
+  [Channels.TwitchUpdateTitle]: { request: { title: string; gameId?: string }; response: { ok: boolean; error?: string } };
+  [Channels.TwitchSearchCategories]: { request: { query: string }; response: { ok: boolean; items: TwitchCategory[]; error?: string } };
+  [Channels.TwitchSetCategory]: { request: { gameId: string }; response: { ok: boolean; error?: string } };
   [Channels.TwitchGetTitleFilePath]: { request: undefined; response: { path: string } };
   [Channels.TwitchCheckAvatar]: {
     request: { username?: string; userId?: string };
@@ -1141,6 +1162,8 @@ export interface HostApi {
   [Channels.AlertsSetTempSettings]: { request: { keepTempFiles: boolean; directory?: string | null }; response: AlertTempSettings & { ok: boolean; error?: string } };
   [Channels.AlertsDiscardTemp]: { request: { path: string }; response: { ok: boolean; deleted: boolean } };
   [Channels.DialogPickFolder]: { request: { title?: string; initialPath?: string }; response: { path: string | null } };
+  [Channels.DialogPickTextFile]: { request: { title?: string }; response: { path: string | null } };
+  [Channels.FilesReadLines]: { request: { path: string }; response: { ok: boolean; lines?: string[]; error?: string } };
   [Channels.AlertsSaveDroppedFile]: { request: { fileName: string; fileBase64: string }; response: { ok: boolean; filePath?: string; error?: string } };
   [Channels.ChatOverlayShowImage]: { request: ShowOverlayImagePayload; response: { ok: boolean; error?: string } };
   [Channels.ChatOverlayHideImage]: { request: undefined; response: { ok: boolean } };

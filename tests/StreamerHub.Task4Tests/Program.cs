@@ -211,6 +211,15 @@ using (var release = JsonDocument.Parse("""
     AssertEqual("https://cdn.7tv.app/emote/01ABC/2x.webp", map["KEKW"], "7TV emote url");
 }
 
+// Twitch category search: box art template filled in, empty art becomes null
+{
+    using var search = JsonDocument.Parse("""{"data":[{"id":"516575","name":"VALORANT","box_art_url":"https://x/{width}x{height}.jpg"},{"id":"27471","name":"Minecraft","box_art_url":""}]}""");
+    var cats = TwitchIrcClient.ParseCategorySearch(search.RootElement);
+    AssertEqual(2, cats.Count, "both categories are parsed");
+    AssertEqual(new TwitchCategory("516575", "VALORANT", "https://x/52x72.jpg"), cats[0], "box art size template is filled in");
+    AssertEqual<string?>(null, cats[1].BoxArtUrl, "empty box art becomes null");
+}
+
 // Settings survive a damaged or missing settings.json (crash or power cut mid-write)
 {
     var recoveryRoot = Path.Combine(Path.GetTempPath(), $"streamer-hub-recovery-{Guid.NewGuid():N}");
@@ -285,6 +294,27 @@ using (var release = JsonDocument.Parse("""
         using (var reopened = new SettingsStore(file))
         {
             AssertEqual(1, reopened.Counters.Count, "the restore survives a restart");
+        }
+
+        // Step fields the host does not mirror (the Smart Timeout shield) survive a save and a restart
+        {
+            var stepJson = """{"id":"s1","type":"moderation","modProtectedRoles":["vip","lead_moderator"],"modProtectedUsers":["bob"],"modProtectedMessage":"no"}""";
+            var step = JsonSerializer.Deserialize<SequenceStep>(stepJson, Json.Options)!;
+            var again = JsonSerializer.Serialize(step, Json.Options);
+            AssertTrue(again.Contains("\"modProtectedUsers\":[\"bob\"]") && again.Contains("lead_moderator") && again.Contains("\"modProtectedMessage\":\"no\""), "the timeout shield is kept when the host saves a step");
+
+            // The "Timeout Anyone" sequence keeps its shielded viewers across a restart
+            using (var store = new SettingsStore(file))
+            {
+                store.SaveSequence(new CommandSequence { Id = "timeout-anyone", Name = "Timeout Anyone", Steps = new List<SequenceStep> { step } });
+                store.Flush();
+            }
+            using (var reopened = new SettingsStore(file))
+            {
+                var kept = reopened.Sequences.First(s => s.Id == "timeout-anyone").Steps[0];
+                var keptJson = JsonSerializer.Serialize(kept, Json.Options);
+                AssertTrue(keptJson.Contains("\"modProtectedUsers\":[\"bob\"]"), "shielded viewers in a timeout step survive a restart");
+            }
         }
 
         // Settings > System > Reset everything: backed up first, logins kept, everything else back to default

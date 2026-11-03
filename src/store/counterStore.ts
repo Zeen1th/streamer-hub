@@ -7,6 +7,7 @@ import type {
   CounterSetCommandConfig,
   LogKind,
   ObsOutputConfig,
+  TwitchCategory,
 } from '../rpc/contracts';
 import { Channels } from '../rpc/contracts';
 import { rpc } from '../rpc';
@@ -51,7 +52,7 @@ interface CounterStoreState {
   /** The optional "!set 6000" command. */
   updateSetCommand(id: string, patch: Partial<CounterSetCommandConfig>): void;
   updateObs(id: string, patch: Partial<ObsOutputConfig>): void;
-  updateTitle(id: string, patch: { titleEnabled?: boolean; titleTemplate?: string }): void;
+  updateTitle(id: string, patch: { titleEnabled?: boolean; titleTemplate?: string; titleCategory?: TwitchCategory | null }): void;
   applyTitle(id: string): Promise<boolean>;
   detachTitle(id: string): Promise<boolean>;
   setLiveStreamTitle(title: string): Promise<boolean>;
@@ -104,7 +105,7 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
 
       const title = renderTemplate(counter.titleTemplate, counter.count, null, currentTitle, counter.name).trim();
       if (!title) return;
-      const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
+      const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title, gameId: counter.titleCategory?.id });
       if (!result.ok) log('system', counter.name + ' · ' + (result.error ?? 'TITLE UPDATE FAILED'));
     }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'TITLE UPDATE FAILED';
@@ -439,7 +440,7 @@ export const useCounterStore = create<CounterStoreState>((set, get) => {
           }
           const title = renderTemplate(template, counter.count, null, currentTitle, counter.name).trim();
           if (!title) return;
-          const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
+          const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title, gameId: counter.titleCategory?.id });
           if (!result.ok) throw new Error(result.error ?? 'TITLE UPDATE FAILED');
         });
         return true;

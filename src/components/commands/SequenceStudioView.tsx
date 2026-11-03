@@ -911,7 +911,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
   // The shield panel is shared by duels and the moderation step (Smart Timeout / Timeout / Ban)
   const isModStep = step.type === 'moderation';
   const [protectedUsers, setProtectedUsers] = useState<string[]>((isModStep ? step.modProtectedUsers : step.duelProtectedUsers) ?? []);
-  const [protectedRoles, setProtectedRoles] = useState<Array<'moderator' | 'vip' | 'subscriber'>>(
+  const [protectedRoles, setProtectedRoles] = useState<Array<'moderator' | 'lead_moderator' | 'vip' | 'subscriber'>>(
     (isModStep ? step.modProtectedRoles : step.duelProtectedRoles) ?? [],
   );
   const [protectedMessage, setProtectedMessage] = useState((isModStep ? step.modProtectedMessage : step.duelProtectedMessage) ?? '');
@@ -935,6 +935,8 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
 
   // Chat state
   const [chatMessage, setChatMessage] = useState(step.chatMessage ?? '');
+  const [chatRandom, setChatRandom] = useState(step.chatRandom ?? false);
+  const [chatLinesFile, setChatLinesFile] = useState(step.chatLinesFile ?? '');
 
   // Wait state
   const [waitDuration, setWaitDuration] = useState(step.waitDuration ?? 2);
@@ -1210,7 +1212,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
         saveWithShield({ commentText: commentText.trim() });
         break;
       case 'chat':
-        saveWithShield({ chatMessage: chatMessage.trim() });
+        saveWithShield({ chatMessage: chatMessage.trim(), chatRandom, chatLinesFile: chatRandom && chatLinesFile.trim() ? chatLinesFile.trim() : undefined });
         break;
       case 'wait':
         saveWithShield({ waitDuration: Math.max(0.1, Number(waitDuration) || 1), waitUnit });
@@ -1418,12 +1420,51 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
               <label className="font-sans text-[12px] font-medium text-zinc-300">
                 {t(lang, 'sequence.stepChat')}
               </label>
+              <div className="flex items-center justify-between gap-3 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
+                <div className="min-w-0">
+                  <div className="font-sans text-[12px] font-medium text-zinc-300">{t(lang, 'sequence.chatRandom')}</div>
+                  <div className="mt-0.5 text-[11px] text-muted">{t(lang, 'sequence.chatRandomHint')}</div>
+                </div>
+                <Switch checked={chatRandom} onChange={setChatRandom} label={t(lang, 'sequence.chatRandom')} />
+              </div>
+              {chatRandom && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] text-muted">{t(lang, 'sequence.chatLinesFile')}</span>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={chatLinesFile}
+                      onChange={(e) => setChatLinesFile(e.target.value)}
+                      placeholder={t(lang, 'sequence.chatLinesFilePlaceholder')}
+                      dir="ltr"
+                      className="h-9 flex-1 font-mono text-[12px]"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const res = await rpc.invoke(Channels.DialogPickTextFile, { title: t(lang, 'sequence.chatLinesFile') });
+                          if (res?.path) setChatLinesFile(res.path);
+                        } catch {
+                          // keep what was there
+                        }
+                      }}
+                    >
+                      <FolderOpen size={13} />
+                      {t(lang, 'sequence.chatLinesBrowse')}
+                    </Button>
+                    {chatLinesFile && (
+                      <Button variant="ghost" onClick={() => setChatLinesFile('')}>{t(lang, 'sequence.chatLinesClear')}</Button>
+                    )}
+                  </div>
+                  {chatLinesFile && <p className="text-[11px] text-amber-300/90">{t(lang, 'sequence.chatLinesFileUsed')}</p>}
+                </div>
+              )}
               <textarea
                 dir={fieldDir(chatMessage)}
                 value={chatMessage}
                 onChange={(e) => setChatMessage(e.target.value)}
-                placeholder={t(lang, 'sequence.chatPlaceholder')}
-                rows={3}
+                placeholder={t(lang, chatRandom ? 'sequence.chatLinesPlaceholder' : 'sequence.chatPlaceholder')}
+                rows={chatRandom ? 6 : 3}
                 className="w-full rounded-md border border-white/15 bg-[#11131a] p-3 font-mono text-[12.5px] text-foreground focus:border-accent focus:outline-none resize-y"
               />
               <div className="flex flex-wrap items-center gap-1.5">
@@ -1950,6 +1991,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
               <div className="flex flex-wrap gap-x-4 gap-y-1.5">
                 {([
                   ['moderator', lang === 'ar' ? 'المشرفون' : 'Moderators'],
+                  ['lead_moderator', lang === 'ar' ? 'المشرفون الرئيسيون (تبقى رتبتهم)' : 'Lead mods (keeps their Lead role)'],
                   ['vip', 'VIP'],
                   ['subscriber', lang === 'ar' ? 'المشتركون' : 'Subscribers'],
                 ] as const).map(([role, label]) => (

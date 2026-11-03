@@ -294,6 +294,18 @@ test('handles Twitch title query and update through mock host', async () => {
   assert.equal(updated.title, 'Elden Ring No Hit Run | Deaths: 0');
 });
 
+test('searches and changes the Twitch category through mock host', async () => {
+  const { Channels, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const found = await invoke(host, PROTOCOL_VERSION, Channels.TwitchSearchCategories, { query: 'val' });
+  assert.equal(found.ok, true);
+  assert.ok(found.items.some((item) => item.name === 'VALORANT'));
+
+  const changed = await invoke(host, PROTOCOL_VERSION, Channels.TwitchSetCategory, { gameId: '516575' });
+  assert.deepEqual(changed, { ok: true });
+});
+
 test('handles Twitch avatar lookup and test message broadcast through mock host', async () => {
   const { Channels, Events, PROTOCOL_VERSION, MockHost } = await loadHarness();
   const host = new MockHost();

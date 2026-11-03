@@ -87,6 +87,8 @@ public static class Channels
     public const string TwitchSendChatMessage = "twitch/send-chat-message";
     public const string TwitchGetTitle = "twitch/get-title";
     public const string TwitchUpdateTitle = "twitch/update-title";
+    public const string TwitchSearchCategories = "twitch/search-categories";
+    public const string TwitchSetCategory = "twitch/set-category";
     public const string TwitchGetTitleFilePath = "twitch/get-title-file-path";
     public const string AutoRepliesGenerate = "auto-replies/generate";
     public const string TwitchCheckAvatar = "twitch/check-avatar";
@@ -137,6 +139,8 @@ public static class Channels
     public const string AlertsSetTempSettings = "alerts/set-temp-settings";
     public const string AlertsDiscardTemp = "alerts/discard-temp";
     public const string DialogPickFolder = "dialog/pick-folder";
+    public const string DialogPickTextFile = "dialog/pick-text-file";
+    public const string FilesReadLines = "files/read-lines";
     public const string ChatOverlayShowImage = "chat-overlay/show-image";
     public const string ChatOverlayHideImage = "chat-overlay/hide-image";
     public const string ChatOverlayShowClip = "chat-overlay/show-clip";

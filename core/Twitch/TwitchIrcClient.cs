@@ -263,7 +263,7 @@ public sealed class TwitchIrcClient : ITwitchClient
         _lastKnownTitle = title;
     }
 
-    public async Task<(bool Ok, string? Error)> UpdateChannelTitleAsync(string title)
+    public async Task<(bool Ok, string? Error)> UpdateChannelTitleAsync(string title, string? gameId = null)
     {
         if (string.IsNullOrWhiteSpace(title)) return (false, "EMPTY TITLE");
         var trimmed = title.Trim();
@@ -277,7 +277,12 @@ public sealed class TwitchIrcClient : ITwitchClient
             using var updateResponse = await SendHelixWithRetryAsync(
                 () => new HttpRequestMessage(HttpMethod.Patch, $"https://api.twitch.tv/helix/channels?broadcaster_id={Uri.EscapeDataString(userId)}")
                 {
-                    Content = new StringContent(JsonSerializer.Serialize(new { title = trimmed }), Encoding.UTF8, "application/json"),
+                    Content = new StringContent(
+                        string.IsNullOrWhiteSpace(gameId)
+                            ? JsonSerializer.Serialize(new { title = trimmed })
+                            : JsonSerializer.Serialize(new { title = trimmed, game_id = gameId.Trim() }),
+                        Encoding.UTF8,
+                        "application/json"),
                 }).ConfigureAwait(false);
             if (updateResponse.IsSuccessStatusCode)
             {
@@ -285,6 +290,62 @@ public sealed class TwitchIrcClient : ITwitchClient
                 return (true, null);
             }
             return (false, await ReadHelixErrorAsync(updateResponse).ConfigureAwait(false));
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public async Task<(IReadOnlyList<TwitchCategory> Items, string? Error)> SearchCategoriesAsync(string query, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return (Array.Empty<TwitchCategory>(), null);
+        try
+        {
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"https://api.twitch.tv/helix/search/categories?query={Uri.EscapeDataString(query.Trim())}&first=10"),
+                ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return (Array.Empty<TwitchCategory>(), await ReadHelixErrorAsync(response).ConfigureAwait(false));
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+            return (ParseCategorySearch(document.RootElement), null);
+        }
+        catch (Exception ex)
+        {
+            return (Array.Empty<TwitchCategory>(), ex.Message);
+        }
+    }
+
+    public static IReadOnlyList<TwitchCategory> ParseCategorySearch(JsonElement root)
+    {
+        var list = new List<TwitchCategory>();
+        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) return list;
+        foreach (var item in data.EnumerateArray())
+        {
+            var id = item.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+            var name = item.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name)) continue;
+            var art = item.TryGetProperty("box_art_url", out var artProp) ? artProp.GetString() : null;
+            art = string.IsNullOrWhiteSpace(art) ? null : art.Replace("{width}", "52").Replace("{height}", "72");
+            list.Add(new TwitchCategory(id, name, art));
+        }
+        return list;
+    }
+
+    public async Task<(bool Ok, string? Error)> SetCategoryAsync(string gameId)
+    {
+        if (string.IsNullOrWhiteSpace(gameId)) return (false, "EMPTY CATEGORY");
+
+        var (userId, error) = await GetBroadcasterIdAsync().ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(userId)) return (false, error ?? "BROADCASTER ID NOT FOUND");
+
+        try
+        {
+            using var response = await SendHelixWithRetryAsync(
+                () => new HttpRequestMessage(HttpMethod.Patch, $"https://api.twitch.tv/helix/channels?broadcaster_id={Uri.EscapeDataString(userId)}")
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(new { game_id = gameId.Trim() }), Encoding.UTF8, "application/json"),
+                }).ConfigureAwait(false);
+            return response.IsSuccessStatusCode ? (true, null) : (false, await ReadHelixErrorAsync(response).ConfigureAwait(false));
         }
         catch (Exception ex)
         {

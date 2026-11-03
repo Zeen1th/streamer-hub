@@ -209,6 +209,7 @@ export default function App() {
         username: message.username,
         avatarUrl: message.avatarUrl,
         isMod: message.isMod || !!message.isLeadMod,
+        isLeadMod: !!message.isLeadMod,
         isVip: message.isVip,
         isSubscriber: message.isSubscriber,
       });

@@ -273,7 +273,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
       const values = Object.fromEntries(nextCounters.map((counter, index) => ['count' + (index + 1), Math.max(0, Math.trunc(counter.count))]));
       const title = renderStreamTitle(currentRule.titleTemplate ?? '', values, currentTitle).trim();
       if (!title) return;
-      const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
+      const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title, gameId: currentRule.titleCategory?.id });
       if (result.ok && action !== 'apply') {
         get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
       }
@@ -374,7 +374,7 @@ export const useAutoReplyStore = create<AutoReplyState>((set, get) => ({
           const values = Object.fromEntries(nextCounters.map((counter, index) => ['count' + (index + 1), Math.max(0, Math.trunc(counter.count))]));
           const title = renderStreamTitle(currentRule.titleTemplate ?? '', values, currentTitle).trim();
           if (!title) return;
-          const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title });
+          const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title, gameId: currentRule.titleCategory?.id });
           if (result.ok && direction) {
             get().update(currentRule.id, { titleCounters: nextCounters, titleCount: nextCounters[0]?.count ?? 1 });
           }

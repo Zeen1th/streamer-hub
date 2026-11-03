@@ -1126,3 +1126,26 @@ test('a step made before this option still times out only the first name', async
   assert.equal(result.ok, true);
   assert.deepEqual(hit, ['smart_timeout:bob:30']);
 });
+
+// ---- Chat step: one random line -----------------------------------------
+test('a random chat step sends one line from its list, with tokens filled in', async () => {
+  const step = { id: 'rnd-list', type: 'chat', chatRandom: true, chatMessage: 'Hi {username}\nYo {username}' };
+  const { sent } = await runIf([step]);
+  assert.equal(sent.length, 1);
+  assert.ok(['Hi Alice', 'Yo Alice'].includes(sent[0]));
+});
+
+test('a random chat step reads its lines from the text file when one is set', async () => {
+  const read = [];
+  const step = { id: 'rnd-file', type: 'chat', chatRandom: true, chatMessage: 'ignored', chatLinesFile: 'C:\q.txt' };
+  const { sent } = await runIf([step], { readTextLines: async (p) => { read.push(p); return ['Question one?']; } });
+  assert.deepEqual(read, ['C:\q.txt']);
+  assert.deepEqual(sent, ['Question one?']);
+});
+
+test('a random chat step with an empty file sends nothing and the sequence goes on', async () => {
+  const step = { id: 'rnd-empty', type: 'chat', chatRandom: true, chatLinesFile: 'C:\empty.txt' };
+  const { result, sent } = await runIf([step, chatStep('after', 'next')], { readTextLines: async () => [] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(sent, ['next']);
+});

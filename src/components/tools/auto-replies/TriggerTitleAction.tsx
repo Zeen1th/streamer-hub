@@ -9,6 +9,7 @@ import { rpc } from '../../../rpc';
 import { renderStreamTitle } from '../../../lib/autoReplyRules';
 import { useAutoReplyStore } from '../../../store/autoReplyStore';
 import { FeatureKeybindEditor } from '../settings/FeatureKeybindEditor';
+import { CategoryPicker } from '../../ui/CategoryPicker';
 
 interface TriggerTitleActionProps {
   rule: AutoReply;
@@ -46,7 +47,7 @@ export function TriggerTitleAction({ rule, lang, update }: TriggerTitleActionPro
     const titleToApply = renderStreamTitle(rule.titleTemplate, values, currentLive).trim();
     if (!titleToApply) return;
 
-    const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title: titleToApply });
+    const result = await rpc.invoke(Channels.TwitchUpdateTitle, { title: titleToApply, gameId: rule.titleCategory?.id });
     if (result.ok) {
       setApplyStatus(lang === 'ar' ? 'تم تطبيق العنوان' : 'Title applied');
       fetchLiveTitle();
@@ -84,6 +85,7 @@ export function TriggerTitleAction({ rule, lang, update }: TriggerTitleActionPro
         {!rule.titleTemplate?.includes('{title}') && !rule.titleTemplate?.includes('{current_title}') && (
           <p className="font-sans text-xs text-ink/60">{t(lang, 'workspace.titlePlaceholderHint')}</p>
         )}
+        <CategoryPicker value={rule.titleCategory} onChange={(titleCategory) => update(rule.id, { titleCategory })} lang={lang} />
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
             {t(lang, 'autoReplies.titleIncreaseCommand')}

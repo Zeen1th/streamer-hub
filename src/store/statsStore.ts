@@ -181,10 +181,12 @@ export const useStatsStore = create<StatsState>((set, get) => {
       if (message.isSelf || message.id?.startsWith('self-')) return;
       const login = message.userLogin || message.username;
       if (!login) return;
+      // The Home dashboard is about the viewers: the streamer, the app's bot and known bots count nowhere
+      // (not in the message total, the chat activity curve or the chatter count)
+      if (isNotViewer(login)) return;
       const now = Date.now();
       recordMinute(get().minutes, now);
-      // The streamer's own lines still count towards the stream's chat total, but never as a viewer
-      apply(isNotViewer(login) ? '' : login, message.displayName || message.username, { messages: 1 }, { messages: 1 });
+      apply(login, message.displayName || message.username, { messages: 1 }, { messages: 1 });
     },
 
     recordFollow: (event) => {
@@ -214,8 +216,10 @@ export const useStatsStore = create<StatsState>((set, get) => {
 
     recordRedemption: (event) => {
       if (get().streamLive === 'offline') return;
+      // The streamer testing their own rewards is not viewer activity
+      if (isNotViewer(event.userLogin)) return;
       apply(
-        isNotViewer(event.userLogin) ? '' : event.userLogin,
+        event.userLogin,
         event.userName,
         { redemptions: 1, points: event.rewardCost ?? 0 },
         { redemptions: 1 },
@@ -253,6 +257,11 @@ export const useStatsStore = create<StatsState>((set, get) => {
       const credited = isNotViewer(login) ? null : login;
       const entry = credited ? bumpUser(s.allTime, credited, name, { clips: 1 }, now) : null;
       if (credited) bumpUser(s.session.users, credited, name, { clips: 1 }, now);
+      if (!credited) {
+        // The streamer's own clip is not viewer activity: it stays off the Home totals and feed
+        scheduleSave(get);
+        return 1;
+      }
       s.session.totals.clips = (s.session.totals.clips ?? 0) + 1;
       set({ rev: s.rev + 1, feed: addFeedEvent(s.feed, { kind: 'clip', at: now, who: name || login, detail: url }) });
       scheduleSave(get);
