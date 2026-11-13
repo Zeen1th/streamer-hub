@@ -19,6 +19,7 @@ import { TriggerGlobalSettings } from '../auto-replies/TriggerGlobalSettings';
 import { BackupsCard } from './BackupsCard';
 import { ShareCard } from './ShareCard';
 import { ResetCard } from './ResetCard';
+import { LeadModRestoreCard } from './LeadModRestoreCard';
 import { KeybindSettings } from './KeybindSettings';
 import { ObsSettings } from './ObsSettings';
 
@@ -642,6 +643,7 @@ export function SettingsView() {
               </div>
             </Card>
           </div>
+          <LeadModRestoreCard />
         </section>
       )}
 

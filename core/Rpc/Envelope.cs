@@ -140,6 +140,12 @@ public static class Channels
     public const string AlertsDiscardTemp = "alerts/discard-temp";
     public const string DialogPickFolder = "dialog/pick-folder";
     public const string DialogPickTextFile = "dialog/pick-text-file";
+    public const string TwitchDashboardGetState = "twitch-dashboard/get-state";
+    public const string TwitchDashboardLogin = "twitch-dashboard/login";
+    public const string TwitchDashboardLogout = "twitch-dashboard/logout";
+    public const string TwitchDashboardSetEnabled = "twitch-dashboard/set-enabled";
+    public const string TwitchDashboardOpenRoles = "twitch-dashboard/open-roles";
+    public const string TwitchDashboardRetryLead = "twitch-dashboard/retry-lead";
     public const string FilesReadLines = "files/read-lines";
     public const string ChatOverlayShowImage = "chat-overlay/show-image";
     public const string ChatOverlayHideImage = "chat-overlay/hide-image";
@@ -166,6 +172,8 @@ public static class Events
     public const string TwitchTitleChanged = "twitch/title-changed";
     /// <summary>A lead moderator got mod back after a timeout; only the streamer can give Lead back in Twitch.</summary>
     public const string TwitchLeadModRestoreNeeded = "twitch/lead-mod-restore-needed";
+    /// <summary>The app gave a lead moderator their Lead role back through the Twitch dashboard window.</summary>
+    public const string TwitchLeadModRestored = "twitch/lead-mod-restored";
     public const string WindowMaximizedChanged = "window/maximized-changed";
     public const string CoreLog = "core/log";
     public const string KeybindTriggered = "keybind/triggered";

@@ -516,6 +516,16 @@ export interface ChannelPointsRedemption {
   redeemedAt: string;
 }
 
+/** The logged-in Twitch dashboard window that gives Lead Moderator back after a smart timeout. */
+export interface TwitchDashboardState {
+  enabled: boolean;
+  /** The account the window is logged into, or null. */
+  login: string | null;
+  channel: string | null;
+  /** The window must be logged into the streamer's own channel to change its roles. */
+  matchesChannel: boolean;
+}
+
 export interface TwitchCategory {
   id: string;
   name: string;
@@ -935,6 +945,12 @@ export const Channels = {
   AlertsDiscardTemp: 'alerts/discard-temp',
   DialogPickFolder: 'dialog/pick-folder',
   DialogPickTextFile: 'dialog/pick-text-file',
+  TwitchDashboardGetState: 'twitch-dashboard/get-state',
+  TwitchDashboardLogin: 'twitch-dashboard/login',
+  TwitchDashboardLogout: 'twitch-dashboard/logout',
+  TwitchDashboardSetEnabled: 'twitch-dashboard/set-enabled',
+  TwitchDashboardOpenRoles: 'twitch-dashboard/open-roles',
+  TwitchDashboardRetryLead: 'twitch-dashboard/retry-lead',
   FilesReadLines: 'files/read-lines',
   ChatOverlayShowImage: 'chat-overlay/show-image',
   ChatOverlayHideImage: 'chat-overlay/hide-image',
@@ -961,6 +977,7 @@ export const Events = {
   TwitchChannelPointsRedeemed: 'twitch/channel-points-redeemed',
   TwitchTitleChanged: 'twitch/title-changed',
   TwitchLeadModRestoreNeeded: 'twitch/lead-mod-restore-needed',
+  TwitchLeadModRestored: 'twitch/lead-mod-restored',
   WindowMaximizedChanged: 'window/maximized-changed',
   CoreLog: 'core/log',
   KeybindTriggered: 'keybind/triggered',
@@ -1163,6 +1180,12 @@ export interface HostApi {
   [Channels.AlertsDiscardTemp]: { request: { path: string }; response: { ok: boolean; deleted: boolean } };
   [Channels.DialogPickFolder]: { request: { title?: string; initialPath?: string }; response: { path: string | null } };
   [Channels.DialogPickTextFile]: { request: { title?: string }; response: { path: string | null } };
+  [Channels.TwitchDashboardGetState]: { request: undefined; response: TwitchDashboardState };
+  [Channels.TwitchDashboardLogin]: { request: undefined; response: { ok: boolean } };
+  [Channels.TwitchDashboardLogout]: { request: undefined; response: TwitchDashboardState };
+  [Channels.TwitchDashboardSetEnabled]: { request: { enabled: boolean }; response: TwitchDashboardState };
+  [Channels.TwitchDashboardOpenRoles]: { request: undefined; response: { ok: boolean } };
+  [Channels.TwitchDashboardRetryLead]: { request: { login: string }; response: { ok: boolean; error?: string | null } };
   [Channels.FilesReadLines]: { request: { path: string }; response: { ok: boolean; lines?: string[]; error?: string } };
   [Channels.AlertsSaveDroppedFile]: { request: { fileName: string; fileBase64: string }; response: { ok: boolean; filePath?: string; error?: string } };
   [Channels.ChatOverlayShowImage]: { request: ShowOverlayImagePayload; response: { ok: boolean; error?: string } };
@@ -1332,7 +1355,9 @@ export interface EventMap {
   [Events.TwitchChatCleared]: { scope: 'message' | 'user' | 'all'; id?: string };
   [Events.TwitchChannelPointsRedeemed]: ChannelPointsRedemption;
   [Events.TwitchTitleChanged]: { title: string };
-  [Events.TwitchLeadModRestoreNeeded]: { login: string };
+  /** `reason`: off, no-channel, not-logged-in, wrong-account, or why the dashboard window could not do it. */
+  [Events.TwitchLeadModRestoreNeeded]: { login: string; reason?: string };
+  [Events.TwitchLeadModRestored]: { login: string };
   [Events.WindowMaximizedChanged]: { isMaximized: boolean };
   [Events.CoreLog]: { message: string };
   [Events.KeybindTriggered]: { bindingId: string };
