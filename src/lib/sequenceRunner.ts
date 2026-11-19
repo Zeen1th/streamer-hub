@@ -3,10 +3,12 @@ import { chatMessageMatchesTrigger } from './triggerCommands.ts';
 import type { PollOutcome } from './pollOutcome.ts';
 import { protectedUserMessage } from './shield.ts';
 import { LineDeck, linesFromText } from './randomLine.ts';
+import { parseYouTubeLink, type YouTubeLink } from './youtubeLink.ts';
+import { fillVideoMessage, videoMessageTemplate, videoRequestSettings } from './videoQueue.ts';
 
 /** One deck per chat step, so "one random line" does not repeat a line until all were sent. */
 const chatLineDeck = new LineDeck();
-import type { CommandSequence, CounterAction, LogKind, ModerationAction, SequenceIfCondition, SequenceStep } from '../rpc/contracts';
+import type { ActionTrigger, CommandSequence, CounterAction, LogKind, ModerationAction, SequenceIfCondition, SequenceStep } from '../rpc/contracts';
 
 export interface SequenceExecutionContext {
   username: string;
@@ -75,6 +77,17 @@ export interface SequenceExecutionSinks {
   showObsClip?: (step: SequenceStep, ctx: SequenceExecutionContext) => Promise<{ ok: boolean; durationSeconds?: number; error?: string }>;
   /** Reads a text file's non-empty lines (chat step "one random line" from a .txt file). */
   readTextLines?: (path: string) => Promise<string[]>;
+  /**
+   * Takes a viewer's YouTube video request (the link is already checked): it waits for approval or joins the play
+   * queue. `title` is the video's title (or its id when YouTube did not say). `position` is its place in that list.
+   */
+  requestVideo?: (
+    step: SequenceStep,
+    ctx: SequenceExecutionContext,
+    link: YouTubeLink,
+  ) => Promise<{ ok: boolean; status?: 'waiting' | 'queued'; position?: number; title?: string; error?: string }>;
+  /** App language, for the default chat messages of steps that never set their own. */
+  language?: 'en' | 'ar';
   /** Waits for the clip just shown to end; resolves early when chat skips it. Falls back to a plain wait. */
   waitForClipEnd?: (ms: number) => Promise<void>;
   executeDuel?: (
@@ -181,10 +194,41 @@ export function isSequenceOnCooldown(sequence: CommandSequence, lastRanAtUtcMs?:
   return nowUtcMs - lastRanAtUtcMs < sequence.cooldownSeconds * 1000;
 }
 
+/** The roles of the chatter who typed a chat command. */
+export interface ChatSenderRoles {
+  isBroadcaster?: boolean;
+  isMod?: boolean;
+  isVip?: boolean;
+  isSubscriber?: boolean;
+}
+
+export type ChatPermission = NonNullable<ActionTrigger['chatPermission']>;
+
+/**
+ * Whether a chatter may use a chat trigger. Each level includes the ones above it: subscriber = subs, VIPs, mods and
+ * the streamer; vip = VIPs, mods and the streamer; moderator = mods and the streamer. Missing = everyone.
+ */
+export function chatPermissionAllows(permission: ChatPermission | undefined, sender: ChatSenderRoles): boolean {
+  const level = permission ?? 'everyone';
+  if (level === 'everyone') return true;
+  if (sender.isBroadcaster) return true;
+  if (level === 'broadcaster') return false;
+  if (sender.isMod) return true;
+  if (level === 'moderator') return false;
+  if (sender.isVip) return true;
+  if (level === 'vip') return false;
+  return Boolean(sender.isSubscriber);
+}
+
 export interface SequenceTriggerQuery {
   customRewardId?: string;
   rewardTitle?: string;
   chatMessage?: string;
+  /**
+   * Who typed `chatMessage`. Set for real chat, where a chat trigger's "who can use it" is checked. Missing for
+   * the app's own calls (Run Command, a channel points reward's text), which are never refused.
+   */
+  sender?: ChatSenderRoles;
   raid?: {
     fromUserName: string;
     fromUserLogin: string;
@@ -243,7 +287,12 @@ export function matchesSequenceTrigger(sequence: CommandSequence, query: Sequenc
         }
       }
 
-      if (trigger.type === 'twitch_chat' && query.chatMessage && chatMessageMatchesTrigger(trigger, query.chatMessage)) {
+      if (
+        trigger.type === 'twitch_chat' &&
+        query.chatMessage &&
+        chatMessageMatchesTrigger(trigger, query.chatMessage) &&
+        (!query.sender || chatPermissionAllows(trigger.chatPermission, query.sender))
+      ) {
         return true;
       }
     }
@@ -644,6 +693,37 @@ export async function executeSequence(
               await (sinks.waitForClipEnd ? sinks.waitForClipEnd(ms) : delay(ms));
             }
           }
+          break;
+        }
+
+        case 'video_request': {
+          const settings = videoRequestSettings(step);
+          const lang = sinks.language ?? 'en';
+          const who = ctx.username || 'viewer';
+          const said = replaceSequenceTokens(settings.input, ctx).trim();
+          const post = async (template: string, title: string, position?: number) => {
+            const text = replaceSequenceTokens(fillVideoMessage(template, { username: who, title, position }), ctx).trim();
+            if (text && sinks.sendChatMessage) await sinks.sendChatMessage(text);
+          };
+          const link = parseYouTubeLink(said);
+          if (!link) {
+            log('system', `[Sequence ${sequence.name}] Step ${i + 1}: Video request from ${who} refused, no YouTube link in "${said}"`);
+            await post(videoMessageTemplate(step, 'invalid', lang), '');
+            break;
+          }
+          if (!sinks.requestVideo) break;
+          const res = await sinks.requestVideo(step, ctx, link);
+          if (!res.ok) {
+            log('obs-error', `[Sequence ${sequence.name}] Step ${i + 1}: Video request from ${who} not taken (${res.error ?? 'unknown'})`);
+            break;
+          }
+          const title = res.title || link.videoId;
+          const waiting = res.status === 'waiting';
+          log(
+            'trigger',
+            `[Sequence ${sequence.name}] Step ${i + 1}: Video request from ${who}: "${title}" ${waiting ? `waits for approval (#${res.position ?? 1})` : `is #${res.position ?? 1} in line`}`,
+          );
+          await post(videoMessageTemplate(step, waiting ? 'waiting' : 'queued', lang), title, res.position);
           break;
         }
 

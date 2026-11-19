@@ -3,6 +3,13 @@ import { renderTemplate } from './counterRules.ts';
 import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES } from './sequenceTimers.ts';
 import { triggerChatCommands } from './triggerCommands.ts';
 
+/** "Who can use it" of the sequence's first enabled chat trigger (the Who column). Everyone when it has none. */
+function sequencePermission(seq: CommandSequence): PermissionLevel {
+  const chat = (seq.triggers ?? []).find((trigger) => trigger.enabled && trigger.type === 'twitch_chat');
+  const level = chat?.chatPermission ?? 'everyone';
+  return level === 'moderator' ? 'mod' : level;
+}
+
 export type CommandGroup = 'all' | 'counters' | 'replies' | 'ai' | 'sequences' | 'disabled';
 export type CommandSink = 'file' | 'title' | 'chat';
 
@@ -161,7 +168,7 @@ export function projectCommands({
       triggerKinds: sequenceTriggerKinds(seq),
       isCalled: calledIds.has(seq.id),
       description: seq.name,
-      permission: 'everyone',
+      permission: sequencePermission(seq),
       cooldownSeconds: seq.cooldownSeconds,
       writes,
       enabled: seq.enabled,

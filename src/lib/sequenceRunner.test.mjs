@@ -5,6 +5,7 @@ import {
   calculateWaitMs,
   isSequenceOnCooldown,
   matchesSequenceTrigger,
+  chatPermissionAllows,
   executeSequence,
 } from './sequenceRunner.ts';
 
@@ -1148,4 +1149,154 @@ test('a random chat step with an empty file sends nothing and the sequence goes 
   const { result, sent } = await runIf([step, chatStep('after', 'next')], { readTextLines: async () => [] });
   assert.equal(result.ok, true);
   assert.deepEqual(sent, ['next']);
+});
+
+// ---- Video request (YouTube) ----------------------------------------------
+const VIDEO_ID = 'dQw4w9WgXcQ';
+const videoStep = (extra = {}) => ({
+  id: 'vid',
+  type: 'video_request',
+  videoQueuedMessage: '@{username} "{title}" is #{position}',
+  videoWaitingMessage: '@{username} "{title}" waits',
+  videoInvalidMessage: '@{username} not a YouTube link',
+  ...extra,
+});
+
+/** A requestVideo sink that queues like the real store: manual waits, auto joins the queue. */
+function videoSink(taken) {
+  return async (step, ctx, link) => {
+    taken.push({ by: ctx.username, link, approval: step.videoApproval ?? 'manual' });
+    const waiting = (step.videoApproval ?? 'manual') === 'manual';
+    return { ok: true, status: waiting ? 'waiting' : 'queued', position: taken.length, title: 'Never Gonna' };
+  };
+}
+
+test('a video request reads the link (and its start time) from {input} by default', async () => {
+  const taken = [];
+  const result = await executeSequence(
+    ifSeq([videoStep()]),
+    { ...baseCtx, userInput: `https://youtu.be/${VIDEO_ID}?t=1m30s please` },
+    { sendChatMessage: async () => true, requestVideo: videoSink(taken) },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(taken.length, 1);
+  assert.deepEqual(taken[0].link, { videoId: VIDEO_ID, startSeconds: 90 });
+  assert.equal(taken[0].approval, 'manual');
+});
+
+test('a video request with approval waits; with auto it is queued; each posts its own message', async () => {
+  const taken = [];
+  const ctx = { ...baseCtx, userInput: `https://www.youtube.com/watch?v=${VIDEO_ID}` };
+  const sentManual = [];
+  await executeSequence(ifSeq([videoStep()]), ctx, {
+    sendChatMessage: async (m) => { sentManual.push(m); return true; },
+    requestVideo: videoSink(taken),
+  });
+  assert.deepEqual(sentManual, ['@Alice "Never Gonna" waits']);
+
+  const sentAuto = [];
+  await executeSequence(ifSeq([videoStep({ videoApproval: 'auto' })]), ctx, {
+    sendChatMessage: async (m) => { sentAuto.push(m); return true; },
+    requestVideo: videoSink(taken),
+  });
+  assert.deepEqual(sentAuto, ['@Alice "Never Gonna" is #2']);
+  assert.equal(taken[1].approval, 'auto');
+});
+
+test('an invalid link posts the invalid message, queues nothing, and the sequence goes on', async () => {
+  const taken = [];
+  const { result, sent } = await runIf([videoStep(), chatStep('after', 'next')], { requestVideo: videoSink(taken) });
+  assert.equal(result.ok, true);
+  assert.equal(taken.length, 0);
+  assert.deepEqual(sent, ['@Alice not a YouTube link', 'next']);
+
+  const twitch = [];
+  const res2 = await executeSequence(ifSeq([videoStep()]), { ...baseCtx, userInput: 'https://www.twitch.tv/somebody' }, {
+    sendChatMessage: async (m) => { twitch.push(m); return true; },
+    requestVideo: videoSink(taken),
+  });
+  assert.equal(res2.ok, true);
+  assert.equal(taken.length, 0);
+  assert.deepEqual(twitch, ['@Alice not a YouTube link']);
+});
+
+test('an empty message posts nothing; a step that never set one uses the app language default', async () => {
+  const sent = [];
+  await executeSequence(ifSeq([videoStep({ videoWaitingMessage: '' })]), { ...baseCtx, userInput: `youtu.be/${VIDEO_ID}` }, {
+    sendChatMessage: async (m) => { sent.push(m); return true; },
+    requestVideo: videoSink([]),
+  });
+  assert.deepEqual(sent, []);
+
+  const arabic = [];
+  await executeSequence(ifSeq([{ id: 'v', type: 'video_request' }]), { ...baseCtx, userInput: 'nope' }, {
+    sendChatMessage: async (m) => { arabic.push(m); return true; },
+    requestVideo: videoSink([]),
+    language: 'ar',
+  });
+  assert.equal(arabic.length, 1);
+  assert.match(arabic[0], /يوتيوب/);
+  assert.match(arabic[0], /@Alice/);
+});
+
+test('the link can come from another field with tokens', async () => {
+  const taken = [];
+  await runIf([videoStep({ videoInput: 'https://youtu.be/{target}' })], { requestVideo: videoSink(taken) });
+  assert.equal(taken.length, 0); // no input: {target} is empty
+  const res = await executeSequence(ifSeq([videoStep({ videoInput: 'https://youtu.be/{target}' })]), { ...baseCtx, userInput: VIDEO_ID }, {
+    sendChatMessage: async () => true,
+    requestVideo: videoSink(taken),
+  });
+  assert.equal(res.ok, true);
+  assert.equal(taken[0].link.videoId, VIDEO_ID);
+});
+
+// ---- Chat trigger: who can use it -----------------------------------------
+const permSeq = (chatPermission) => ({
+  id: 'perm',
+  enabled: true,
+  name: 'perm',
+  cooldownSeconds: 0,
+  steps: [],
+  triggers: [{ id: 't', type: 'twitch_chat', enabled: true, chatCommand: '!request', matchMode: 'startsWith', chatPermission }],
+});
+const roles = {
+  viewer: {},
+  sub: { isSubscriber: true },
+  vip: { isVip: true },
+  mod: { isMod: true },
+  streamer: { isBroadcaster: true },
+};
+const allowedFor = (permission) =>
+  Object.entries(roles)
+    .filter(([, sender]) => matchesSequenceTrigger(permSeq(permission), { chatMessage: '!request x', sender }))
+    .map(([name]) => name);
+
+test('chat trigger "who can use it": each level includes the ones above it', () => {
+  assert.deepEqual(allowedFor(undefined), ['viewer', 'sub', 'vip', 'mod', 'streamer']);
+  assert.deepEqual(allowedFor('everyone'), ['viewer', 'sub', 'vip', 'mod', 'streamer']);
+  assert.deepEqual(allowedFor('subscriber'), ['sub', 'vip', 'mod', 'streamer']);
+  assert.deepEqual(allowedFor('vip'), ['vip', 'mod', 'streamer']);
+  assert.deepEqual(allowedFor('moderator'), ['mod', 'streamer']);
+  assert.deepEqual(allowedFor('broadcaster'), ['streamer']);
+});
+
+test('chat trigger permission: app calls without a sender are never refused; channel points are not affected', () => {
+  assert.equal(matchesSequenceTrigger(permSeq('broadcaster'), { chatMessage: '!request' }), true);
+  const points = {
+    id: 'cp',
+    enabled: true,
+    name: 'cp',
+    cooldownSeconds: 0,
+    steps: [],
+    triggers: [{ id: 't', type: 'twitch_channel_points', enabled: true, rewardId: 'rew-1', chatPermission: 'moderator' }],
+  };
+  assert.equal(matchesSequenceTrigger(points, { customRewardId: 'rew-1', sender: {} }), true);
+});
+
+test('chatPermissionAllows', () => {
+  assert.equal(chatPermissionAllows('vip', { isSubscriber: true }), false);
+  assert.equal(chatPermissionAllows('subscriber', { isVip: true }), true);
+  assert.equal(chatPermissionAllows('moderator', { isVip: true, isSubscriber: true }), false);
+  assert.equal(chatPermissionAllows('broadcaster', { isMod: true }), false);
 });

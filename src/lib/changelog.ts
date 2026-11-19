@@ -19,6 +19,27 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.30',
+    en: {
+      added: [
+        'Viewer video requests. A new "Video request" sub-action lets viewers ask for a YouTube video, from a chat command like !request <link> or a channel points reward. By default you or a mod approve each one first (in the new Video requests widget on Home, or with !approve / !deny in chat); you can switch on auto-approve, but then anything viewers link will show on stream. Videos play one after another, the whole video or cut at a length you choose, and !skip moves to the next.',
+        'Videos in the picture step. The show picture/GIF step now also plays .mp4, .webm and .mov files, with its own volume and an option to play the whole video.',
+        'Each picture step can have its own browser source. New picture steps get a numbered source (image-overlay.html?slot=1, 2 and so on), so two sequences never cover each other and you can place each one anywhere in OBS. Or keep a step on the shared main source. Steps you already have stay on the main source, so your OBS setup keeps working. Until you add a numbered source, its pictures show on the main one.',
+        'Choose who can use a chat command: everyone, subscribers, VIPs, mods or only you (in the trigger settings of a sequence).',
+      ],
+      fixed: [],
+    },
+    ar: {
+      added: [
+        'طلبات الفيديو من المشاهدين. إجراء فرعي جديد "طلب فيديو" يتيح للمشاهدين طلب فيديو يوتيوب، عبر أمر في الشات مثل ‎!request‎ مع الرابط أو عبر مكافأة نقاط القناة. افتراضياً توافق أنت أو أحد المشرفين على كل طلب أولاً (في أداة طلبات الفيديو الجديدة في الرئيسية، أو بـ ‎!approve‎ / ‎!deny‎ في الشات)؛ ويمكنك تفعيل القبول التلقائي، لكن حينها سيظهر على البث أي شيء يرسله المشاهدون. الفيديوهات تُعرض واحداً تلو الآخر، كاملة أو مقطوعة عند مدة تختارها، و‎!skip‎ ينتقل للتالي.',
+        'الفيديو في خطوة الصورة. خطوة عرض الصورة/GIF تعرض الآن أيضاً ملفات ‎.mp4‎ و‎.webm‎ و‎.mov‎، مع مستوى صوت خاص وخيار لعرض الفيديو كاملاً.',
+        'لكل خطوة صورة مصدر متصفح خاص بها. خطوات الصور الجديدة تأخذ مصدراً مرقماً (image-overlay.html?slot=1، 2 وهكذا)، فلا تغطي متسلسلتان بعضهما أبداً وتستطيع وضع كل واحدة حيث تشاء في OBS. أو أبقِ الخطوة على المصدر الرئيسي المشترك. خطواتك الحالية تبقى على المصدر الرئيسي فيستمر إعداد OBS كما هو. وحتى تضيف المصدر المرقم، تظهر صوره على الرئيسي.',
+        'اختر من يستطيع استخدام أمر الشات: الجميع، أو المشتركون، أو VIP، أو المشرفون، أو أنت فقط (في إعدادات المشغّل في المتسلسلة).',
+      ],
+      fixed: [],
+    },
+  },
+  {
     version: '0.4.29',
     en: {
       added: [

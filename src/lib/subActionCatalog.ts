@@ -141,9 +141,9 @@ export const SUB_ACTIONS: SubActionEntry[] = [
     id: 'obs_image',
     type: 'obs_image',
     category: 'screen',
-    en: { label: 'Show a picture or GIF', desc: 'Pop a picture, meme or GIF up on stream' },
-    ar: { label: 'عرض صورة أو GIF', desc: 'إظهار صورة أو ميم أو GIF على البث' },
-    keywords: 'image meme overlay alert',
+    en: { label: 'Show a picture, GIF or video', desc: 'Pop a picture, meme, GIF or short video (.mp4 .webm .mov) up on stream' },
+    ar: { label: 'عرض صورة أو GIF أو فيديو', desc: 'إظهار صورة أو ميم أو GIF أو فيديو قصير (.mp4 .webm .mov) على البث' },
+    keywords: 'image meme overlay alert video mp4 webm mov',
   },
   {
     id: 'obs_clip',
@@ -152,6 +152,14 @@ export const SUB_ACTIONS: SubActionEntry[] = [
     en: { label: 'Show a clip from the raider', desc: 'Play a clip from the raider or the !so channel on stream' },
     ar: { label: 'عرض مقطع من قناة الرايدر', desc: 'تشغيل مقطع من قناة الرايدر أو قناة !so على البث' },
     keywords: 'clip video raid shoutout',
+  },
+  {
+    id: 'video_request',
+    type: 'video_request',
+    category: 'screen',
+    en: { label: 'Video request (YouTube)', desc: 'Viewers send a YouTube link; it plays on stream after you or a mod approve it' },
+    ar: { label: 'طلب فيديو (يوتيوب)', desc: 'المشاهدون يرسلون رابط يوتيوب، ويُعرض على البث بعد موافقتك أو موافقة مشرف' },
+    keywords: 'youtube video request queue song media link approve',
   },
   {
     id: 'obs_text',

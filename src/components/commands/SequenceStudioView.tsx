@@ -3,6 +3,7 @@ import { shieldKey } from '../../lib/shield';
 import { FeatureDemoButton } from '../ui/FeatureDemoButton';
 import { triggerChatCommands } from '../../lib/triggerCommands';
 import { DEFAULT_CLIP_ANNOUNCE_MESSAGE, DEFAULT_CLIP_FAIL_MESSAGE, MAX_MODERATION_TARGETS, replaceSequenceTokens } from '../../lib/sequenceRunner';
+import { MAIN_IMAGE_SLOT, imageOverlayUrl, imageSlotOf, nextImageSlot } from '../../lib/imageSlots';
 import { attachedGameIndex } from '../../lib/stepGroups';
 import { groupSubActions, type SubActionGroup } from '../../lib/subActionCatalog';
 import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES, TIMER_DEFAULT_MIN_CHAT_MESSAGES } from '../../lib/sequenceTimers';
@@ -29,12 +30,14 @@ import {
   Heart,
   Image as ImageIcon,
   Info,
+  Film,
   Languages,
   Layers,
   Megaphone,
   MessageSquare,
   Mic,
   MicOff,
+  MonitorPlay,
   Play,
   Plus,
   Radio,
@@ -91,6 +94,8 @@ import {
   clipSettingsToStep,
 } from './ClipStepEditor';
 import type { ClipSettings } from './ClipStepEditor';
+import { VideoRequestEditor, videoRequestEditorToStep, videoRequestEditorValue, type VideoRequestEditorValue } from './VideoRequestEditor';
+import { isVideoFile } from '../../lib/mediaKind';
 
 export const EDGE_NEURAL_VOICES = [
   { id: 'en-AU-WilliamMultilingualNeural', name: 'Microsoft William (Multilingual - Arabic & English Neural)', nameAr: 'صوت ويليام (طبيعي - يدعم العربية والإنجليزية)' },
@@ -142,6 +147,7 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
     return existing.length > 0 ? existing : ['!command'];
   });
   const [matchMode, setMatchMode] = useState(trigger.matchMode ?? 'startsWith');
+  const [chatPermission, setChatPermission] = useState<NonNullable<ActionTrigger['chatPermission']>>(trigger.chatPermission ?? 'everyone');
   const [rewardTitle, setRewardTitle] = useState(trigger.rewardTitle ?? 'Custom Reward');
   const [rewardId, setRewardId] = useState(trigger.rewardId ?? '');
   const [intervalMinutes, setIntervalMinutes] = useState(trigger.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES);
@@ -168,7 +174,7 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
     } else if (trigger.type === 'twitch_chat') {
       const cleaned = triggerChatCommands({ chatCommands });
       const commands = cleaned.length > 0 ? cleaned : ['!command'];
-      onSave({ enabled, chatCommand: commands[0], chatCommands: commands, matchMode });
+      onSave({ enabled, chatCommand: commands[0], chatCommands: commands, matchMode, chatPermission });
     } else {
       onSave({ enabled, rewardTitle: rewardTitle.trim() || 'Custom Reward', rewardId });
     }
@@ -444,6 +450,23 @@ function EditTriggerModal({ trigger, availableRewards, lang, onSave, onDelete, o
                   ]}
                 />
               </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="trigger-chat-permission" className="font-sans text-[12px] font-medium text-zinc-300">
+                  {t(lang, 'sequence.chatPermission')}
+                </label>
+                <select
+                  id="trigger-chat-permission"
+                  value={chatPermission}
+                  onChange={(e) => setChatPermission(e.target.value as NonNullable<ActionTrigger['chatPermission']>)}
+                  className="h-9 rounded-md border border-white/15 bg-[#11131a] px-3 font-sans text-[12.5px] text-foreground focus:border-accent focus:outline-none"
+                >
+                  {(['everyone', 'subscriber', 'vip', 'moderator', 'broadcaster'] as const).map((level) => (
+                    <option key={level} value={level}>{t(lang, `sequence.chatPermission.${level}`)}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-muted">{t(lang, 'sequence.chatPermissionHint')}</p>
+              </div>
             </div>
           )}
 
@@ -687,6 +710,7 @@ const SUB_ACTION_STYLE: Record<string, { icon: React.ComponentType<{ size?: numb
   mic_mute: { icon: MicOff, color: 'text-rose-400' },
   obs_image: { icon: ImageIcon, color: 'text-pink-400' },
   obs_clip: { icon: Clapperboard, color: 'text-fuchsia-400' },
+  video_request: { icon: MonitorPlay, color: 'text-red-400' },
   obs_text: { icon: FileText, color: 'text-amber-400' },
   duel: { icon: Swords, color: 'text-amber-400' },
   duel_streamer: { icon: Crown, color: 'text-yellow-400' },
@@ -719,8 +743,9 @@ const BRANCH_STEP_TYPES: Array<{
   { key: 'sound', type: 'sound', en: 'Play sound effect', ar: 'تشغيل مؤثر صوتي' },
   { key: 'tts', type: 'tts', en: 'Text-to-speech', ar: 'قراءة نص صوتياً' },
   { key: 'mic_mute', type: 'mic_mute', en: 'Mute streamer mic', ar: 'كتم مايك الستريمر' },
-  { key: 'obs_image', type: 'obs_image', en: 'Show picture / GIF', ar: 'عرض صورة أو GIF' },
+  { key: 'obs_image', type: 'obs_image', en: 'Show picture / GIF / video', ar: 'عرض صورة أو GIF أو فيديو' },
   { key: 'obs_clip', type: 'obs_clip', en: 'Show raider clip', ar: 'عرض مقطع الرايدر' },
+  { key: 'video_request', type: 'video_request', en: 'Video request', ar: 'طلب فيديو' },
   { key: 'obs_text', type: 'obs_text', en: 'Write OBS text file', ar: 'كتابة ملف نص OBS' },
   { key: 'counter', type: 'counter', en: 'Change a counter', ar: 'تعديل عدّاد' },
   { key: 'wait', type: 'wait', en: 'Wait', ar: 'انتظار' },
@@ -747,6 +772,7 @@ function branchStepDetail(step: SequenceStep, sequenceNames?: Record<string, str
     case 'counter': return `${step.counterAction ?? 'increase'}`;
     case 'obs_image': return (step.imagePath ?? '').split(/[/\\]/).pop() ?? '';
     case 'obs_clip': return step.clipChannel ?? '{target}';
+    case 'video_request': return step.videoInput ?? '{input}';
     case 'obs_text': return (step.filePath ?? '').split(/[/\\]/).pop() ?? '';
     case 'mic_mute': return `${step.micMuteDurationSeconds ?? 5}s`;
     case 'wait': return `${step.waitDuration ?? 2}${step.waitUnit === 'minutes' ? 'm' : 's'}`;
@@ -997,6 +1023,9 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
 
   // OBS Image state
   const [imagePath, setImagePath] = useState(step.imagePath ?? '');
+  // Its own numbered image source, or the shared main one (steps made before numbered sources stay on main)
+  const [imageSlot, setImageSlot] = useState(imageSlotOf(step));
+  const imageUrl = imageOverlayUrl(imageSlot);
   const [imageDurationSeconds, setImageDurationSeconds] = useState(step.imageDurationSeconds ?? 5);
   const [imagePosition, setImagePosition] = useState<
     'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top-center' | 'bottom-center' | 'fullscreen'
@@ -1005,6 +1034,11 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
     'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none'
   >(step.imageAnimation ?? 'bounce');
   const [imageScale, setImageScale] = useState(step.imageScale ?? 1.0);
+  const [imageVolume, setImageVolume] = useState(step.imageVolume ?? 1);
+  const [imagePlayFullVideo, setImagePlayFullVideo] = useState(step.imagePlayFullVideo ?? false);
+  const imageIsVideo = isVideoFile(imagePath);
+  // Video request state
+  const [videoRequest, setVideoRequest] = useState<VideoRequestEditorValue>(() => videoRequestEditorValue(step, lang));
   // Create Clip state
   const [clipCreate, setClipCreate] = useState(() => clipCreateSettingsFromStep(step));
   // OBS Clip state
@@ -1106,8 +1140,11 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
   const handleBrowseImage = async () => {
     try {
       const res = await rpc.invoke(Channels.DialogOpenFile, {
-        filter: 'Image files (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp|All files (*.*)|*.*',
-        title: 'Select Image or GIF for OBS',
+        filter:
+          'Pictures, GIFs and videos (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.mp4;*.webm;*.mov)|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.mp4;*.webm;*.mov|' +
+          'Pictures and GIFs (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp|' +
+          'Videos (*.mp4;*.webm;*.mov)|*.mp4;*.webm;*.mov|All files (*.*)|*.*',
+        title: t(lang, 'sequence.imagePickTitle'),
       });
       if (res?.path) setImagePath(res.path);
     } catch { }
@@ -1115,7 +1152,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
 
   const handleCopyImageOverlayUrl = async () => {
     try {
-      await navigator.clipboard.writeText('http://127.0.0.1:49178/image-overlay.html');
+      await navigator.clipboard.writeText(imageUrl);
       setCopiedImageUrl(true);
       setTimeout(() => setCopiedImageUrl(false), 2000);
     } catch { }
@@ -1133,6 +1170,9 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
         animation: imageAnimation,
         scale: imageScale,
         imageScale,
+        imageVolume: imageIsVideo ? imageVolume : undefined,
+        imagePlayFullVideo: imageIsVideo ? imagePlayFullVideo : undefined,
+        slot: imageSlot,
       });
     } finally {
       setTimeout(() => setIsPreviewingImage(false), 2000);
@@ -1254,7 +1294,14 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
           imagePosition,
           imageAnimation,
           imageScale,
+          // video files only
+          imageVolume: imageIsVideo ? imageVolume : undefined,
+          imagePlayFullVideo: imageIsVideo ? imagePlayFullVideo : undefined,
+          imageSlot,
         });
+        break;
+      case 'video_request':
+        saveWithShield(videoRequestEditorToStep(videoRequest));
         break;
       case 'clip_create':
         saveWithShield(clipCreateSettingsToStep(clipCreate));
@@ -1359,7 +1406,9 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   : step.type === 'obs_text'
                   ? (lang === 'ar' ? 'OBS > إخراج ملف نصي' : 'OBS > Text File Output')
                   : step.type === 'obs_image'
-                  ? (lang === 'ar' ? 'OBS > عرض صورة أو GIF' : 'OBS > Display Picture or GIF')
+                  ? (lang === 'ar' ? 'OBS > عرض صورة أو GIF أو فيديو' : 'OBS > Display Picture, GIF or Video')
+                  : step.type === 'video_request'
+                  ? (lang === 'ar' ? 'OBS > طلبات الفيديو من المشاهدين' : 'OBS > Viewer Video Requests')
                   : step.type === 'clip_create'
                   ? (lang === 'ar' ? 'تويتش > إنشاء مقطع للمشاهد' : 'Twitch > Create a Clip for the Viewer')
                   : step.type === 'obs_clip'
@@ -2376,6 +2425,11 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
             <ClipStepEditor lang={lang} value={clip} onChange={(patch) => setClip((c) => ({ ...c, ...patch }))} />
           )}
 
+          {/* VIDEO REQUEST */}
+          {step.type === 'video_request' && (
+            <VideoRequestEditor lang={lang} value={videoRequest} onChange={(patch) => setVideoRequest((v) => ({ ...v, ...patch }))} />
+          )}
+
           {/* OBS IMAGE */}
           {step.type === 'obs_image' && (
             <div className="flex flex-col gap-3.5">
@@ -2387,7 +2441,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   <Input
                     value={imagePath}
                     onChange={(e) => setImagePath(e.target.value)}
-                    placeholder="C:\stream\meme.gif or https://.../image.png"
+                    placeholder="C:\stream\meme.gif / C:\stream\clip.mp4"
                     className="h-9 font-mono text-[12.5px] flex-1"
                   />
                   <Button
@@ -2420,18 +2474,22 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
               {imagePath.trim() && (
                 <div className="flex items-center gap-3 rounded-md border border-white/[0.08] bg-[#11131a] p-2.5">
                   <div className="flex size-14 shrink-0 items-center justify-center rounded bg-black/40 border border-white/10 overflow-hidden">
-                    <img
-                      src={
-                        imagePath.startsWith('http://') || imagePath.startsWith('https://') || imagePath.startsWith('data:')
-                          ? imagePath
-                          : `http://127.0.0.1:49178/media?path=${encodeURIComponent(imagePath)}`
-                      }
-                      alt="Preview"
-                      className="max-h-full max-w-full object-contain"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLElement).style.display = 'none';
-                      }}
-                    />
+                    {imageIsVideo ? (
+                      <Film size={20} className="text-pink-300" aria-hidden />
+                    ) : (
+                      <img
+                        src={
+                          imagePath.startsWith('http://') || imagePath.startsWith('https://') || imagePath.startsWith('data:')
+                            ? imagePath
+                            : `http://127.0.0.1:49178/media?path=${encodeURIComponent(imagePath)}`
+                        }
+                        alt="Preview"
+                        className="max-h-full max-w-full object-contain"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1 text-[11.5px]">
                     <div className="font-medium text-white truncate">{imagePath.split(/[/\\]/).pop()}</div>
@@ -2481,18 +2539,51 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                 </div>
               </div>
 
+              {/* Video files: sound and length */}
+              {imageIsVideo && (
+                <div className="flex flex-col gap-3 rounded-md border border-pink-500/25 bg-pink-500/[0.06] p-3">
+                  <div className="flex items-center gap-1.5 text-[12px] font-semibold text-pink-200">
+                    <Film size={13} className="text-pink-300" aria-hidden />
+                    <span>{t(lang, 'sequence.imageVideoOptions')}</span>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-sans text-[12px] font-medium text-zinc-300">{t(lang, 'sequence.imageVolume')}</span>
+                      <span className="font-mono text-[11px] text-zinc-400" dir="ltr">{Math.round(imageVolume * 100)}%</span>
+                    </div>
+                    <Slider
+                      value={Math.round(imageVolume * 100)}
+                      min={0}
+                      max={100}
+                      step={5}
+                      onChange={(v) => setImageVolume(v / 100)}
+                      ariaLabel={t(lang, 'sequence.imageVolume')}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-sans text-[12px] font-medium text-zinc-300">{t(lang, 'sequence.imagePlayFullVideo')}</div>
+                      <p className="text-[11px] text-muted">{t(lang, 'sequence.imagePlayFullVideoHint')}</p>
+                    </div>
+                    <Switch checked={imagePlayFullVideo} onChange={setImagePlayFullVideo} label={t(lang, 'sequence.imagePlayFullVideo')} />
+                  </div>
+                </div>
+              )}
+
               {/* Sliders: Duration and Scale */}
               <div className="grid grid-cols-2 gap-3">
-                <DurationPicker
-                  value={imageDurationSeconds}
-                  onChange={setImageDurationSeconds}
-                  min={1}
-                  max={60}
-                  step={1}
-                  presets={[3, 5, 8, 10, 15]}
-                  label={t(lang, 'sequence.imageDuration')}
-                  accentColor="purple"
-                />
+                <div className={imageIsVideo && imagePlayFullVideo ? 'pointer-events-none opacity-40' : undefined} aria-disabled={imageIsVideo && imagePlayFullVideo}>
+                  <DurationPicker
+                    value={imageDurationSeconds}
+                    onChange={setImageDurationSeconds}
+                    min={1}
+                    max={60}
+                    step={1}
+                    presets={[3, 5, 8, 10, 15]}
+                    label={t(lang, 'sequence.imageDuration')}
+                    accentColor="purple"
+                  />
+                </div>
 
                 <div className="flex flex-col gap-2 rounded-md border border-white/[0.08] bg-[#11131a] p-3">
                   <div className="flex items-center justify-between">
@@ -2526,11 +2617,34 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                 <p className="text-[11px] text-purple-200/90 leading-relaxed">
                   {t(lang, 'sequence.obsImageBrowserSourceHint')}
                 </p>
+                <div className="flex flex-wrap gap-1.5 pt-1" role="radiogroup" aria-label={t(lang, 'sequence.imageSlotLabel')}>
+                  {[
+                    { own: true, label: t(lang, 'sequence.imageSlotOwn', { n: imageSlot === MAIN_IMAGE_SLOT ? nextImageSlot(useSequenceStore.getState().sequences) : imageSlot }) },
+                    { own: false, label: t(lang, 'sequence.imageSlotShared') },
+                  ].map((option) => {
+                    const active = option.own ? imageSlot !== MAIN_IMAGE_SLOT : imageSlot === MAIN_IMAGE_SLOT;
+                    return (
+                      <button
+                        key={String(option.own)}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setImageSlot(option.own ? (imageSlot !== MAIN_IMAGE_SLOT ? imageSlot : nextImageSlot(useSequenceStore.getState().sequences)) : MAIN_IMAGE_SLOT)}
+                        className={`rounded border px-2.5 py-1 text-[11px] transition-colors ${active ? 'border-purple-400 bg-purple-500/30 text-white' : 'border-purple-500/30 bg-black/30 text-purple-200 hover:border-purple-400/60'}`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10.5px] text-purple-200/75 leading-relaxed">
+                  {t(lang, imageSlot === MAIN_IMAGE_SLOT ? 'sequence.imageSlotSharedHint' : 'sequence.imageSlotOwnHint')}
+                </p>
                 <div className="flex items-center gap-2 pt-1">
                   <input
                     type="text"
                     readOnly
-                    value="http://127.0.0.1:49178/image-overlay.html"
+                    value={imageUrl}
                     className="h-8 flex-1 rounded border border-purple-500/30 bg-black/40 px-2.5 font-mono text-[11.5px] text-purple-100 select-all focus:border-purple-400 focus:outline-none"
                     onClick={(e) => (e.target as HTMLInputElement).select()}
                   />
@@ -2544,7 +2658,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                     <span>{copiedImageUrl ? t(lang, 'votes.copied') : t(lang, 'chat.copyUrl')}</span>
                   </Button>
                   <a
-                    href="http://127.0.0.1:49178/image-overlay.html"
+                    href={imageUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="grid size-8 place-items-center rounded border border-purple-500/30 bg-purple-500/15 text-purple-200 hover:bg-purple-500/25 hover:text-white transition-colors shrink-0"
@@ -3671,12 +3785,21 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
       }
       case 'obs_image': {
         const fileName = st.imagePath ? st.imagePath.split(/[/\\]/).pop() : 'image.png';
-        return `${lang === 'ar' ? 'صورة OBS: عرض' : 'OBS Image: Show'} "${fileName}" (${st.imageDurationSeconds ?? 5}s, ${st.imagePosition ?? 'center'})`;
+        return `${lang === 'ar' ? (isVideoFile(st.imagePath) ? 'فيديو OBS: عرض' : 'صورة OBS: عرض') : (isVideoFile(st.imagePath) ? 'OBS Video: Show' : 'OBS Image: Show')} "${fileName}" (${st.imageDurationSeconds ?? 5}s, ${st.imagePosition ?? 'center'})`;
       }
       case 'clip_create':
         return lang === 'ar' ? 'إنشاء مقطع للمشاهد الذي استخدم الأمر' : 'Create a clip for the viewer who used the command';
       case 'obs_clip':
         return `${lang === 'ar' ? 'مقطع OBS: من' : 'OBS Clip: from'} ${st.clipChannel || '{target}'} (${st.clipMaxSeconds ?? 30}s max, ${st.clipPosition ?? 'center'})`;
+      case 'video_request': {
+        const approval = (st.videoApproval ?? 'manual') === 'auto'
+          ? (lang === 'ar' ? 'بدون موافقة' : 'no approval')
+          : (lang === 'ar' ? 'بموافقة' : 'needs approval');
+        const length = (st.videoLengthMode ?? 'limit') === 'full'
+          ? (lang === 'ar' ? 'كامل' : 'full length')
+          : lang === 'ar' ? `حتى ${st.videoMaxSeconds ?? 60} ثانية` : `${st.videoMaxSeconds ?? 60}s max`;
+        return `${lang === 'ar' ? 'طلب فيديو يوتيوب من' : 'YouTube video request from'} ${st.videoInput ?? '{input}'} (${approval}${lang === 'ar' ? '، ' : ', '}${length})`;
+      }
       case 'duel': {
         const modeLabel = st.duelMode === 'random'
           ? (lang === 'ar' ? 'قرعة' : 'Random')
@@ -4477,7 +4600,11 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           : trig.type === 'twitch_watch_streak'
                           ? `Min: ${trig.minStreak ?? 1} streams`
                           : trig.type === 'twitch_chat'
-                          ? `${triggerChatCommands(trig).join(' / ') || '!command'} (${trig.matchMode || 'startsWith'})`
+                          ? `${triggerChatCommands(trig).join(' / ') || '!command'} (${trig.matchMode || 'startsWith'})${
+                              trig.chatPermission && trig.chatPermission !== 'everyone'
+                                ? ` · ${t(lang, `sequence.chatPermission.${trig.chatPermission}`)}`
+                                : ''
+                            }`
                           : trig.rewardTitle || 'Custom Reward';
 
                       return (
@@ -4765,6 +4892,8 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                                 <Clapperboard size={13} className="text-violet-400 shrink-0" />
                               ) : st.type === 'obs_clip' ? (
                                 <Clapperboard size={13} className="text-fuchsia-400 shrink-0" />
+                              ) : st.type === 'video_request' ? (
+                                <MonitorPlay size={13} className="text-red-400 shrink-0" />
                               ) : st.type === 'duel' ? (
                                 <Swords size={13} className="text-amber-400 shrink-0" />
                               ) : st.type === 'duel_streamer' ? (

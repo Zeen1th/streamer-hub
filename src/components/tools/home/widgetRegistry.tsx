@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { Activity, Bot, Key, ListChecks, Radio, Sparkles, Tally5, Trophy, Tv, Zap, Clock } from 'lucide-react';
+import { Activity, Bot, Key, ListChecks, MonitorPlay, Radio, Sparkles, Tally5, Trophy, Tv, Zap, Clock } from 'lucide-react';
 import type { WidgetId } from '../../../lib/homeLayout';
 import type { WidgetProps } from './WidgetCard';
 import type { HomeTextKey } from './homeText';
@@ -14,6 +14,7 @@ import { PulseWidget } from './widgets/PulseWidget';
 import { QuickRunWidget } from './widgets/QuickRunWidget';
 import { ReplyWidget } from './widgets/ReplyWidget';
 import { TitleWidget } from './widgets/TitleWidget';
+import { VideoRequestsWidget } from './widgets/VideoRequestsWidget';
 
 interface WidgetEntry {
   component: ComponentType<WidgetProps>;
@@ -34,4 +35,5 @@ export const WIDGET_REGISTRY: Record<WidgetId, WidgetEntry> = {
   overlay: { component: OverlayWidget, icon: <Sparkles size={16} className="text-[#5FD0A8]" />, name: 'w.overlay', desc: 'w.overlay.desc' },
   quickrun: { component: QuickRunWidget, icon: <Zap size={16} className="text-yellow-300" />, name: 'w.quickrun', desc: 'w.quickrun.desc' },
   checklist: { component: ChecklistWidget, icon: <ListChecks size={16} className="text-emerald-300" />, name: 'w.checklist', desc: 'w.checklist.desc' },
+  videos: { component: VideoRequestsWidget, icon: <MonitorPlay size={16} className="text-red-300" />, name: 'w.videos', desc: 'w.videos.desc' },
 };

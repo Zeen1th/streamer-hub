@@ -1,4 +1,4 @@
-import type { CommandProfileData, ProfilesState, ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayClipRequest, ShowOverlayImagePayload, TwitchCategory, TwitchRewardInfo, TwitchSettings } from './contracts';
+import type { CommandProfileData, ProfilesState, ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayClipRequest, ShowOverlayImagePayload, ShowOverlayVideoPayload, TwitchCategory, TwitchRewardInfo, TwitchSettings, VideoEndReason } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -128,7 +128,28 @@ export class MockHost {
     this.schedule(() => this.twitchBlip(), 90000);
   }
 
-  simulateChat(message: { username: string; message: string; avatarUrl?: string }): void {
+  /** The requested video the mock "overlay" is playing (set by chat-overlay/show-video). */
+  playingVideo: ShowOverlayVideoPayload | null = null;
+  /** Every show-video payload, newest last (for the dev preview and tests). */
+  readonly shownVideos: ShowOverlayVideoPayload[] = [];
+
+  /** Pretends the image browser source finished the video it is playing (or `requestId`). */
+  simulateVideoEnded(requestId?: string, reason: VideoEndReason = 'ended'): void {
+    const id = requestId ?? this.playingVideo?.requestId;
+    if (!id) return;
+    if (this.playingVideo?.requestId === id) this.playingVideo = null;
+    this.emitEvent(Events.OverlayVideoEnded, { requestId: id, reason });
+  }
+
+  simulateChat(message: {
+    username: string;
+    message: string;
+    avatarUrl?: string;
+    isMod?: boolean;
+    isVip?: boolean;
+    isSubscriber?: boolean;
+    isBroadcaster?: boolean;
+  }): void {
     const letter = (message.username[0] || '?').toUpperCase();
     const defaultAvatar = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><defs><linearGradient id="mock_${letter}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#059669"/></linearGradient></defs><rect width="100" height="100" rx="50" fill="url(#mock_${letter})"/><text x="50" y="54" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, sans-serif" font-weight="700" font-size="44" fill="#ffffff">${letter}</text></svg>`)}`;
 
@@ -137,10 +158,11 @@ export class MockHost {
       username: message.username,
       userId: `mock-${message.username}`,
       avatarUrl: message.avatarUrl || defaultAvatar,
-      isBroadcaster: message.username === 'streamer',
-      isMod: false,
-      isVip: false,
-      isSubscriber: false,
+      userLogin: message.username.toLowerCase(),
+      isBroadcaster: message.isBroadcaster ?? message.username === 'streamer',
+      isMod: message.isMod ?? false,
+      isVip: message.isVip ?? false,
+      isSubscriber: message.isSubscriber ?? false,
       message: message.message,
       timestamp: new Date().toISOString(),
     });
@@ -1076,6 +1098,33 @@ export class MockHost {
       }
       case Channels.ChatOverlayHideImage: {
         this.respond(request, { ok: true });
+        break;
+      }
+      case Channels.ChatOverlayShowVideo: {
+        const video = request.payload as ShowOverlayVideoPayload | undefined;
+        if (!video?.requestId || !/^[A-Za-z0-9_-]{11}$/.test(video.videoId ?? '')) {
+          this.respond(request, { ok: false, error: 'BAD_VIDEO' });
+          break;
+        }
+        this.playingVideo = video;
+        this.shownVideos.push(video);
+        this.respond(request, { ok: true, error: null });
+        break;
+      }
+      case Channels.ChatOverlayStopVideo: {
+        const stop = request.payload as { requestId?: string } | undefined;
+        if (!stop?.requestId || this.playingVideo?.requestId === stop.requestId) this.playingVideo = null;
+        this.respond(request, { ok: true });
+        break;
+      }
+      case Channels.VideoGetInfo: {
+        const info = request.payload as { videoId?: string } | undefined;
+        const id = info?.videoId ?? '';
+        if (!/^[A-Za-z0-9_-]{11}$/.test(id)) {
+          this.respond(request, { ok: false, title: null, author: null, error: 'BAD_VIDEO' });
+          break;
+        }
+        this.respond(request, { ok: true, title: `Mock video ${id}`, author: 'Mock channel', error: null });
         break;
       }
       case Channels.ChatOverlayGetImageUrl: {

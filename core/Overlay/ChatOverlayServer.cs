@@ -109,6 +109,8 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     public event Func<string, int, Task>? ChatTimeoutRequested;
     public event Func<string, Task>? ChatBanRequested;
     public event Func<string, Task>? ChatDeleteMessageRequested;
+    /// <summary>The image browser source finished a requested video: (requestId, reason).</summary>
+    public event Func<string, string, Task>? VideoEnded;
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -238,6 +240,11 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     /// would draw the same picture twice, once on each OBS source, so chat overlays only show it when no image
     /// source is connected (the older "no extra source needed" behaviour).
     /// </summary>
+    /// <summary>Whether a numbered image source (image-overlay.html?slot=2, connected with id=2) is open in OBS.</summary>
+    public bool HasImageSlot(string slot) =>
+        _clients.Values.Any(c => string.Equals(c.Target, "image-overlay", StringComparison.OrdinalIgnoreCase) &&
+                                 string.Equals(c.OverlayId, slot, StringComparison.OrdinalIgnoreCase));
+
     public async Task PublishShowImageAsync(object payload, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(payload);
@@ -259,6 +266,22 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
     public async Task PublishHideImageAsync(CancellationToken cancellationToken = default)
     {
         await BroadcastAsync(ChatOverlayProtocol.HideImage(), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>True when at least one image browser source (the page that plays requested videos) is connected.</summary>
+    public bool HasImageOverlayClient =>
+        _clients.Values.Any(c => string.Equals(c.Target, "image-overlay", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Viewer video requests play on the image browser source only (the chat and clip pages have no YouTube player).</summary>
+    public async Task PublishShowVideoAsync(object payload, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        await BroadcastAsync(ChatOverlayProtocol.ShowVideo(payload), "image-overlay", cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PublishStopVideoAsync(string? requestId, CancellationToken cancellationToken = default)
+    {
+        await BroadcastAsync(ChatOverlayProtocol.StopVideo(requestId), "image-overlay", cancellationToken).ConfigureAwait(false);
     }
 
     public void RegisterOverlays(IEnumerable<ChatOverlayInstance> overlays)
@@ -710,6 +733,17 @@ public sealed class ChatOverlayServer : IDisposable, IAsyncDisposable
                                 if (!string.IsNullOrWhiteSpace(user) && ChatBanRequested is not null)
                                 {
                                     await ChatBanRequested.Invoke(user).ConfigureAwait(false);
+                                }
+                            }
+                            else if (kind == "video-ended" && doc.RootElement.TryGetProperty("requestId", out var videoIdProp))
+                            {
+                                var requestId = videoIdProp.ValueKind == JsonValueKind.String ? videoIdProp.GetString() : null;
+                                var reason = doc.RootElement.TryGetProperty("reason", out var reasonProp) && reasonProp.ValueKind == JsonValueKind.String
+                                    ? reasonProp.GetString() ?? "ended"
+                                    : "ended";
+                                if (!string.IsNullOrWhiteSpace(requestId) && VideoEnded is not null)
+                                {
+                                    await VideoEnded.Invoke(requestId, reason).ConfigureAwait(false);
                                 }
                             }
                             else if (kind == "delete-message" && doc.RootElement.TryGetProperty("messageId", out var delMidProp))

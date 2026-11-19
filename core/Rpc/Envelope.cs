@@ -145,6 +145,9 @@ public static class Channels
     public const string ChatOverlayHideImage = "chat-overlay/hide-image";
     public const string ChatOverlayShowClip = "chat-overlay/show-clip";
     public const string ChatOverlayGetImageUrl = "chat-overlay/get-image-url";
+    public const string ChatOverlayShowVideo = "chat-overlay/show-video";
+    public const string ChatOverlayStopVideo = "chat-overlay/stop-video";
+    public const string VideoGetInfo = "video/get-info";
     public const string AiGenerateTrivia = "ai/generate-trivia";
     public const string ObsWebsocketGetStatus = "obs/websocket-get-status";
     public const string ObsWebsocketConnect = "obs/websocket-connect";
@@ -183,6 +186,8 @@ public static class Events
     public const string AlertsCompleted = "alerts/completed";
     public const string AlertsDownloadProgress = "alerts/download-progress";
     public const string AlertsFileDropped = "alerts/file-dropped";
+    /// <summary>The image browser source finished (or gave up on) a viewer's requested video.</summary>
+    public const string OverlayVideoEnded = "overlay/video-ended";
 }
 
 

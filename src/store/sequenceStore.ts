@@ -47,7 +47,24 @@ import { duelGameManager } from '../lib/duelGameManager';
 import { DEFAULT_OPTION_COLORS } from '../lib/voteRules';
 import { evaluatePollOutcome, type PollOutcome } from '../lib/pollOutcome';
 import { MessageDeduplicator } from '../lib/autoReplyRules';
-import { canSkipClip, clipSkipRule, matchClipSkip } from '../lib/clipSkip';
+import { DEFAULT_CLIP_SKIP_WHO, canSkipClip, clipSkipRule, matchClipSkip } from '../lib/clipSkip';
+import { imageSlotOf, nextImageSlot } from '../lib/imageSlots';
+import {
+  DEFAULT_VIDEO_APPROVAL,
+  DEFAULT_VIDEO_APPROVE_COMMAND,
+  DEFAULT_VIDEO_DENY_COMMAND,
+  DEFAULT_VIDEO_INPUT,
+  DEFAULT_VIDEO_LENGTH_MODE,
+  DEFAULT_VIDEO_MAX_SECONDS,
+  DEFAULT_VIDEO_MESSAGES,
+  DEFAULT_VIDEO_POSITION,
+  DEFAULT_VIDEO_SIZE,
+  DEFAULT_VIDEO_SKIP_COMMAND,
+  DEFAULT_VIDEO_VOLUME,
+  matchVideoCommand,
+  videoRequestSteps,
+} from '../lib/videoQueue';
+import { useVideoRequestStore } from './videoRequestStore';
 
 /** The shoutout clip on screen right now, so chat can skip it. */
 let playingClip: { requesterLogin?: string; until: number; endWait?: () => void } | null = null;
@@ -276,6 +293,8 @@ export const defaultStepForType = (type: SequenceStepType, options?: Partial<Seq
         imageAnimation: options?.imageAnimation ?? 'bounce',
         imageScale: options?.imageScale ?? 1.0,
         obsImageDestinationPath: options?.obsImageDestinationPath ?? '',
+        // A new step gets its own image source so it never covers another sequence's picture
+        imageSlot: options?.imageSlot ?? nextImageSlot(useSequenceStore.getState().sequences),
         ...options,
       };
     case 'clip_create':
@@ -307,6 +326,31 @@ export const defaultStepForType = (type: SequenceStepType, options?: Partial<Seq
         clipWaitForEnd: options?.clipWaitForEnd ?? false,
         ...options,
       };
+    case 'video_request': {
+      // Chat messages start in the app language; the streamer can change them
+      const messages = DEFAULT_VIDEO_MESSAGES[useSettingsStore.getState().language === 'ar' ? 'ar' : 'en'];
+      return {
+        id,
+        type: 'video_request',
+        videoInput: DEFAULT_VIDEO_INPUT,
+        videoApproval: DEFAULT_VIDEO_APPROVAL,
+        videoLengthMode: DEFAULT_VIDEO_LENGTH_MODE,
+        videoMaxSeconds: DEFAULT_VIDEO_MAX_SECONDS,
+        videoVolume: DEFAULT_VIDEO_VOLUME,
+        videoPosition: DEFAULT_VIDEO_POSITION,
+        videoSize: DEFAULT_VIDEO_SIZE,
+        videoQueuedMessage: messages.queued,
+        videoWaitingMessage: messages.waiting,
+        videoInvalidMessage: messages.invalid,
+        videoApprovedMessage: messages.approved,
+        videoDeniedMessage: messages.denied,
+        videoSkipCommand: DEFAULT_VIDEO_SKIP_COMMAND,
+        videoSkipWho: DEFAULT_CLIP_SKIP_WHO,
+        videoApproveCommand: DEFAULT_VIDEO_APPROVE_COMMAND,
+        videoDenyCommand: DEFAULT_VIDEO_DENY_COMMAND,
+        ...options,
+      };
+    }
     case 'duel':
       return {
         id,
@@ -843,8 +887,9 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     const seq = get().sequences.find((s) => s.id === id);
     if (!seq || !seq.enabled) return false;
 
-    // Prevent re-entrant double execution if this sequence is already running
-    if (get().activeRunningSequenceId === id) {
+    // Prevent re-entrant double execution if this sequence is already running. A video request sequence is the
+    // exception: several viewers often ask at once, and the request queue (not the sequence) keeps them in order.
+    if (get().activeRunningSequenceId === id && videoRequestSteps([seq]).length === 0) {
       useLogStore.getState().add({ kind: 'trigger', message: `Sequence [${seq.name}] is already running, skipping duplicate trigger.` });
       return false;
     }
@@ -1014,6 +1059,10 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
               animation: step.imageAnimation ?? 'bounce',
               imageScale: step.imageScale ?? 1.0,
               obsImageDestinationPath: step.obsImageDestinationPath,
+              // video files only
+              imageVolume: step.imageVolume ?? 1,
+              imagePlayFullVideo: step.imagePlayFullVideo ?? false,
+              slot: imageSlotOf(step),
             });
             return Boolean(res?.ok);
           } catch {
@@ -1067,6 +1116,8 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
             return { ok: false, error: err instanceof Error ? err.message : 'RPC_FAILED' };
           }
         },
+        requestVideo: (step, ctx, link) => useVideoRequestStore.getState().addFromStep(step, ctx, link),
+        language: useSettingsStore.getState().language === 'ar' ? 'ar' : 'en',
         readTextLines: async (path) => {
           try {
             const res = await rpc.invoke(Channels.FilesReadLines, { path });
@@ -1337,12 +1388,47 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
       return true;
     }
 
+    // Video requests: skip / approve / deny. Never start a sequence.
+    const videoCommand = matchVideoCommand(sequences, message.message);
+    if (videoCommand) {
+      const login = message.userLogin || message.username;
+      const isMod = message.isMod || !!message.isLeadMod;
+      const videos = useVideoRequestStore.getState();
+      if (videoCommand.action === 'skip') {
+        const playing = videos.playing;
+        if (!playing) {
+          useLogStore.getState().addLocal({ kind: 'system', message: `${videoCommand.settings.skipCommand} from ${login}: no video is playing` });
+        } else if (!canSkipClip(playing.skipWho, { login, isMod, isBroadcaster: message.isBroadcaster }, playing.requesterLogin)) {
+          useLogStore.getState().addLocal({ kind: 'system', message: `${videoCommand.settings.skipCommand} from ${login} ignored: not allowed to skip this video` });
+        } else {
+          await videos.skip(login);
+        }
+      } else if (!isMod && !message.isBroadcaster) {
+        useLogStore.getState().addLocal({ kind: 'system', message: `${message.message.trim()} from ${login} ignored: only mods and the streamer can approve or deny videos` });
+      } else {
+        const done = videoCommand.action === 'approve'
+          ? await videos.approve({ nth: videoCommand.nth }, login)
+          : await videos.deny({ nth: videoCommand.nth }, login);
+        if (!done) {
+          useLogStore.getState().addLocal({ kind: 'system', message: `${message.message.trim()} from ${login}: no video request #${videoCommand.nth} is waiting` });
+        }
+      }
+      return true;
+    }
+
     let handled = false;
 
     for (const seq of sequences) {
       if (!seq.enabled) continue;
       const matches = matchesSequenceTrigger(seq, {
         chatMessage: message.message,
+        // "Who can use it" on chat triggers
+        sender: {
+          isBroadcaster: message.isBroadcaster,
+          isMod: message.isMod || !!message.isLeadMod,
+          isVip: message.isVip,
+          isSubscriber: message.isSubscriber,
+        },
       });
 
       if (matches) {

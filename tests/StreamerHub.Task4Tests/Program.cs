@@ -153,6 +153,25 @@ using (var release = JsonDocument.Parse("""
         await imageServer.PublishShowClipAsync(new { clipId = "c" });
         AssertTrue(await GotAsync(clipSource, "show-clip"), "the clip source plays the clip");
         AssertTrue(!await GotAsync(imageSource, "show-clip"), "the image source does not play it a second time");
+
+        // Viewer video requests: only the image source plays them, and it reports back when one ends
+        AssertTrue(imageServer.HasImageOverlayClient, "an image source is connected");
+        await imageServer.PublishShowVideoAsync(new { requestId = "r1", videoId = "dQw4w9WgXcQ" });
+        AssertTrue(await GotAsync(imageSource, "show-video"), "the image source plays the requested video");
+        AssertTrue(!await GotAsync(chatOverlay, "show-video"), "the chat overlay never plays requested videos");
+        AssertTrue(!await GotAsync(clipSource, "show-video"), "the clip source never plays requested videos");
+        await imageServer.PublishStopVideoAsync("r1");
+        AssertTrue(await GotAsync(imageSource, "stop-video"), "the image source is told to stop the video");
+
+        var ended = new TaskCompletionSource<(string, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        imageServer.VideoEnded += (id, reason) =>
+        {
+            ended.TrySetResult((id, reason));
+            return Task.CompletedTask;
+        };
+        await imageSource.SendAsync(Encoding.UTF8.GetBytes("{\"kind\":\"video-ended\",\"requestId\":\"r1\",\"reason\":\"cutoff\"}"), WebSocketMessageType.Text, true, CancellationToken.None);
+        var got = await ended.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertEqual(("r1", "cutoff"), got, "video-ended from the overlay reaches the host with its reason");
     }
     finally
     {

@@ -194,6 +194,9 @@ public sealed record SequenceStep
     public double? Scale { get; init; }
     public string? ObsImageDestinationPath { get; init; }
     public string? DestinationPath { get; init; }
+    public double? ImageVolume { get; init; } // video files: 0..1
+    public bool? ImagePlayFullVideo { get; init; } // video files: play to the end instead of the duration
+    public string? ImageSlot { get; init; } // "main" (missing) or the number of its own image source
 
     // Mini-Game: Timeout Duel
     public string? DuelMode { get; init; } = "random"; // "random" | "ai_trivia"
@@ -256,6 +259,24 @@ public sealed record SequenceStep
     public bool? ClipWaitForEnd { get; init; }
     public string? ClipSkipCommand { get; init; }
     public string? ClipSkipWho { get; init; }
+
+    // Video request (viewer YouTube links)
+    public string? VideoInput { get; init; } // default "{input}"
+    public string? VideoApproval { get; init; } // "manual" (default) | "auto"
+    public string? VideoLengthMode { get; init; } // "full" | "limit" (default)
+    public int? VideoMaxSeconds { get; init; } // 10..600, default 60
+    public double? VideoVolume { get; init; } // 0..1, default 0.8
+    public string? VideoPosition { get; init; }
+    public int? VideoSize { get; init; } // percent of the screen width
+    public string? VideoQueuedMessage { get; init; }
+    public string? VideoWaitingMessage { get; init; }
+    public string? VideoInvalidMessage { get; init; }
+    public string? VideoApprovedMessage { get; init; }
+    public string? VideoDeniedMessage { get; init; }
+    public string? VideoSkipCommand { get; init; } // default "!skip"
+    public string? VideoSkipWho { get; init; } // "off" | "everyone" | "mods" | "requester_mods" (default)
+    public string? VideoApproveCommand { get; init; } // default "!approve"
+    public string? VideoDenyCommand { get; init; } // default "!deny"
 }
 
 public sealed record ModerationTargetPayload(string? Target);
@@ -280,6 +301,7 @@ public sealed record ActionTrigger
     public string? ChatCommand { get; init; }
     public List<string>? ChatCommands { get; init; } // every chat command of a chat trigger (ChatCommand is the first)
     public string? MatchMode { get; init; } // "exact" | "startsWith" | "contains"
+    public string? ChatPermission { get; init; } // chat trigger: "everyone" (default) | "subscriber" | "vip" | "moderator" | "broadcaster"
     public string? RewardId { get; init; }
     public string? RewardTitle { get; init; }
     public int? IntervalMinutes { get; init; } // timer trigger
@@ -546,8 +568,28 @@ public sealed record ShowOverlayImagePayload(
     double? ImageScale = 1.0,
     double? Scale = null,
     string? ObsImageDestinationPath = null,
-    string? DestinationPath = null
+    string? DestinationPath = null,
+    double? ImageVolume = null,
+    bool? ImagePlayFullVideo = null,
+    string? Slot = null
 );
+
+/// <summary>A viewer's YouTube video for the image browser source. MaxSeconds 0 = the whole video.</summary>
+public sealed record ShowOverlayVideoPayload(
+    string? RequestId = null,
+    string? VideoId = null,
+    double StartSeconds = 0,
+    double MaxSeconds = 60,
+    double Volume = 0.8,
+    string? Position = "center",
+    int Size = 50,
+    string? Title = null,
+    string? RequestedBy = null
+);
+
+public sealed record StopOverlayVideoPayload(string? RequestId = null);
+
+public sealed record VideoGetInfoPayload(string? VideoId = null);
 
 /// <summary>Plays a clip from another channel on the image/clip browser source. The host picks the clip.</summary>
 public sealed record ShowOverlayClipPayload(

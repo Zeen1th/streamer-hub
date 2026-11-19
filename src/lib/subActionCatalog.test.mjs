@@ -4,7 +4,7 @@ import { SUB_ACTIONS, SUB_ACTION_CATEGORIES, groupSubActions } from './subAction
 
 const ALL_STEP_TYPES = [
   'chat', 'counter', 'command', 'wait', 'moderation', 'comment', 'sound', 'tts', 'obs_text', 'obs_image',
-  'obs_clip', 'clip_create', 'duel', 'duel_streamer', 'poll', 'mic_mute', 'if', 'run_sequence',
+  'obs_clip', 'clip_create', 'duel', 'duel_streamer', 'poll', 'mic_mute', 'if', 'run_sequence', 'video_request',
 ];
 
 test('every sub-action type can be added from the catalog, and ids are unique', () => {

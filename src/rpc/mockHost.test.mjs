@@ -626,3 +626,27 @@ test('handles AlertsOpenFile in mock host', async () => {
 });
 
 
+
+test('plays, stops and ends requested videos, and looks up titles', async () => {
+  const { Channels, Events, PROTOCOL_VERSION, MockHost } = await loadHarness();
+  const host = new MockHost();
+
+  const info = await invoke(host, PROTOCOL_VERSION, Channels.VideoGetInfo, { videoId: 'dQw4w9WgXcQ' });
+  assert.equal(info.ok, true);
+  assert.match(info.title, /dQw4w9WgXcQ/);
+  assert.equal((await invoke(host, PROTOCOL_VERSION, Channels.VideoGetInfo, { videoId: 'bad' })).ok, false);
+
+  const video = { requestId: 'r1', videoId: 'dQw4w9WgXcQ', startSeconds: 0, maxSeconds: 60, volume: 0.8, position: 'center', size: 50, title: 'T', requestedBy: 'noura' };
+  assert.equal((await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlayShowVideo, video)).ok, true);
+  assert.equal(host.playingVideo.requestId, 'r1');
+
+  const ended = waitForEvent(host, Events.OverlayVideoEnded);
+  host.simulateVideoEnded();
+  assert.deepEqual(await ended, { requestId: 'r1', reason: 'ended' });
+  assert.equal(host.playingVideo, null);
+
+  await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlayShowVideo, { ...video, requestId: 'r2' });
+  assert.equal((await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlayStopVideo, { requestId: 'r2' })).ok, true);
+  assert.equal(host.playingVideo, null);
+  assert.equal((await invoke(host, PROTOCOL_VERSION, Channels.ChatOverlayShowVideo, { ...video, videoId: 'nope' })).ok, false);
+});

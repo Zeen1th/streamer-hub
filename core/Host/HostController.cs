@@ -54,6 +54,8 @@ public sealed class ChatOverlayHostBridge
     public async Task PublishVoteStateAsync(PollState state, CancellationToken cancellationToken = default) =>
         await _server.PublishVoteStateAsync(state, cancellationToken).ConfigureAwait(false);
 
+    public bool HasImageSlot(string slot) => _server.HasImageSlot(slot);
+
     public async Task PublishShowImageAsync(object payload, CancellationToken cancellationToken = default) =>
         await _server.PublishShowImageAsync(payload, cancellationToken).ConfigureAwait(false);
 
@@ -62,6 +64,14 @@ public sealed class ChatOverlayHostBridge
 
     public async Task PublishHideImageAsync(CancellationToken cancellationToken = default) =>
         await _server.PublishHideImageAsync(cancellationToken).ConfigureAwait(false);
+
+    public bool HasImageOverlayClient => _server.HasImageOverlayClient;
+
+    public async Task PublishShowVideoAsync(object payload, CancellationToken cancellationToken = default) =>
+        await _server.PublishShowVideoAsync(payload, cancellationToken).ConfigureAwait(false);
+
+    public async Task PublishStopVideoAsync(string? requestId, CancellationToken cancellationToken = default) =>
+        await _server.PublishStopVideoAsync(requestId, cancellationToken).ConfigureAwait(false);
 
     public async Task<bool> SaveOverlayAsync(ChatOverlayInstance overlay, CancellationToken cancellationToken = default)
     {
@@ -179,6 +189,8 @@ public sealed class HostController : IDisposable
     private readonly SecretVault _groqKey;
     private readonly OpenRouterClient _openRouter = new();
     private static readonly HttpClient UpdateHttp = new();
+    /// <summary>A YouTube video id: 11 letters, digits, - or _.</summary>
+    private static readonly System.Text.RegularExpressions.Regex YouTubeVideoId = new("^[A-Za-z0-9_-]{11}$", System.Text.RegularExpressions.RegexOptions.Compiled);
     private const string UpdateRepository = "Zeen1th/streamer-hub";
     private readonly ITwitchClient _twitch = new TwitchIrcClient();
     private readonly List<TwitchGiftEvent> _recentGifts = new();
@@ -352,6 +364,11 @@ public sealed class HostController : IDisposable
         chatOverlayServer.ChatTimeoutRequested += async (u, d) => await _twitch.TimeoutUserAsync(u, d).ConfigureAwait(false);
         chatOverlayServer.ChatBanRequested += async u => await _twitch.BanUserAsync(u).ConfigureAwait(false);
         chatOverlayServer.ChatDeleteMessageRequested += async id => await _twitch.DeleteChatMessageAsync(id).ConfigureAwait(false);
+        chatOverlayServer.VideoEnded += (requestId, reason) =>
+        {
+            PostEvent(Events.OverlayVideoEnded, new { requestId, reason });
+            return Task.CompletedTask;
+        };
     }
 
     private string Lang => _settings.Language == "ar" ? "ar" : "en";
@@ -1756,6 +1773,13 @@ public sealed class HostController : IDisposable
                 position = string.IsNullOrWhiteSpace(req.Position) ? "center" : req.Position,
                 animation = string.IsNullOrWhiteSpace(req.Animation) ? "bounce" : req.Animation,
                 scale = req.ImageScale ?? req.Scale ?? 1.0,
+                imageScale = req.ImageScale ?? req.Scale ?? 1.0,
+                // video files only (the page plays .mp4 / .webm / .mov in a video element)
+                imageVolume = Math.Clamp(req.ImageVolume ?? 1.0, 0.0, 1.0),
+                imagePlayFullVideo = req.ImagePlayFullVideo ?? false,
+                // Each image source page shows only its own slot. A numbered source that is not open in OBS yet
+                // falls back to the main source, so the picture still shows somewhere.
+                slot = string.IsNullOrWhiteSpace(req.Slot) || req.Slot.Trim() == "main" || !_chatOverlay.HasImageSlot(req.Slot.Trim()) ? "main" : req.Slot.Trim(),
             };
 
             await _chatOverlay.PublishShowImageAsync(broadcastPayload, ct).ConfigureAwait(false);
@@ -1818,6 +1842,62 @@ public sealed class HostController : IDisposable
             if (string.IsNullOrWhiteSpace(url))
                 url = $"http://127.0.0.1:{_chatOverlay.Port}/image-overlay.html";
             return Task.FromResult<object?>(new { url });
+        });
+        _dispatcher.Register(Channels.ChatOverlayShowVideo, async (payload, ct) =>
+        {
+            var req = Json.Deserialize<ShowOverlayVideoPayload>(payload ?? default);
+            var videoId = req?.VideoId?.Trim();
+            if (req is null || string.IsNullOrWhiteSpace(req.RequestId) || string.IsNullOrWhiteSpace(videoId) || !YouTubeVideoId.IsMatch(videoId))
+                return new { ok = false, error = (string?)"BAD_VIDEO" };
+            // Without the image browser source nobody would see it, and no "ended" message would ever come back.
+            if (!_chatOverlay.HasImageOverlayClient) return new { ok = false, error = (string?)"NO_OVERLAY" };
+
+            var broadcastPayload = new
+            {
+                requestId = req.RequestId,
+                videoId,
+                startSeconds = Math.Max(0, req.StartSeconds),
+                maxSeconds = Math.Max(0, req.MaxSeconds),
+                volume = Math.Clamp(req.Volume, 0.0, 1.0),
+                position = string.IsNullOrWhiteSpace(req.Position) ? "center" : req.Position,
+                size = Math.Clamp(req.Size, 10, 100),
+                title = req.Title ?? videoId,
+                requestedBy = req.RequestedBy ?? string.Empty,
+            };
+            await _chatOverlay.PublishShowVideoAsync(broadcastPayload, ct).ConfigureAwait(false);
+            return new { ok = true, error = (string?)null };
+        });
+        _dispatcher.Register(Channels.ChatOverlayStopVideo, async (payload, ct) =>
+        {
+            var req = payload is { ValueKind: JsonValueKind.Object } body ? Json.Deserialize<StopOverlayVideoPayload>(body) : null;
+            await _chatOverlay.PublishStopVideoAsync(req?.RequestId, ct).ConfigureAwait(false);
+            return new { ok = true };
+        });
+        _dispatcher.Register(Channels.VideoGetInfo, async (payload, ct) =>
+        {
+            var req = Json.Deserialize<VideoGetInfoPayload>(payload ?? default);
+            var videoId = req?.VideoId?.Trim();
+            if (string.IsNullOrWhiteSpace(videoId) || !YouTubeVideoId.IsMatch(videoId))
+                return new { ok = false, title = (string?)null, author = (string?)null, error = (string?)"BAD_VIDEO" };
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(5));
+                var watchUrl = $"https://www.youtube.com/watch?v={videoId}";
+                var url = $"https://www.youtube.com/oembed?url={Uri.EscapeDataString(watchUrl)}&format=json";
+                using var response = await UpdateHttp.GetAsync(url, timeout.Token).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                    return new { ok = false, title = (string?)null, author = (string?)null, error = (string?)$"HTTP {(int)response.StatusCode}" };
+                await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token).ConfigureAwait(false);
+                string? Read(string name) =>
+                    doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                return new { ok = true, title = Read("title"), author = Read("author_name"), error = (string?)null };
+            }
+            catch (Exception ex)
+            {
+                return new { ok = false, title = (string?)null, author = (string?)null, error = (string?)ex.Message };
+            }
         });
         _dispatcher.Register(Channels.AiGenerateTrivia, async (payload, ct) =>
         {

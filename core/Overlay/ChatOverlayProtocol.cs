@@ -73,6 +73,13 @@ public static class ChatOverlayProtocol
     public static string HideImage() =>
         Serialize("hide-image", new { });
 
+    /// <summary>A viewer's YouTube video request for the image browser source.</summary>
+    public static string ShowVideo(object payload) =>
+        Serialize("show-video", payload);
+
+    public static string StopVideo(string? requestId) =>
+        Serialize("stop-video", new { requestId });
+
     private static string ScopeName(ChatClearScope scope) => scope switch
     {
         ChatClearScope.Message => "message",

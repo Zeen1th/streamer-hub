@@ -12,7 +12,8 @@ export type WidgetId =
   | 'reply'
   | 'overlay'
   | 'quickrun'
-  | 'checklist';
+  | 'checklist'
+  | 'videos';
 
 /** Width in a 12-column grid. */
 export type WidgetSize = 4 | 6 | 8 | 12;
@@ -45,6 +46,7 @@ export const WIDGETS: readonly WidgetMeta[] = [
   { id: 'overlay', defaultSize: 4, sizes: [4, 6] },
   { id: 'quickrun', defaultSize: 6, sizes: [4, 6, 8, 12] },
   { id: 'checklist', defaultSize: 6, sizes: [4, 6, 8] },
+  { id: 'videos', defaultSize: 6, sizes: [4, 6, 8, 12] },
 ];
 
 const META = new Map<WidgetId, WidgetMeta>(WIDGETS.map((w) => [w.id, w]));

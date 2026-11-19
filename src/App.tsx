@@ -19,6 +19,7 @@ import { useConnectionStore } from './store/connectionStore';
 import { useCounterStore } from './store/counterStore';
 import { useAutoReplyStore } from './store/autoReplyStore';
 import { useSequenceStore } from './store/sequenceStore';
+import { useVideoRequestStore } from './store/videoRequestStore';
 import { useChatOverlayStore, useObsChatOverlayStore } from './store/chatOverlayStore';
 import { useObsChatStore } from './store/obsChatStore';
 import { useLogStore } from './store/logStore';
@@ -275,6 +276,9 @@ export default function App() {
     const offAlertsDownload = rpc.on(Events.AlertsDownloadProgress, (p) => {
       useAlertCompressorStore.getState().handleDownloadProgress(p.percent);
     });
+    const offVideoEnded = rpc.on(Events.OverlayVideoEnded, ({ requestId, reason }) => {
+      useVideoRequestStore.getState().handleEnded(requestId, reason);
+    });
 
     const boot = async () => {
       try {
@@ -350,7 +354,7 @@ export default function App() {
     return () => {
       disposed = true;
       offStatus(); offMaximized(); offChat(); offRedemption(); offRaid(); offFollow(); offWatchStreak(); offObsStatus(); offProfile(); offCleared(); offCoreLog(); offKeybind(); offProfiles(); offTitle(); offVotes();
-      offAlertsProgress(); offAlertsCompleted(); offAlertsDownload();
+      offAlertsProgress(); offAlertsCompleted(); offAlertsDownload(); offVideoEnded();
       window.clearInterval(poll);
     };
   }, []);

@@ -180,6 +180,7 @@ export type SequenceStepType =
   | 'obs_text'
   | 'obs_image'
   | 'obs_clip'
+  | 'video_request'
   | 'clip_create'
   | 'duel'
   | 'duel_streamer'
@@ -236,6 +237,11 @@ export interface ActionTrigger {
   /** Extra chat commands that start the same action. `chatCommand` stays the first one. */
   chatCommands?: string[];
   matchMode?: 'exact' | 'startsWith' | 'contains';
+  /**
+   * Chat trigger: who can use it. subscriber = subs, VIPs, mods and the streamer; vip = VIPs, mods and the streamer;
+   * moderator = mods and the streamer. Missing = everyone.
+   */
+  chatPermission?: 'everyone' | 'subscriber' | 'vip' | 'moderator' | 'broadcaster';
   rewardId?: string;
   rewardTitle?: string;
   /** Timer trigger: send every N minutes. */
@@ -378,9 +384,15 @@ export interface SequenceStep {
   imageAnimation?: 'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none';
   animation?: 'bounce' | 'fade' | 'zoom' | 'slide-up' | 'slide-down' | 'none';
   imageScale?: number;
+  /** Show picture/GIF/video: its own numbered browser source (image-overlay.html?slot=2) or "main". Missing = main (steps made before numbered sources). */
+  imageSlot?: string;
   scale?: number;
   obsImageDestinationPath?: string;
   destinationPath?: string;
+  /** Show image step with a video file (.mp4 / .webm / .mov): 0 to 1. Missing = 1. */
+  imageVolume?: number;
+  /** Show image step with a video file: play it to the end instead of for imageDurationSeconds. */
+  imagePlayFullVideo?: boolean;
 
   // OBS Clip: play a clip from another channel (raider / shoutout target)
   /** Channel to take the clip from; `{target}` is the raider, or the name given to `!so`. */
@@ -420,6 +432,34 @@ export interface SequenceStep {
   clipSkipCommand?: string;
   /** Who may use the skip command: off, everyone, mods, or the viewer who started it plus mods (default). */
   clipSkipWho?: 'off' | 'everyone' | 'mods' | 'requester_mods';
+
+  // Video request: viewers ask for a YouTube video that plays on the image browser source
+  /** Where the link comes from. Tokens allowed. Missing = "{input}". */
+  videoInput?: string;
+  /** manual (default) = waits for the streamer or a mod to approve; auto = plays without approval. */
+  videoApproval?: 'manual' | 'auto';
+  /** full = play the whole video; limit (default) = stop after videoMaxSeconds. */
+  videoLengthMode?: 'full' | 'limit';
+  /** 10 to 600. Missing = 60. */
+  videoMaxSeconds?: number;
+  /** 0 to 1. Missing = 0.8. */
+  videoVolume?: number;
+  videoPosition?: OverlayPosition;
+  /** Percent of the screen width (10 to 100). Missing = 50. */
+  videoSize?: number;
+  /** Chat messages. Tokens: {username} {title} {position}. Empty = post nothing. Missing = default in the app language. */
+  videoQueuedMessage?: string;
+  videoWaitingMessage?: string;
+  videoInvalidMessage?: string;
+  videoApprovedMessage?: string;
+  videoDeniedMessage?: string;
+  /** Chat command that stops the video playing. Missing = "!skip". */
+  videoSkipCommand?: string;
+  /** Who may skip: off, everyone, mods, or the viewer who asked plus mods (default). */
+  videoSkipWho?: 'off' | 'everyone' | 'mods' | 'requester_mods';
+  /** Mod commands acting on the oldest waiting request ("!approve 2" = the second). Missing = "!approve" / "!deny". */
+  videoApproveCommand?: string;
+  videoDenyCommand?: string;
 
   // Mini-Game: Timeout Duel
   duelMode?: 'random' | 'ai_trivia';
@@ -940,6 +980,9 @@ export const Channels = {
   ChatOverlayHideImage: 'chat-overlay/hide-image',
   ChatOverlayShowClip: 'chat-overlay/show-clip',
   ChatOverlayGetImageUrl: 'chat-overlay/get-image-url',
+  ChatOverlayShowVideo: 'chat-overlay/show-video',
+  ChatOverlayStopVideo: 'chat-overlay/stop-video',
+  VideoGetInfo: 'video/get-info',
   AiGenerateTrivia: 'ai/generate-trivia',
   ObsWebsocketGetStatus: 'obs/websocket-get-status',
   ObsWebsocketConnect: 'obs/websocket-connect',
@@ -977,6 +1020,8 @@ export const Events = {
   AlertsCompleted: 'alerts/completed',
   AlertsDownloadProgress: 'alerts/download-progress',
   AlertsFileDropped: 'alerts/file-dropped',
+  /** The image browser source finished (or gave up on) a requested video. */
+  OverlayVideoEnded: 'overlay/video-ended',
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events];
@@ -1169,6 +1214,9 @@ export interface HostApi {
   [Channels.ChatOverlayHideImage]: { request: undefined; response: { ok: boolean } };
   [Channels.ChatOverlayShowClip]: { request: ShowOverlayClipRequest; response: ShowOverlayClipResponse };
   [Channels.ChatOverlayGetImageUrl]: { request: undefined; response: { url: string } };
+  [Channels.ChatOverlayShowVideo]: { request: ShowOverlayVideoPayload; response: { ok: boolean; error?: string | null } };
+  [Channels.ChatOverlayStopVideo]: { request: { requestId?: string } | undefined; response: { ok: boolean } };
+  [Channels.VideoGetInfo]: { request: { videoId: string }; response: { ok: boolean; title?: string | null; author?: string | null; error?: string | null } };
   [Channels.AiGenerateTrivia]: { request: GenerateGamingQuestionPayload | undefined; response: GenerateGamingQuestionResponse };
   [Channels.ObsWebsocketGetStatus]: { request: undefined; response: ObsWebsocketStatus };
   [Channels.ObsWebsocketConnect]: { request: { host?: string; port?: number; password?: string; autoConnect?: boolean }; response: { ok: boolean; error?: string } };
@@ -1188,6 +1236,34 @@ export interface ShowOverlayImagePayload {
   scale?: number;
   obsImageDestinationPath?: string;
   destinationPath?: string;
+  /** Video files only: 0 to 1. */
+  imageVolume?: number;
+  /** Video files only: play to the end instead of for durationSeconds. */
+  imagePlayFullVideo?: boolean;
+  /** Which image source shows it: a number, or main (missing). */
+  slot?: string;
+}
+
+/** A viewer's YouTube video, sent to the image browser source (`show-video`). */
+export interface ShowOverlayVideoPayload {
+  requestId: string;
+  videoId: string;
+  startSeconds: number;
+  /** Seconds of playing time before it is cut. 0 = the whole video. */
+  maxSeconds: number;
+  volume: number;
+  position: OverlayPosition;
+  /** Percent of the screen width (10 to 100). */
+  size: number;
+  title: string;
+  requestedBy: string;
+}
+
+export type VideoEndReason = 'ended' | 'cutoff' | 'error' | 'stopped';
+
+export interface OverlayVideoEndedEvent {
+  requestId: string;
+  reason: VideoEndReason | string;
 }
 
 /** Sent to the host, which picks the clip from `channel` and pushes it to the clip/image browser source. */
@@ -1349,6 +1425,7 @@ export interface EventMap {
   [Events.AlertsCompleted]: CompressionResult;
   [Events.AlertsDownloadProgress]: { percent: number };
   [Events.AlertsFileDropped]: { filePath: string };
+  [Events.OverlayVideoEnded]: OverlayVideoEndedEvent;
 }
 
 
