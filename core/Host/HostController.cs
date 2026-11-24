@@ -162,6 +162,75 @@ public sealed class HostController : IDisposable
     private sealed record DeleteAutoReplyPayload(string RuleId);
     private sealed record SendChatMessagePayload(string Message, string? SenderRole = null);
     private sealed record UpdateTitlePayload(string Title, string? GameId = null);
+    private sealed record SetEnabledPayload(bool Enabled);
+    private sealed record RetryLeadPayload(string? Login);
+
+    private async Task<object> DashboardStateAsync()
+    {
+        string? login = null;
+        // Nothing is started for streamers who never used it: the window only exists after a first login
+        if (_dashboard is not null || Directory.Exists(DashboardFolder))
+        {
+            try { login = await Dashboard.GetLoggedInLoginAsync().ConfigureAwait(false); } catch { }
+        }
+        var channel = _twitchChannel.Trim().TrimStart('#').ToLowerInvariant();
+        return new
+        {
+            enabled = _settings.LeadModAutoRestore,
+            login,
+            channel = string.IsNullOrEmpty(channel) ? null : channel,
+            matchesChannel = login is not null && login == channel,
+        };
+    }
+
+    /// <summary>
+    /// A lead moderator got mod back after a smart timeout. When the streamer turned it on and the dashboard window is
+    /// logged into their own channel, tick "Lead Moderator" in Roles Manager; otherwise (or if that fails) show the
+    /// reminder card with the reason.
+    /// </summary>
+    private async Task<(bool Ok, string? Error)> RestoreLeadModAsync(string login, bool force = false)
+    {
+        var channel = _twitchChannel.Trim().TrimStart('#').ToLowerInvariant();
+        string? reason = null;
+        if (!force && !_settings.LeadModAutoRestore)
+        {
+            reason = "off";
+        }
+        else if (string.IsNullOrEmpty(channel))
+        {
+            reason = "no-channel";
+        }
+        else
+        {
+            try
+            {
+                var dashboardLogin = await Dashboard.GetLoggedInLoginAsync().ConfigureAwait(false);
+                if (dashboardLogin is null) reason = "not-logged-in";
+                else if (dashboardLogin != channel) reason = "wrong-account";
+                else
+                {
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown);
+                    cts.CancelAfter(TimeSpan.FromMinutes(2));
+                    var (ok, error) = await Dashboard.GiveLeadModeratorAsync(channel, login, cts.Token).ConfigureAwait(false);
+                    if (ok)
+                    {
+                        Log("system", $"LEAD MODERATOR GIVEN BACK · {login}");
+                        PostEvent(Events.TwitchLeadModRestored, new { login });
+                        return (true, null);
+                    }
+                    reason = error ?? "failed";
+                    Log("system", $"LEAD MODERATOR NOT GIVEN BACK · {login} · {reason}");
+                }
+            }
+            catch (Exception ex)
+            {
+                reason = "failed";
+                Log("system", $"LEAD MODERATOR NOT GIVEN BACK · {login} · {ex.Message}");
+            }
+        }
+        PostEvent(Events.TwitchLeadModRestoreNeeded, new { login, reason });
+        return (false, reason);
+    }
     private sealed record SearchCategoriesPayload(string? Query);
     private sealed record SetCategoryPayload(string? GameId);
     private sealed record CheckAvatarPayload(string? Username, string? UserId);
@@ -323,6 +392,13 @@ public sealed class HostController : IDisposable
     private int _authorizeInProgress;
     private int _botAuthorizeInProgress;
     private string _twitchChannel = string.Empty;
+    private TwitchDashboardWindow? _dashboard;
+
+    /// <summary>The logged-in Twitch dashboard window that gives Lead Moderator back (created on first use).</summary>
+    private TwitchDashboardWindow Dashboard => _dashboard ??= new TwitchDashboardWindow(DashboardFolder, _form, message => Log("system", message));
+
+    private static string DashboardFolder =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StreamerHub", "TwitchDashboard");
     private string _botLogin = string.Empty;
     private bool _botSimulated;
     private int _chatBurst;
@@ -1116,6 +1192,37 @@ public sealed class HostController : IDisposable
                 await WriteTitleFileAsync(result.Title).ConfigureAwait(false);
             }
             return new { ok = result.Ok, title = result.Title, error = result.Error };
+        });
+        _dispatcher.Register(Channels.TwitchDashboardGetState, async (_, _) => await DashboardStateAsync().ConfigureAwait(false));
+        _dispatcher.Register(Channels.TwitchDashboardLogin, async (_, _) =>
+        {
+            await Dashboard.ShowLoginAsync().ConfigureAwait(false);
+            return new { ok = true };
+        });
+        _dispatcher.Register(Channels.TwitchDashboardLogout, async (_, _) =>
+        {
+            await Dashboard.LogOutAsync().ConfigureAwait(false);
+            Log("system", "TWITCH DASHBOARD WINDOW SIGNED OUT");
+            return await DashboardStateAsync().ConfigureAwait(false);
+        });
+        _dispatcher.Register(Channels.TwitchDashboardSetEnabled, async (payload, _) =>
+        {
+            var request = Json.Deserialize<SetEnabledPayload>(payload ?? default);
+            _settings.SetLeadModAutoRestore(request?.Enabled == true);
+            return await DashboardStateAsync().ConfigureAwait(false);
+        });
+        _dispatcher.Register(Channels.TwitchDashboardOpenRoles, async (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(_twitchChannel)) return new { ok = false };
+            await Dashboard.ShowRolesPageAsync(_twitchChannel).ConfigureAwait(false);
+            return new { ok = true };
+        });
+        _dispatcher.Register(Channels.TwitchDashboardRetryLead, async (payload, _) =>
+        {
+            var request = Json.Deserialize<RetryLeadPayload>(payload ?? default);
+            if (string.IsNullOrWhiteSpace(request?.Login)) return new { ok = false, error = (string?)"NO LOGIN" };
+            var result = await RestoreLeadModAsync(request.Login, force: true).ConfigureAwait(false);
+            return new { ok = result.Ok, error = result.Error };
         });
         _dispatcher.Register(Channels.TwitchUpdateTitle, async (payload, _) =>
         {
@@ -2244,7 +2351,7 @@ public sealed class HostController : IDisposable
                 _ => CoreStrings.L(Lang, info.Key),
             };
             Log("system", message);
-            if (info.Key == "remod-lead-mod-notice") PostEvent(Events.TwitchLeadModRestoreNeeded, new { login = info.Arg });
+            if (info.Key == "remod-lead-mod-notice" && !string.IsNullOrWhiteSpace(info.Arg)) _ = RestoreLeadModAsync(info.Arg);
         };
         _twitch.StateChanged += state =>
         {
@@ -3398,6 +3505,7 @@ public sealed class HostController : IDisposable
             _obsWs.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _eventSub.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _twitch.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            _dashboard?.Dispose();
             _botTwitch.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         catch

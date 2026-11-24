@@ -1,4 +1,4 @@
-import type { CommandProfileData, ProfilesState, ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayClipRequest, ShowOverlayImagePayload, ShowOverlayVideoPayload, TwitchCategory, TwitchRewardInfo, TwitchSettings, VideoEndReason } from './contracts';
+import type { CommandProfileData, ProfilesState, ActionKeybind, AiPollOptionDto, AutoReply, AutoReplySettings, ChannelPointsRedemption, ChatMessage, ChatOverlayInstance, ChatOverlaySettings, CommandSequence, CompressAlertPayload, ConnectionStatus, Counter, GenerateAiPollPayload, GenerateGamingQuestionPayload, PollState, RpcEnvelope, ShowOverlayClipRequest, ShowOverlayImagePayload, ShowOverlayVideoPayload, TwitchCategory, TwitchDashboardState, TwitchRewardInfo, TwitchSettings, VideoEndReason } from './contracts';
 import { Channels, Events, PROTOCOL_VERSION } from './contracts';
 import type { Transport } from './transport';
 import { createDefaultChatOverlaySettings } from '../lib/chatOverlay';
@@ -102,6 +102,8 @@ export class MockHost {
   private isMaximized = false;
   private twitchConnected = true;
   private simulatedBot = false;
+  private dashboardLogin: string | null = null;
+  private dashboardEnabled = false;
   private recentAiMessageIds = new Set<string>();
   private isMockAiGenerating = false;
   private streamTitle = 'Chill Gaming Stream';
@@ -1063,6 +1065,32 @@ export class MockHost {
       case Channels.DialogPickTextFile:
         this.respond(request, { path: 'C:\\StreamerHub\\questions.txt' });
         break;
+      case Channels.TwitchDashboardGetState:
+        this.respond(request, this.dashboardState());
+        break;
+      case Channels.TwitchDashboardLogin:
+        // The real host opens a Twitch login window; the mock pretends the streamer logged in
+        this.dashboardLogin = 'mock_channel';
+        this.respond(request, { ok: true });
+        break;
+      case Channels.TwitchDashboardLogout:
+        this.dashboardLogin = null;
+        this.respond(request, this.dashboardState());
+        break;
+      case Channels.TwitchDashboardSetEnabled:
+        this.dashboardEnabled = Boolean((request.payload as { enabled?: boolean } | undefined)?.enabled);
+        this.respond(request, this.dashboardState());
+        break;
+      case Channels.TwitchDashboardOpenRoles:
+        this.respond(request, { ok: true });
+        break;
+      case Channels.TwitchDashboardRetryLead: {
+        const login = (request.payload as { login?: string } | undefined)?.login ?? '';
+        const ok = this.dashboardLogin === 'mock_channel';
+        if (ok) this.emitEvent(Events.TwitchLeadModRestored, { login });
+        this.respond(request, ok ? { ok: true } : { ok: false, error: 'not-logged-in' });
+        break;
+      }
       case Channels.FilesReadLines:
         this.respond(request, { ok: true, lines: ['What game should I play next?', 'وش أفضل لعبة لعبتها هالسنة؟', 'Pineapple on pizza: yes or no?'] });
         break;
@@ -1292,6 +1320,10 @@ export class MockHost {
   private cleanProfileName(name: string | undefined): string | null {
     const clean = (name ?? '').trim().split(/\s+/).filter(Boolean).join(' ').slice(0, 40).trim();
     return clean || null;
+  }
+
+  private dashboardState(): TwitchDashboardState {
+    return { enabled: this.dashboardEnabled, login: this.dashboardLogin, channel: 'mock_channel', matchesChannel: this.dashboardLogin === 'mock_channel' };
   }
 
   private profilesState(): ProfilesState {

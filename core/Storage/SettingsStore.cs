@@ -57,6 +57,8 @@ public sealed class SettingsStore : IDisposable
         public string PreferredChatSender { get; init; } = "bot";
         public bool StartupEnabled { get; init; } = true;
         public bool? CloseToTray { get; init; }
+        /// <summary>Give Lead Moderator back after a smart timeout through the logged-in Twitch dashboard window.</summary>
+        public bool LeadModAutoRestore { get; init; }
         public PollState ActivePoll { get; init; } = new();
         /// <summary>Every command profile. The active one is also held in the top-level lists above, which are what the rest of the host reads.</summary>
         public List<CommandProfile> Profiles { get; init; } = new();
@@ -442,6 +444,17 @@ public sealed class SettingsStore : IDisposable
         ScheduleSave();
     }
 
+    public bool LeadModAutoRestore
+    {
+        get { lock (_lock) return _document.LeadModAutoRestore; }
+    }
+
+    public void SetLeadModAutoRestore(bool enabled)
+    {
+        lock (_lock) _document = _document with { LeadModAutoRestore = enabled };
+        ScheduleSave();
+    }
+
     public bool BotAccountEnabled
     {
         get { lock (_lock) return _document.BotAccountEnabled; }
@@ -719,6 +732,7 @@ public sealed class SettingsStore : IDisposable
                     Window = old.Window,
                     StartupEnabled = old.StartupEnabled,
                     CloseToTray = old.CloseToTray,
+                    LeadModAutoRestore = old.LeadModAutoRestore,
                 });
             }
             Flush();
