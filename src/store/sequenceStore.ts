@@ -25,8 +25,10 @@ import {
   DEFAULT_CLIP_TITLE,
   executeSequence,
   extractCommandArguments,
+  extractTargetUsername,
   isSequenceOnCooldown,
   matchesSequenceTrigger,
+  replaceSequenceTokens,
   sequenceCallBlockReason,
   type SequenceExecutionContext,
   type SequenceExecutionSinks,
@@ -49,6 +51,7 @@ import { evaluatePollOutcome, type PollOutcome } from '../lib/pollOutcome';
 import { MessageDeduplicator } from '../lib/autoReplyRules';
 import { DEFAULT_CLIP_SKIP_WHO, canSkipClip, clipSkipRule, matchClipSkip } from '../lib/clipSkip';
 import { imageSlotOf, nextImageSlot } from '../lib/imageSlots';
+import { challengerChanceWithDevLuck, devInDuel } from '../lib/devLuck';
 import {
   DEFAULT_VIDEO_APPROVAL,
   DEFAULT_VIDEO_APPROVE_COMMAND,
@@ -1146,12 +1149,26 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
 
           const isStreamerDuel = step.type === 'duel_streamer';
           const defaultOpponent = isStreamerDuel ? (broadcaster || 'Streamer') : (ctx.userInput || '');
+          const mode = step.duelMode || 'random';
+
+          // Developer luck: only asked for when the developer plays a coin duel (see src/lib/devLuck.ts)
+          let challengerWinChance = step.duelChallengerWinChance ?? 50;
+          const challengerLogin = ctx.userLogin || ctx.username;
+          const opponentName = extractTargetUsername(replaceSequenceTokens(step.duelOpponent || defaultOpponent, ctx));
+          if (mode === 'random' && devInDuel(challengerLogin, opponentName)) {
+            try {
+              const luck = await rpc.invoke(Channels.DevLuckGet, undefined, 2500);
+              challengerWinChance = challengerChanceWithDevLuck(challengerWinChance, challengerLogin, opponentName, luck);
+            } catch {
+              // normal odds
+            }
+          }
 
           const res = await duelGameManager.startDuel({
             challenger: ctx.username,
             opponentRaw: step.duelOpponent || defaultOpponent,
-            mode: step.duelMode || 'random',
-            challengerWinChance: step.duelChallengerWinChance ?? 50,
+            mode,
+            challengerWinChance,
             // Challenging the streamer is what the Streamer 1v1 step is for; viewer duels never include them
             allowBroadcaster: isStreamerDuel,
             isProtected: (user) =>

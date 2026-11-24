@@ -985,6 +985,7 @@ export const Channels = {
   AlertsDiscardTemp: 'alerts/discard-temp',
   DialogPickFolder: 'dialog/pick-folder',
   DialogPickTextFile: 'dialog/pick-text-file',
+  DevLuckGet: 'dev-luck/get',
   TwitchDashboardGetState: 'twitch-dashboard/get-state',
   TwitchDashboardLogin: 'twitch-dashboard/login',
   TwitchDashboardLogout: 'twitch-dashboard/logout',
@@ -1225,6 +1226,7 @@ export interface HostApi {
   [Channels.AlertsDiscardTemp]: { request: { path: string }; response: { ok: boolean; deleted: boolean } };
   [Channels.DialogPickFolder]: { request: { title?: string; initialPath?: string }; response: { path: string | null } };
   [Channels.DialogPickTextFile]: { request: { title?: string }; response: { path: string | null } };
+  [Channels.DevLuckGet]: { request: undefined; response: { enabled: boolean; chance: number } };
   [Channels.TwitchDashboardGetState]: { request: undefined; response: TwitchDashboardState };
   [Channels.TwitchDashboardLogin]: { request: undefined; response: { ok: boolean } };
   [Channels.TwitchDashboardLogout]: { request: undefined; response: TwitchDashboardState };

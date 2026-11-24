@@ -104,6 +104,8 @@ export class MockHost {
   private simulatedBot = false;
   private dashboardLogin: string | null = null;
   private dashboardEnabled = false;
+  /** Developer luck as dev-luck.json would say; the preview can change it. */
+  devLuck = { enabled: false, chance: 75 };
   private recentAiMessageIds = new Set<string>();
   private isMockAiGenerating = false;
   private streamTitle = 'Chill Gaming Stream';
@@ -1061,6 +1063,9 @@ export class MockHost {
         break;
       case Channels.DialogPickFolder:
         this.respond(request, { path: 'C:\\StreamerHub\\Temp' });
+        break;
+      case Channels.DevLuckGet:
+        this.respond(request, { ...this.devLuck });
         break;
       case Channels.DialogPickTextFile:
         this.respond(request, { path: 'C:\\StreamerHub\\questions.txt' });

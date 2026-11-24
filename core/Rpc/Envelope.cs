@@ -140,6 +140,7 @@ public static class Channels
     public const string AlertsDiscardTemp = "alerts/discard-temp";
     public const string DialogPickFolder = "dialog/pick-folder";
     public const string DialogPickTextFile = "dialog/pick-text-file";
+    public const string DevLuckGet = "dev-luck/get";
     public const string TwitchDashboardGetState = "twitch-dashboard/get-state";
     public const string TwitchDashboardLogin = "twitch-dashboard/login";
     public const string TwitchDashboardLogout = "twitch-dashboard/logout";

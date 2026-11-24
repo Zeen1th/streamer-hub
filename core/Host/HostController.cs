@@ -258,6 +258,44 @@ public sealed class HostController : IDisposable
     private readonly SecretVault _groqKey;
     private readonly OpenRouterClient _openRouter = new();
     private static readonly HttpClient UpdateHttp = new();
+
+    /// <summary>
+    /// Developer luck (see src/lib/devLuck.ts): dev-luck.json in the public repo, read through the GitHub API so a
+    /// change applies at once (the raw file link is cached for minutes). Only read when asked: when the developer is
+    /// in a duel, or Settings shows its status. One minute of memory; unreachable or slow (1.5 s) counts as off.
+    /// </summary>
+    private const string DevLuckUrl = "https://api.github.com/repos/Zeen1th/streamer-hub/contents/dev-luck.json?ref=main";
+    private (DateTime At, bool Enabled, int Chance)? _devLuck;
+
+    private async Task<(bool Enabled, int Chance)> GetDevLuckAsync()
+    {
+        if (_devLuck is { } cached && DateTime.UtcNow - cached.At < TimeSpan.FromMinutes(1)) return (cached.Enabled, cached.Chance);
+        var result = (Enabled: false, Chance: 50);
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown);
+            cts.CancelAfter(TimeSpan.FromSeconds(1.5));
+            using var request = new HttpRequestMessage(HttpMethod.Get, DevLuckUrl);
+            request.Headers.Accept.ParseAdd("application/vnd.github.raw");
+            request.Headers.UserAgent.ParseAdd("StreamerHub");
+            using var response = await UpdateHttp.SendAsync(request, cts.Token).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false));
+                var root = doc.RootElement;
+                var login = root.TryGetProperty("login", out var l) ? l.GetString() : null;
+                var enabled = root.TryGetProperty("enabled", out var e) && e.ValueKind == JsonValueKind.True;
+                var chance = root.TryGetProperty("chance", out var c) && c.TryGetInt32(out var n) ? Math.Clamp(n, 1, 99) : 50;
+                result = (enabled && string.Equals(login, "zeen1_th", StringComparison.OrdinalIgnoreCase), chance);
+            }
+        }
+        catch
+        {
+            // off this time
+        }
+        _devLuck = (DateTime.UtcNow, result.Enabled, result.Chance);
+        return result;
+    }
     /// <summary>A YouTube video id: 11 letters, digits, - or _.</summary>
     private static readonly System.Text.RegularExpressions.Regex YouTubeVideoId = new("^[A-Za-z0-9_-]{11}$", System.Text.RegularExpressions.RegexOptions.Compiled);
     private const string UpdateRepository = "Zeen1th/streamer-hub";
@@ -1223,6 +1261,11 @@ public sealed class HostController : IDisposable
             if (string.IsNullOrWhiteSpace(request?.Login)) return new { ok = false, error = (string?)"NO LOGIN" };
             var result = await RestoreLeadModAsync(request.Login, force: true).ConfigureAwait(false);
             return new { ok = result.Ok, error = result.Error };
+        });
+        _dispatcher.Register(Channels.DevLuckGet, async (_, _) =>
+        {
+            var (enabled, chance) = await GetDevLuckAsync().ConfigureAwait(false);
+            return new { enabled, chance };
         });
         _dispatcher.Register(Channels.TwitchUpdateTitle, async (payload, _) =>
         {

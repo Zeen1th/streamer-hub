@@ -19,6 +19,7 @@ import { TriggerGlobalSettings } from '../auto-replies/TriggerGlobalSettings';
 import { BackupsCard } from './BackupsCard';
 import { ShareCard } from './ShareCard';
 import { ResetCard } from './ResetCard';
+import { DevLuckStatus } from './DevLuckStatus';
 import { LeadModRestoreCard } from './LeadModRestoreCard';
 import { KeybindSettings } from './KeybindSettings';
 import { ObsSettings } from './ObsSettings';
@@ -352,6 +353,7 @@ export function SettingsView() {
           </Card>
           <ShareCard />
           <BackupsCard />
+          <DevLuckStatus />
           <ResetCard />
           <Card title={t(lang, 'updates.settingsTitle')}>
             <div className="space-y-3">
