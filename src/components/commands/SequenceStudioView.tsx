@@ -1210,7 +1210,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
 
   const handleOpenObsSettings = () => {
     useToolStore.getState().setActiveTool('settings');
-    useToolStore.getState().setSection('obs');
+    useToolStore.getState().setSection('connections');
     onClose();
   };
 
@@ -1458,7 +1458,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                 className="h-9 font-mono text-[13px] text-emerald-400 border-emerald-500/30 bg-emerald-500/5 focus:border-emerald-500"
               />
               <div className="rounded-md border border-emerald-500/30 bg-[#0d1712] p-3 font-mono text-[12px] text-emerald-400">
-                💬 // ** {commentText || t(lang, 'sequence.commentPlaceholder')} **
+                {'// '}{commentText || t(lang, 'sequence.commentPlaceholder')}
               </div>
             </div>
           )}
@@ -1547,13 +1547,14 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   <option value="shoutout">{t(lang, 'sequence.actionShoutout')}</option>
                   <option value="smart_timeout">{t(lang, 'sequence.actionSmartTimeout')}</option>
                   <option value="timeout">{t(lang, 'sequence.actionTimeout')}</option>
-                  <option value="ban">{t(lang, 'sequence.actionBan')}</option>
+                  {/* Ban and Clear chat are no longer offered; kept only for steps that already use them */}
+                  {moderationAction === 'ban' && <option value="ban">{t(lang, 'sequence.actionBan')}</option>}
                   <option value="unban">{t(lang, 'sequence.actionUnban')}</option>
                   <option value="mod">{t(lang, 'sequence.actionMod')}</option>
                   <option value="unmod">{t(lang, 'sequence.actionUnmod')}</option>
                   <option value="vip">{t(lang, 'sequence.actionVip')}</option>
                   <option value="unvip">{t(lang, 'sequence.actionUnvip')}</option>
-                  <option value="clear_chat">{t(lang, 'sequence.actionClearChat')}</option>
+                  {moderationAction === 'clear_chat' && <option value="clear_chat">{t(lang, 'sequence.actionClearChat')}</option>}
                 </select>
               </div>
 
@@ -2020,7 +2021,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
             <div className="flex flex-col gap-2.5 rounded-md border border-sky-500/25 bg-sky-500/[0.07] p-3">
               <div>
                 <div className="font-sans text-[12px] font-semibold text-white">
-                  🛡️ {isModStep
+                  {isModStep
                     ? (lang === 'ar' ? 'مشاهدون محميون من العقوبة' : 'Shield (viewers this step never punishes)')
                     : step.type === 'duel_streamer'
                     ? (lang === 'ar' ? 'مشاهدون لديهم درع ضد الإسكات' : 'Shield (viewers who are never timed out)')
@@ -2125,7 +2126,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   rows={2}
                   placeholder={
                     isModStep
-                      ? (lang === 'ar' ? 'مثال: @{protected} محمي من العقوبة 🛡️' : 'e.g. @{protected} is shielded 🛡️')
+                      ? (lang === 'ar' ? 'مثال: @{protected} محمي من العقوبة' : 'e.g. @{protected} is shielded')
                       : step.type === 'duel_streamer'
                       ? (lang === 'ar' ? DEFAULT_PROTECTED_MESSAGES.streamerAr : DEFAULT_PROTECTED_MESSAGES.streamerEn)
                       : (lang === 'ar' ? DEFAULT_PROTECTED_MESSAGES.viewerAr : DEFAULT_PROTECTED_MESSAGES.viewerEn)
@@ -2336,7 +2337,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   <option value="">{t(lang, 'sequence.obsDefaultMic')}</option>
                   {availableObsAudioSources.map((source) => (
                     <option key={source.name} value={source.name}>
-                      {source.name} ({source.kind}) {source.muted ? '🔇' : '🔊'}
+                      {source.name} ({source.kind}){source.muted ? (lang === 'ar' ? ' · مكتوم' : ' · muted') : ''}
                     </option>
                   ))}
                 </select>
@@ -2860,7 +2861,6 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                                 : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 hover:text-white'
                             }`}
                           >
-                            <span>{cat.emoji}</span>
                             <span>{cat.label}</span>
                           </button>
                         );
@@ -3176,7 +3176,7 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                   <option value="">{t(lang, 'sequence.obsDefaultMic')}</option>
                   {availableObsAudioSources.map((source) => (
                     <option key={source.name} value={source.name}>
-                      {source.name} ({source.kind}) {source.muted ? '🔇' : '🔊'}
+                      {source.name} ({source.kind}){source.muted ? (lang === 'ar' ? ' · مكتوم' : ' · muted') : ''}
                     </option>
                   ))}
                 </select>
@@ -3266,7 +3266,6 @@ function EditSubActionModal({ step, index, previousSteps, allSequences, currentS
                                 : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 hover:text-white'
                             }`}
                           >
-                            <span>{cat.emoji}</span>
                             <span>{cat.label}</span>
                           </button>
                         );
@@ -3625,7 +3624,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
               : `✓ Simulated raid from @${raider} with ${viewers} viewers executed successfully!`
             : formattedInput
             ? lang === 'ar'
-              ? `✓ تم تنفيذ المتسلسلة بنجاح على ${formattedInput}`
+              ? `✓ تم تنفيذ السلسلة بنجاح على ${formattedInput}`
               : `✓ Sequence executed successfully on ${formattedInput}!`
             : lang === 'ar'
             ? '✓ تم تنفيذ جميع الخطوات بنجاح'
@@ -3634,7 +3633,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
     } else {
       setTestStatus({
         status: 'error',
-        message: lang === 'ar' ? 'فشل تنفيذ المتسلسلة' : 'Sequence execution failed',
+        message: lang === 'ar' ? 'فشل تنفيذ السلسلة' : 'Sequence execution failed',
       });
     }
   };
@@ -4152,11 +4151,11 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                 value={simMode}
                 onChange={setSimMode}
                 options={[
-                  { value: 'raid', label: `🔥 ${t(lang, 'sequence.simRaid')}` },
-                  { value: 'follow', label: `💖 ${t(lang, 'sequence.triggerFollow')}` },
-                  { value: 'watch_streak', label: `⚡ ${t(lang, 'sequence.simWatchStreak')}` },
-                  { value: 'chat', label: `💬 ${t(lang, 'sequence.simChat')}` },
-                  { value: 'points', label: `🪙 ${t(lang, 'sequence.simPoints')}` },
+                  { value: 'raid', label: t(lang, 'sequence.simRaid') },
+                  { value: 'follow', label: t(lang, 'sequence.triggerFollow') },
+                  { value: 'watch_streak', label: t(lang, 'sequence.simWatchStreak') },
+                  { value: 'chat', label: t(lang, 'sequence.simChat') },
+                  { value: 'points', label: t(lang, 'sequence.simPoints') },
                 ]}
               />
             </div>
@@ -4556,7 +4555,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
                           </p>
                           <p className="max-w-md text-[11.5px] text-zinc-500">
                             {lang === 'ar'
-                              ? 'يمكنك إبقاء المُشغّلات فارغة لتشغيل الإجراء يدوياً، أو عبر المحاكي، أو استدعاؤه كإجراء فرعي من متسلسلة أخرى. لإضافة مُشغّل، ابحث بالأعلى أو انقر بزر الفأرة الأيمن.'
+                              ? 'يمكنك إبقاء المُشغّلات فارغة لتشغيل الإجراء يدوياً، أو عبر المحاكي، أو استدعاؤه كإجراء فرعي من سلسلة أخرى. لإضافة مُشغّل، ابحث بالأعلى أو انقر بزر الفأرة الأيمن.'
                               : 'You can keep triggers empty to run this action manually, via simulator, or call it from other sub-actions. Search above or right-click to attach a trigger.'}
                           </p>
                         </div>
@@ -4867,8 +4866,7 @@ export function SequenceStudioView({ sequence, onBack, lang }: SequenceStudioVie
 
                           {isComment ? (
                             <div className="flex items-center gap-2 truncate font-semibold text-emerald-400">
-                              <span>💬</span>
-                              <span className="truncate">// ** {st.commentText || 'This is a comment!'} **</span>
+                              <span className="truncate">{'// '}{st.commentText || 'This is a comment!'}</span>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2 truncate">

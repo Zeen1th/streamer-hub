@@ -71,7 +71,7 @@ test('projects each counter and each reply into command rows', () => {
   assert.equal(rows[2].command, 'كيف الحال');
   assert.equal(rows[3].id, 'sequence:seq-1');
   assert.equal(rows[3].group, 'sequences');
-  assert.equal(rows[3].command, '🪙 Drink Water');
+  assert.equal(rows[3].command, 'Drink Water');
   assert.equal(rows[3].sequenceStepCount, 1);
 });
 

@@ -34,6 +34,7 @@ public static class Channels
     public const string ChatGetGifts = "chat/get-gifts";
     public const string ChatSendInput = "chat/send-input";
     public const string WindowSetZoom = "window/set-zoom";
+    public const string WindowSetBackdrop = "window/set-backdrop";
     public const string WindowMaximizeToggle = "window/maximize-toggle";
     public const string WindowClose = "window/close";
     public const string WindowIsMaximized = "window/is-maximized";
@@ -64,6 +65,10 @@ public static class Channels
     public const string SettingsListBackups = "settings/list-backups";
     public const string SettingsRestoreBackup = "settings/restore-backup";
     public const string SettingsResetAll = "settings/reset-all";
+    public const string StatsBackupSave = "stats/backup-save";
+    public const string StatsBackupLoad = "stats/backup-load";
+    public const string StatsBackupsList = "stats/backups-list";
+    public const string StatsBackupRestore = "stats/backup-restore";
     public const string SettingsExportShare = "settings/export-share";
     public const string SettingsImportShareChoose = "settings/import-share-choose";
     public const string SettingsImportShareApply = "settings/import-share-apply";

@@ -36,6 +36,8 @@ internal static class Native
     internal const int DwmwaSystemBackdropType = 38;
     internal const int DwmColorNone = unchecked((int)0xFFFFFFFE);
     internal const int DwmsbtMainWindow = 2; // Mica
+    internal const int DwmsbtTransientWindow = 3; // Acrylic
+    internal const int DwmsbtTabbedWindow = 4; // Mica Alt
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct Margins
@@ -254,6 +256,30 @@ public sealed class MainForm : Form
         catch
         {
             // Older Windows or missing dwmapi: keep the solid window
+        }
+    }
+
+    /// <summary>
+    /// Switches the Windows 11 material behind the page: "mica" (opaque, tinted by the wallpaper), "mica-alt"
+    /// (stronger wallpaper tint) or "acrylic" (see-through blur of whatever is behind the window). Only works
+    /// once Mica was enabled at start-up; returns false otherwise.
+    /// </summary>
+    public bool SetBackdrop(string kind)
+    {
+        if (!_micaActive) return false;
+        var backdrop = kind switch
+        {
+            "acrylic" => Native.DwmsbtTransientWindow,
+            "mica-alt" => Native.DwmsbtTabbedWindow,
+            _ => Native.DwmsbtMainWindow,
+        };
+        try
+        {
+            return Native.DwmSetWindowAttribute(Handle, Native.DwmwaSystemBackdropType, ref backdrop, sizeof(int)) == 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 

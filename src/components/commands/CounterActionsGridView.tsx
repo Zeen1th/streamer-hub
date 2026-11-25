@@ -172,7 +172,7 @@ function ActionGridCard({
         <span className="font-mono text-[10px] uppercase text-muted">Preview: </span>
         <code className="font-mono font-bold text-accent-text">!{command.commandName || '…'}</code>
         <span className="ms-1 font-sans">
-          ➔ {counter.name} {meta.actionOutcome}
+          → {counter.name} {meta.actionOutcome}
         </span>
       </div>
     </div>
@@ -260,7 +260,7 @@ function SetCommandCard({ counter, lang }: { counter: Counter; lang: 'en' | 'ar'
 
       <div className="mt-5 border-t border-hair pt-3 text-[11px] text-muted">
         <code dir="ltr" className="font-mono font-bold text-accent-text">!{command.commandName || '…'} 6000</code>
-        <span className="ms-1 font-sans">➔ {counter.name} = 6000</span>
+        <span className="ms-1 font-sans">→ {counter.name} = 6000</span>
         {command.enabled && <p className="mt-1.5 font-sans">{t(lang, 'workspace.setExample', { cmd: command.commandName || 'set' })}</p>}
       </div>
     </div>
@@ -396,7 +396,7 @@ export function CounterActionsGridView({
         {/* Bottom Helper Info */}
         <div className="mt-6 rounded-lg border border-rule bg-surface-3 p-4 text-[12px] text-muted shadow-sm">
           <div className="font-bold text-ink mb-1">
-            💡 {t(lang, 'workspace.counterCommand')}
+            {t(lang, 'workspace.counterCommand')}
           </div>
           <p>
             Whenever viewers or moderators type one of these commands in your Twitch chat, the counter automatically updates its value, writes to your configured OBS text file, and updates your live Twitch stream title.

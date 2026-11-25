@@ -613,7 +613,7 @@ export const useSequenceStore = create<SequenceState>((set, get) => ({
     const newSequence: CommandSequence = {
       id,
       enabled: true,
-      name: '⚡ Timeout Anyone (Even Mods!)',
+      name: 'Timeout Anyone (Even Mods!)',
       triggerType: 'channel_points',
       rewardTitle: 'Timeout A Mod',
       rewardId: '',

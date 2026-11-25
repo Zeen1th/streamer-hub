@@ -11,6 +11,9 @@ export interface RpcEnvelope {
 
 export type PermissionLevel = 'everyone' | 'subscriber' | 'vip' | 'mod' | 'broadcaster';
 
+/** The Windows 11 material behind the Fluent theme: Mica (opaque wallpaper tint), Mica Alt (stronger tint) or Acrylic (see-through blur). */
+export type FluentBackdrop = 'mica' | 'mica-alt' | 'acrylic';
+
 export type CounterAction = 'increase' | 'decrease' | 'reset';
 
 export type WindowResizeEdge = 'top' | 'right' | 'bottom' | 'left' | 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left';
@@ -262,6 +265,19 @@ export interface SettingsBackupInfo {
   replies: number;
   sequences: number;
   keybinds: number;
+  bytes: number;
+}
+
+export type StatsBackupKind = 'last' | 'daily' | 'before-reset' | 'before-reset-everything';
+
+/** One restorable copy of the leaderboard stats (Settings > Backups > Leaderboards). */
+export interface StatsBackupInfo {
+  name: string;
+  kind: StatsBackupKind;
+  /** ISO timestamp of the copy. */
+  modified: string;
+  /** Viewers in its all-time table. */
+  users: number;
   bytes: number;
 }
 
@@ -879,6 +895,7 @@ export const Channels = {
   ChatGetGifts: 'chat/get-gifts',
   ChatSendInput: 'chat/send-input',
   WindowSetZoom: 'window/set-zoom',
+  WindowSetBackdrop: 'window/set-backdrop',
   WindowMaximizeToggle: 'window/maximize-toggle',
   WindowClose: 'window/close',
   WindowIsMaximized: 'window/is-maximized',
@@ -901,6 +918,10 @@ export const Channels = {
   SettingsListBackups: 'settings/list-backups',
   SettingsRestoreBackup: 'settings/restore-backup',
   SettingsResetAll: 'settings/reset-all',
+  StatsBackupSave: 'stats/backup-save',
+  StatsBackupLoad: 'stats/backup-load',
+  StatsBackupsList: 'stats/backups-list',
+  StatsBackupRestore: 'stats/backup-restore',
   SettingsExportShare: 'settings/export-share',
   SettingsImportShareChoose: 'settings/import-share-choose',
   SettingsImportShareApply: 'settings/import-share-apply',
@@ -1052,6 +1073,7 @@ export interface HostApi {
   [Channels.ChatGetGifts]: { request: undefined; response: TwitchGiftEvent[] };
   [Channels.ChatGetEmotes]: { request: undefined; response: Record<string, Record<string, string>> };
   [Channels.WindowSetZoom]: { request: { factor: number }; response: { ok: boolean } };
+  [Channels.WindowSetBackdrop]: { request: { kind: FluentBackdrop }; response: { ok: boolean } };
   [Channels.WindowIsMaximized]: { request: undefined; response: { isMaximized: boolean } };
   [Channels.CoreGetStatus]: { request: undefined; response: ConnectionStatus };
   [Channels.CountersGetState]: { request: undefined; response: Counter[] };
@@ -1101,6 +1123,10 @@ export interface HostApi {
   [Channels.AutoRepliesSettingsGet]: { request: undefined; response: AutoReplySettings };
   [Channels.SettingsListBackups]: { request: undefined; response: { backups: SettingsBackupInfo[] } };
   [Channels.SettingsRestoreBackup]: { request: { name: string }; response: { ok: boolean; restarting?: boolean; error?: string } };
+  [Channels.StatsBackupSave]: { request: { json: string; reason?: 'save' | 'reset' }; response: { ok: boolean } };
+  [Channels.StatsBackupLoad]: { request: undefined; response: { json: string | null } };
+  [Channels.StatsBackupsList]: { request: undefined; response: { backups: StatsBackupInfo[] } };
+  [Channels.StatsBackupRestore]: { request: { name: string }; response: { ok: boolean; json: string | null; error?: string } };
   [Channels.SettingsResetAll]: { request: { webStorage: Record<string, string> }; response: { ok: boolean; restarting?: boolean; error?: string } };
   [Channels.SettingsExportShare]: {
     request: { commands: boolean; overlays: boolean };

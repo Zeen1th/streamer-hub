@@ -40,9 +40,13 @@ const KIND_COLOR: Record<LogKind, string> = {
   'obs-error': 'text-[#F04E5A]',
 };
 
-interface ActivityLogProps { className?: string }
+interface ActivityLogProps {
+  className?: string;
+  /** Inside a Settings card: no page heading or page padding, and the list scrolls in a fixed height. */
+  embedded?: boolean;
+}
 
-export function ActivityLog({ className = '' }: ActivityLogProps) {
+export function ActivityLog({ className = '', embedded = false }: ActivityLogProps) {
   const entries = useLogStore((s) => s.entries);
   const clear = useLogStore((s) => s.clear);
   const filter = useToolStore((s) => s.logFilter);
@@ -52,16 +56,22 @@ export function ActivityLog({ className = '' }: ActivityLogProps) {
   const filtered = filter === 'all' ? entries : entries.filter((entry) => entry.kind === filter);
 
   return (
-    <section className={`app-scroll flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#23282e] p-[16px_18px_28px] text-[#f0f3f7] ${className}`} aria-label={t(lang, 'workspace.activity')}>
-      {/* View Head */}
-      <div className="mb-[14px]">
-        <h1 className="m-0 font-sans text-[19px] font-extrabold tracking-[-0.015em] text-white">
-          Activity
-        </h1>
-        <p className="mt-1 font-sans text-[12.5px] text-[#9AA3AF]">
-          The full log — triggers, writes, denials and errors, newest first.
-        </p>
-      </div>
+    <section
+      className={
+        embedded
+          ? `flex flex-col text-[#f0f3f7] ${className}`
+          : `app-scroll flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#23282e] p-[16px_18px_28px] text-[#f0f3f7] ${className}`
+      }
+      aria-label={t(lang, 'workspace.activity')}
+    >
+      {!embedded && (
+        <div className="mb-[14px]">
+          <h1 className="m-0 font-sans text-[19px] font-extrabold tracking-[-0.015em] text-white">
+            {t(lang, 'workspace.activity')}
+          </h1>
+          <p className="mt-1 font-sans text-[12.5px] text-[#9AA3AF]">{t(lang, 'settings.logDesc')}</p>
+        </div>
+      )}
 
       {/* Filter Chips Bar */}
       <div className="mb-3 flex items-center gap-1.5" data-od-id="activity-filters">
@@ -89,7 +99,11 @@ export function ActivityLog({ className = '' }: ActivityLogProps) {
       </div>
 
       {/* Log Box */}
-      <div className="overflow-hidden rounded-[7px] border border-white/[0.08] bg-[#2e3438] font-mono text-[11.5px]" data-od-id="activity-log" tabIndex={0}>
+      <div
+        className={`rounded-[7px] border border-white/[0.08] bg-[#2e3438] font-mono text-[11.5px] ${embedded ? 'app-scroll max-h-[360px] overflow-y-auto' : 'overflow-hidden'}`}
+        data-od-id="activity-log"
+        tabIndex={0}
+      >
         {filtered.length === 0 ? (
           <div className="py-12 text-center font-sans text-[12px] text-[#9AA3AF]">
             {t(lang, 'workspace.noActivity')}

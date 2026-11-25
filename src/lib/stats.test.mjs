@@ -14,6 +14,10 @@ import {
   formatAgo,
   leaderboardChatLine,
   userKey,
+  dropLegacyUsers,
+  parseStatsSnapshot,
+  pickStatsToKeep,
+  mergeUsers,
 } from './stats.ts';
 
 test('bumpUser creates and accumulates a viewer, keyed by lowercase login', () => {
@@ -115,4 +119,71 @@ test('clips are counted per viewer, rank the Top clippers board, and old saved s
   assert.equal(users.legacy.clips, 1);
   assert.deepEqual(topUsers(users, 'clips', 5).map((r) => [r.user.login, r.value]), [['fan', 2], ['legacy', 1]]);
   assert.deepEqual(topUsers({ legacy: users.legacy, other: { ...users.legacy, login: 'other', clips: undefined } }, 'clips', 5).map((r) => r.user.login), ['legacy']);
+});
+
+test('the made-up "streamer" viewer from older versions is always ignored and dropped on load', () => {
+  assert.equal(isIgnoredUser('streamer'), true);
+  assert.equal(isIgnoredUser('@Streamer'), true);
+  assert.equal(isIgnoredUser('somebody'), false);
+  const users = {};
+  bumpUser(users, 'streamer', 'streamer', { clips: 4 }, 1);
+  bumpUser(users, 'bob', 'Bob', { clips: 1 }, 1);
+  assert.deepEqual(topUsers(users, 'clips', 10, (l) => isIgnoredUser(l)).map((r) => r.user.login), ['bob']);
+  dropLegacyUsers(users);
+  assert.deepEqual(Object.keys(users), ['bob']);
+
+  const now = 1_000_000;
+  const raw = JSON.stringify({
+    allTime: { streamer: { login: 'streamer', clips: 3 }, bob: { login: 'bob', clips: 1 } },
+    session: { startedAt: now, users: { streamer: { login: 'streamer' }, bob: { login: 'bob' } }, totals: {} },
+    lastActivity: now,
+  });
+  const parsed = parseStatsSnapshot(raw, now);
+  assert.deepEqual(Object.keys(parsed.allTime), ['bob']);
+  assert.deepEqual(Object.keys(parsed.session.users), ['bob']);
+});
+
+test('parseStatsSnapshot rejects non-stats and starts a fresh session when the saved one is old', () => {
+  assert.equal(parseStatsSnapshot('not json', 1), null);
+  assert.equal(parseStatsSnapshot('[1]', 1), null);
+  assert.equal(parseStatsSnapshot(null, 1), null);
+  const old = parseStatsSnapshot({ allTime: { a: { login: 'a', messages: 1 } }, session: { startedAt: 5, users: { a: { login: 'a' } }, totals: {} }, lastActivity: 5 }, 5 + 9 * 3600_000);
+  assert.deepEqual(Object.keys(old.allTime), ['a']);
+  assert.deepEqual(old.session.users, {});
+  assert.equal(parseStatsSnapshot({}, 7).lastActivity, 7);
+});
+
+test('pickStatsToKeep keeps local unless the backup has what local lost or is newer', () => {
+  const some = { a: { login: 'a' } };
+  assert.equal(pickStatsToKeep({ allTime: some, lastActivity: 10 }, { allTime: some, lastActivity: 10 }), 'local');
+  assert.equal(pickStatsToKeep({ allTime: some, lastActivity: 10 }, { allTime: some, lastActivity: 5 }), 'local');
+  assert.equal(pickStatsToKeep({ allTime: some, lastActivity: 10 }, { allTime: some, lastActivity: 11 }), 'backup');
+  assert.equal(pickStatsToKeep({ allTime: {}, lastActivity: 999 }, { allTime: some, lastActivity: 1 }), 'backup');
+  assert.equal(pickStatsToKeep(null, { allTime: some, lastActivity: 1 }), 'backup');
+  assert.equal(pickStatsToKeep({ allTime: some, lastActivity: 1 }, null), 'local');
+  assert.equal(pickStatsToKeep({ allTime: some, lastActivity: 1 }, { allTime: {}, lastActivity: 99 }), 'local');
+  assert.equal(pickStatsToKeep({ allTime: {}, lastActivity: 1 }, { allTime: {}, lastActivity: 99 }), 'local');
+});
+
+test('mergeUsers adds counters onto existing viewers and creates missing ones', () => {
+  const base = {};
+  bumpUser(base, 'a', 'A', { messages: 5, clips: 1 }, 10);
+  const extra = {};
+  bumpUser(extra, 'a', 'A', { messages: 2, clips: 1 }, 20);
+  bumpUser(extra, 'b', 'B', { messages: 1 }, 5);
+  mergeUsers(base, extra);
+  assert.equal(base.a.messages, 7);
+  assert.equal(base.a.clips, 2);
+  assert.equal(base.a.lastSeen, 20);
+  assert.equal(base.b.messages, 1);
+});
+
+test('topUsers with no limit lists everyone above zero, ignored accounts never appear', () => {
+  const users = {};
+  for (let i = 0; i < 30; i++) bumpUser(users, `u${i}`, `U${i}`, { messages: i }, i);
+  bumpUser(users, 'streamer', 'streamer', { messages: 500 }, 1);
+  const rows = topUsers(users, 'messages', Number.MAX_SAFE_INTEGER, (l) => isIgnoredUser(l));
+  assert.equal(rows.length, 29);
+  assert.equal(rows[0].user.login, 'u29');
+  assert.equal(rows[28].rank, 29);
 });

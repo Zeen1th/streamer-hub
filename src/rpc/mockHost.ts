@@ -29,6 +29,7 @@ const AUTO_REPLY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-auto-reply-settings';
 const CHAT_OVERLAY_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-chat-overlay-settings';
 const CHAT_OVERLAYS_STORAGE_KEY = 'streamer-hub-mock-chat-overlays';
 const OBS_CHAT_SETTINGS_STORAGE_KEY = 'streamer-hub-mock-obs-chat-settings';
+const STATS_BACKUP_STORAGE_KEY = 'streamer-hub-mock-stats-backup';
 const CHAT_OVERLAY_URL = 'http://127.0.0.1:49178/chat-overlay.html';
 const OBS_CHAT_DOCK_URL = 'http://127.0.0.1:49178/obs-chat.html';
 const DEFAULT_CHAT_OVERLAY_SETTINGS: ChatOverlaySettings = createDefaultChatOverlaySettings();
@@ -69,6 +70,44 @@ function migrateLegacyCounters(): Counter[] | null {
     ];
   } catch {
     return null;
+  }
+}
+
+interface MockStatsSnapshot {
+  name: string;
+  kind: 'last' | 'daily' | 'before-reset';
+  modified: string;
+  json: string;
+}
+
+/** The host's stats.json stand-in: lives in its own localStorage key, so clearing the page's stats key still leaves a copy. */
+function readMockStatsBackup(): { main: string | null; snaps: MockStatsSnapshot[] } {
+  try {
+    const raw = localStorage.getItem(STATS_BACKUP_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { main?: string | null; snaps?: MockStatsSnapshot[] };
+      return { main: parsed.main ?? null, snaps: Array.isArray(parsed.snaps) ? parsed.snaps : [] };
+    }
+  } catch {
+    // fall through to empty
+  }
+  return { main: null, snaps: [] };
+}
+
+function writeMockStatsBackup(state: { main: string | null; snaps: MockStatsSnapshot[] }): void {
+  try {
+    localStorage.setItem(STATS_BACKUP_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // storage full
+  }
+}
+
+function countMockUsers(json: string): number {
+  try {
+    const all = (JSON.parse(json) as { allTime?: Record<string, unknown> }).allTime;
+    return all && typeof all === 'object' ? Object.keys(all).length : 0;
+  } catch {
+    return 0;
   }
 }
 
@@ -1014,6 +1053,7 @@ export class MockHost {
         break;
       }
       case Channels.WindowSetZoom:
+      case Channels.WindowSetBackdrop:
         this.respond(request, { ok: true });
         break;
       case Channels.SettingsListBackups: {
@@ -1025,6 +1065,45 @@ export class MockHost {
             { name: 'backups/settings-20261014-210000.json', kind: 'snapshot', modified: hoursAgo(19), counters: 1, replies: 9, sequences: 4, keybinds: 2, bytes: 31_870 },
           ],
         });
+        break;
+      }
+      case Channels.StatsBackupSave: {
+        const payload = request.payload as { json?: string; reason?: 'save' | 'reset' };
+        const state = readMockStatsBackup();
+        if (!payload?.json || payload.json.length > 8 * 1024 * 1024) {
+          this.respond(request, { ok: false });
+          break;
+        }
+        const stamp = new Date().toISOString();
+        if (payload.reason === 'reset') {
+          state.snaps.unshift({ name: `backups/stats-before-reset-${stamp}.json`, kind: 'before-reset', modified: stamp, json: payload.json });
+          state.snaps = [...state.snaps.filter((x) => x.kind === 'before-reset').slice(0, 5), ...state.snaps.filter((x) => x.kind !== 'before-reset')];
+        } else {
+          if (state.main) state.snaps = [{ name: 'stats.json.bak', kind: 'last', modified: stamp, json: state.main }, ...state.snaps.filter((x) => x.kind !== 'last')];
+          state.main = payload.json;
+          const dayName = `backups/stats-${stamp.slice(0, 10).replace(/-/g, '')}.json`;
+          if (countMockUsers(payload.json) > 0) {
+            state.snaps = [{ name: dayName, kind: 'daily', modified: stamp, json: payload.json }, ...state.snaps.filter((x) => x.name !== dayName)];
+          }
+        }
+        writeMockStatsBackup(state);
+        this.respond(request, { ok: true });
+        break;
+      }
+      case Channels.StatsBackupLoad:
+        this.respond(request, { json: readMockStatsBackup().main });
+        break;
+      case Channels.StatsBackupsList:
+        this.respond(request, {
+          backups: readMockStatsBackup()
+            .snaps.map((x) => ({ name: x.name, kind: x.kind, modified: x.modified, users: countMockUsers(x.json), bytes: x.json.length }))
+            .sort((a, b) => b.modified.localeCompare(a.modified)),
+        });
+        break;
+      case Channels.StatsBackupRestore: {
+        const name = (request.payload as { name?: string })?.name;
+        const found = readMockStatsBackup().snaps.find((x) => x.name === name);
+        this.respond(request, { ok: !!found, json: found?.json ?? null, error: found ? undefined : 'BACKUP NOT FOUND' });
         break;
       }
       case Channels.SettingsRestoreBackup:

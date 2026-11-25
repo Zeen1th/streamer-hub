@@ -28,7 +28,9 @@ test('an empty search shows every category in order; a search keeps only matches
 
   const clips = groupSubActions('clip');
   assert.deepEqual(clips.flatMap((g) => g.items.map((i) => i.id)).sort(), ['clip_create', 'obs_clip']);
-  assert.deepEqual(groupSubActions('ban').flatMap((g) => g.items.map((i) => i.id)).includes('moderation'), true);
+  assert.deepEqual(groupSubActions('vip').flatMap((g) => g.items.map((i) => i.id)).includes('moderation'), true);
+  // Ban and Clear chat are no longer offered as sub-actions
+  assert.ok(!SUB_ACTIONS.some((a) => a.id === 'clear_chat' || a.options?.moderationAction === 'ban'));
   assert.deepEqual(groupSubActions('nothing-matches-this'), []);
   // Arabic and category names are searchable too
   assert.ok(groupSubActions('عدّاد').length > 0);

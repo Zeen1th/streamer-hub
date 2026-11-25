@@ -411,12 +411,12 @@ export function ChatterOverridesSection({ rule, update, lang }: ChatterOverrides
               options={
                 isAi
                   ? [
-                      { value: 'instructions', label: lang === 'ar' ? 'رد ذكاء اصطناعي ✨' : '✨ AI Reply' },
-                      { value: 'ignore', label: lang === 'ar' ? 'صامت (تجاهل) 🔇' : '🔇 Silent' },
+                      { value: 'instructions', label: lang === 'ar' ? 'رد بالذكاء الاصطناعي' : 'AI Reply' },
+                      { value: 'ignore', label: lang === 'ar' ? 'صامت (تجاهل)' : 'Silent' },
                     ]
                   : [
                       { value: 'static_reply', label: lang === 'ar' ? 'رد عادي' : 'Normal Text' },
-                      { value: 'ignore', label: lang === 'ar' ? 'صامت (تجاهل) 🔇' : '🔇 Silent' },
+                      { value: 'ignore', label: lang === 'ar' ? 'صامت (تجاهل)' : 'Silent' },
                     ]
               }
               className="text-[11px]"

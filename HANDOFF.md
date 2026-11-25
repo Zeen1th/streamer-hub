@@ -364,6 +364,23 @@ Streamer Hub is a local-first desktop companion for Twitch broadcasters. The sys
 - Home: Leaderboard widget has a **Clips** tab ("Top clippers"), the Live Feed shows "made a clip".
 - Not verified end to end: the real Twitch call (needs a live stream and a reconnect with the new scope).
 
+### 2.14 Features added in v0.4.24 to v0.4.30 (Oct to Nov 2026)
+Short map of where things live; the What's New entries in `src/lib/changelog.ts` describe each release for users.
+- **Several chat commands per trigger** (`src/lib/triggerCommands.ts`), **who can use a chat trigger** (`ActionTrigger.chatPermission`: everyone / subscriber / vip / moderator / broadcaster, checked in `matchesSequenceTrigger` with the sender's roles).
+- **Share export/import** of commands and overlay looks (`core/Storage/ShareBundles.cs`, Settings > System; imports arrive switched off, merge never overwrites).
+- **Stream Pulse follows the real live status** (`src/store/streamStatus.ts`, Helix streams). The streamer, the app's bot and known bots are excluded from leaderboards and Home totals (`isIgnoredUser` in `src/lib/stats.ts`; `statsStore.recordMessage/recordClip/recordRedemption` skip them).
+- **Chat overlay "always show these messages"** (`filters.alwaysShowMessages`).
+- **Command profiles** (`src/store/profileStore.ts`, profiles inside settings.json, the active one mirrored into the top-level lists the host reads) and the **Starter profile** (`src/lib/starterProfile.ts`, seeded once).
+- **Timeout several viewers** from one step (`moderationMaxTargets`), **`!so skip`** (`src/lib/clipSkip.ts`, per Show Clip step: command + who), **Reset everything** (Settings > System, three confirmations; `SettingsStore.ResetToDefaults` keeps logins, backs up settings and the page storage; `index.html` wipes localStorage on the next start via `streamer-hub-reset-pending`).
+- **Host keeps unknown step fields**: `SequenceStep` has `[JsonExtensionData]`. Before v0.4.29 the Smart Timeout shield (`modProtected*`) was silently dropped on save.
+- **Lead moderator**: Twitch has no API to give Lead back after a smart timeout (checked Nov 2026). The app reminds the streamer (`LeadModReminder.tsx`, event `twitch/lead-mod-restore-needed`) and has a **"Lead mods" shield role** (`lead_moderator`, needs `isLeadMod` from chat badges). Optional unofficial give-back: `core/Twitch/TwitchDashboardWindow.cs` (own WebView2 profile in `%LocalAppData%\StreamerHub\TwitchDashboard`, opens Roles Manager off-screen, clicks the row's "+" (Add Role), ticks Lead Moderator, answers Yes to "Add X as a Lead Moderator?"), Settings > Twitch card `LeadModRestoreCard.tsx`, setting `LeadModAutoRestore` off by default. Tested on the real page (Nov 2026); the in-app login window was not tried in the installed app. Breaks if Twitch changes Roles Manager; then the reminder card shows the reason.
+- **Category**: `twitch/search-categories`, `twitch/set-category`; `twitch/update-title` takes an optional `gameId`, so the automatic title (counter title and prepared-reply title, `titleCategory`) switches category in the same Twitch call. Picker: `src/components/ui/CategoryPicker.tsx` (also in the Home title widget, applies at once).
+- **Random chat line** (`chatRandom`, `chatLinesFile`, `src/lib/randomLine.ts` deck without repeats, host `files/read-lines`).
+- **Duel shield never covers the challenger** (`duelGameManager.timeoutUnlessShielded`).
+- **Videos**: picture step plays .mp4/.webm/.mov (`imageVolume`, `imagePlayFullVideo`). **YouTube video requests** (`video_request` step, `src/store/videoRequestStore.ts`, `src/lib/youtubeLink.ts`, `src/lib/videoQueue.ts`, overlay `VideoOverlayScene.tsx` sends `video-ended` back over its websocket). Manual approval by default (`!approve` / `!deny`, Home "Video requests" widget), optional auto-approve, whole video or cut, queue with `!skip`. The queue lives in memory only.
+- **Numbered picture sources** (`src/lib/imageSlots.ts`): new picture steps get `image-overlay.html?slot=N`, older steps stay on the main source; the page connects with `id=<slot>` and the host falls back to the main source when that slot is not open.
+- **Guided tour** (`src/components/tour/`) and **"See how it works" videos** (`src/lib/featureDemos.ts`, rendered by `promo/demos/build.mjs` with HyperFrames from real-UI captures in `promo/capture/`; Arabic only).
+
 ---
 
 ## 3. Communication Channels & RPC Reference
@@ -501,7 +518,43 @@ GitHub Actions will automatically build the Windows binaries, compile the Inno S
 
 ---
 
-## 7. Where the last session ended (v0.4.8 to v0.4.13)
+## 6a. v0.4.31 (Nov 2026): UI and UX redesign
+
+Shipped together with everything 6b lists as waiting (lead mod give-back, developer luck, leaderboard backup/expand).
+- **Navigation**: sidebar is Home, Commands, Chat + a Tools group (Live Votes, Alert Studio); `ActionBar.tsx` removed, single `Titlebar`. Command types are tabs on Commands (`CommandTypeTabs`); Chat has Overlays / Streamer chat tabs (`ChatSectionTabs.tsx`). Keybinds only in Settings. The Activity page became Settings > App > Troubleshooting log (`LogCard.tsx`); the Commands log bar is hidden unless switched on there (`toolStore.logBarVisible`).
+- **Commands**: rows are `CommandCard`s with an on/off `Switch` (replies and sequences; counters show their count), big header with search and accent New command, details panel with `WhenThenCard` (`whenLines`, `stepSentence`) and Edit / Run Test; stream title sits in the empty details panel.
+- **Settings**: sections `connections | appearance | ai | keybinds | backups | app | help` (old ids removed), account header and search in the nav, Windows-style `SettingRow` / `SettingGroup` / `SecondsBox` (`SettingRow.tsx`).
+- **Themes**: only Dark and Fluent (`normalizeTheme` maps old Light/System/Graphite to Dark). Fluent (`fluent-skin.css` + `npm run gen:skin`) is the Windows 11 look: chrome on the native backdrop, `[data-content-layer]` on the app `main`, light accent `#a5b4fc` with dark text, WinUI switches, 4/8 px corners. Window material (Settings > Appearance, Fluent only): Acrylic (default, see-through, with a dark tint under the page), Mica, Mica Alt, via `window/set-backdrop` -> `MainForm.SetBackdrop` (DWMSBT 3/2/4). Mica is opaque by design (Microsoft docs) and all three go solid when the window is not focused.
+- **Theme intro**: `ThemeIntroDialog.tsx` shows once to updaters (not new installs) after What's New and the tour, with a Dark vs Fluent preview that switches the app live.
+- **Other**: Add-step menu lost Clear chat and Ban (old steps keep them), UI emoji replaced by lucide icons, Arabic "المتسلسلات" -> "السلاسل/سلسلة", sidebar fully translated, Arabic order fixes on Home and in When/Then.
+- **Developer luck**: the owner asked twice to hide its Settings card while keeping the feature; declined (the visible status is the condition for the feature). Offered: shrink it to one row, or remove the feature.
+- Concept mockups: claude.ai artifact "Streamer Hub UI Concept" (pages Concept v1 and Fluent).
+
+## 6b. Where the latest session ended (Nov 2026, after v0.4.30)
+
+**Shipped**: v0.4.24 to v0.4.30 (see 2.14). Release flow unchanged (5.2); the release commit message carries the summary.
+
+**On local `main`, committed but NOT pushed or released**
+- `1a1e6df` merge of `feat/lead-mod-dashboard` (the optional Lead Moderator give-back, see 2.14).
+- `ff7a7ee` **developer luck**: when `zeen1_th` plays a coin duel, the odds come from `dev-luck.json` on GitHub `main`, read through the GitHub contents API only at that moment (1 min memory, 1.5 s timeout means normal odds; `src/lib/devLuck.ts`, host `dev-luck/get`). Settings > System shows its status read-only (`DevLuckStatus.tsx`). Toggle with `scripts/dev-luck.ps1 on|off|set N|status` (uses `gh`). `dev-luck.json` starts `enabled: false`; it only exists on GitHub once `main` is pushed. The owner said every user is a friend who knows; it is deliberately not in the changelog.
+
+**Uncommitted in the working tree (built and checked, waiting for "ship")**
+- **Leaderboard backup**: `core/Storage/StatsBackupStore.cs` keeps `%AppData%\StreamerHub\stats.json` (+ `.bak`, 7 daily snapshots, 5 before-reset copies); channels `stats/backup-save|backup-load|backups-list|backup-restore`; the page sends at most every 30 s and on hide; `pickStatsToKeep` restores the host copy when the page storage is lost or older; Settings > Backups "Leaderboards" restore list (`StatsBackups.tsx`); Reset everything moves stats.json aside.
+- The made-up `streamer` login is ignored and purged from stats.
+- Leaderboard **Expand** modal: top 10, then "Show all" (`LeaderboardModal.tsx`, `LeaderboardRows.tsx`).
+- Next release would be **v0.4.31** (leaderboard backup/expand + lead mod give-back option; do not mention developer luck in the changelog).
+
+**Branches**
+- `feat/voice-commands` (worktree `.claude/worktrees/voice-commands`, cut from v0.4.27, unmerged, not live-tested): wake word, Whisper, Voice page, Change category step. Design and plan in `docs/superpowers/` on that branch (copies are untracked in the main checkout). Owner wants next: wake word renamed to **"اروديس" (Arodis)** and a "now speak" sound after the wake word (open question: where the sound plays, since OBS desktop audio would put it on stream). Vosk only knows English words, so Arodis needs sound-alike phrases or a trained openWakeWord model. Merge needs conflict work against v0.4.28+.
+- `feat/lead-mod-dashboard`: already merged into local main (also pushed as a backup branch).
+
+**Loose ends**
+- Nightbot was given Lead Moderator on the owner's channel during the real Roles Manager test; the owner removes it.
+- Untracked `core/out/` is a stray build output folder; safe to delete.
+- Known flaky test: one random duel test in `npm test` fails now and then; rerun.
+- Not live-tested yet: video requests in real OBS (sound/autoplay), numbered picture sources, category switching on a real title update, the dashboard login window, Arabic in the Starter profile.
+
+## 7. Where an earlier session ended (v0.4.8 to v0.4.13)
 
 Shipped in order: If/Else + nested display, duel protected viewers (per-viewer replies), commands table + slim inspector, 110% default scale + native WebView zoom + steady slider, auto-updates + What's New, Run Another Sequence, repeating timers, scrollable studio menus, Undo/Redo, the chat box work (slash commands, emote picker/suggestions, 7TV global, gifts strip), and v0.4.12 (customizable Home dashboard with leaderboards, the Fluent theme with native Mica, shield for Smart Timeout/Timeout/Ban, play-then-shield duels), and v0.4.13 (settings durability, automatic backups and a Restore button). Feature details are in sections 2.6b to 2.6m.
 
@@ -518,8 +571,8 @@ Shipped in order: If/Else + nested display, duel protected viewers (per-viewer r
 - The browser preview (`npm run dev`, mock host) cannot exercise the host: native zoom, the auto-update install, IRC gifts and slash commands against Twitch must be checked in the real app.
 
 **Open ideas / not done**
-- Back up the web side's localStorage (theme, Home layout, leaderboard stats, known chatters) the same way as `settings.json`, e.g. mirror it to the host or add it to the Backups card.
-- Leaderboards only count from the v0.4.12 install; they are not backfilled, and live in localStorage (so they are not in the settings backups).
+- Back up the rest of the web side's localStorage (theme, Home layout, known chatters) the way leaderboards are now mirrored to the host (6b).
+- Leaderboards only count from the v0.4.12 install; they are not backfilled.
 - The Backups restore restarts the app through a hidden PowerShell helper; it was tested on a dev machine only.
 - The gifts strip only shows gifted subs (no bits, resubs, follows or raids) and is not on the viewer overlay.
 - Ctrl+Z covers commands only (not Alert Studio, overlay design, or counters' live counts).

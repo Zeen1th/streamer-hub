@@ -4,6 +4,7 @@ import { t } from '../../../i18n/translations';
 import { rpc } from '../../../rpc';
 import { Channels } from '../../../rpc/contracts';
 import { useSettingsStore } from '../../../store/settingsStore';
+import { suspendStatsBackup } from '../../../store/statsStore';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 
@@ -46,6 +47,8 @@ export function ResetCard() {
         setStep(0);
         return;
       }
+      // The host moved its stats copy aside: the page must not write the old leaderboards back before the restart
+      suspendStatsBackup();
       try {
         localStorage.clear();
         localStorage.setItem(RESET_PENDING_KEY, '1');

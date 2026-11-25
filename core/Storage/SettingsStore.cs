@@ -718,6 +718,8 @@ public sealed class SettingsStore : IDisposable
                     new System.Text.UTF8Encoding(false));
             }
             KeepBeforeRestoreCopy();
+            // The host's copy of the leaderboards goes aside too, or the automatic restore would bring them back
+            new StatsBackupStore(Path.GetDirectoryName(Path.GetFullPath(_filePath)) ?? ".").MoveAsideForReset();
             lock (_lock)
             {
                 var old = _document;

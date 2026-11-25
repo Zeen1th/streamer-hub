@@ -133,25 +133,26 @@ export function projectCommands({
   for (const seq of sequences ?? []) collectCalls(seq.steps, seq.id);
 
   const sequenceRows: CommandRow[] = (sequences ?? []).map((seq) => {
-    let triggerLabel = '🪙 Channel Points';
+    // Plain text only: the row shows an icon per trigger kind next to this label
+    let triggerLabel = 'Channel Points';
     if (Array.isArray(seq.triggers)) {
       if (seq.triggers.length === 0) {
         triggerLabel = '(No Triggers)';
       } else {
         const labels = seq.triggers.map((t) => {
-          if (t.type === 'twitch_raid') return `🔥 Raid (≥${t.minViewers ?? 1})`;
-          if (t.type === 'timer') return `⏱ Every ${formatTimerInterval(t.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES)}`;
+          if (t.type === 'twitch_raid') return `Raid (≥${t.minViewers ?? 1})`;
+          if (t.type === 'timer') return `Every ${formatTimerInterval(t.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES)}`;
           if (t.type === 'twitch_chat') return triggerChatCommands(t).join(' / ') || 'Chat';
-          return t.rewardTitle ? `🪙 ${t.rewardTitle}` : '🪙 Reward';
+          return t.rewardTitle || 'Reward';
         });
         triggerLabel = labels.join(', ');
       }
     } else if (seq.triggerType === 'channel_points') {
-      triggerLabel = seq.rewardTitle ? `🪙 ${seq.rewardTitle}` : '🪙 Channel Points';
+      triggerLabel = seq.rewardTitle || 'Channel Points';
     } else if (seq.triggerType === 'chat') {
       triggerLabel = seq.chatTrigger || 'Chat';
     } else {
-      triggerLabel = `${seq.rewardTitle ? `🪙 ${seq.rewardTitle}` : '🪙'} / ${seq.chatTrigger || 'Chat'}`;
+      triggerLabel = `${seq.rewardTitle || 'Reward'} / ${seq.chatTrigger || 'Chat'}`;
     }
 
     const writes: CommandSink[] = [];

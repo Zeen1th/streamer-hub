@@ -1,9 +1,39 @@
-import { AlertCircle, Bot, Check, Compass, Crown, KeyRound, LogOut, Minus, Monitor, Plus, Radio, RotateCcw, Sparkles, ZoomIn } from 'lucide-react';
+import {
+  AlertCircle,
+  AppWindow,
+  Archive,
+  Bot,
+  Check,
+  CircleHelp,
+  Compass,
+  Crown,
+  Keyboard,
+  KeyRound,
+  Link2,
+  LogOut,
+  MessageSquareText,
+  Minus,
+  Monitor,
+  Newspaper,
+  Palette,
+  Plus,
+  Power,
+  Radio,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Sparkles,
+  SquareStack,
+  Timer,
+  UserRound,
+  ZoomIn,
+  type LucideIcon,
+} from 'lucide-react';
 import { useState } from 'react';
 import { t } from '../../../i18n/translations';
 import { THEME_OPTIONS } from '../../../lib/theme';
 import { isMockMode, rpc } from '../../../rpc';
-import { Channels } from '../../../rpc/contracts';
+import { Channels, type FluentBackdrop } from '../../../rpc/contracts';
 import { useConnectionStore } from '../../../store/connectionStore';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { useToolStore, type SettingsSection } from '../../../store/toolStore';
@@ -15,9 +45,11 @@ import { Input } from '../../ui/Input';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Slider } from '../../ui/Slider';
 import { Switch } from '../../ui/Switch';
-import { TriggerGlobalSettings } from '../auto-replies/TriggerGlobalSettings';
 import { BackupsCard } from './BackupsCard';
 import { ShareCard } from './ShareCard';
+import { LogCard } from './LogCard';
+import { SecondsBox, SettingGroup, SettingRow } from './SettingRow';
+import { useAutoReplyStore } from '../../../store/autoReplyStore';
 import { ResetCard } from './ResetCard';
 import { DevLuckStatus } from './DevLuckStatus';
 import { LeadModRestoreCard } from './LeadModRestoreCard';
@@ -70,54 +102,134 @@ export function SettingsView() {
   const botLogin = useConnectionStore((s) => s.botLogin);
   const activeChatSender = useConnectionStore((s) => s.activeChatSender);
   const activeChatSenderLogin = useConnectionStore((s) => s.activeChatSenderLogin);
+  const broadcasterAvatarUrl = useConnectionStore((s) => s.broadcasterAvatarUrl);
+  const fluentBackdrop = useSettingsStore((s) => s.fluentBackdrop);
+  const setFluentBackdrop = useSettingsStore((s) => s.setFluentBackdrop);
+  const [search, setSearch] = useState('');
+  const aiGlobal = useAutoReplyStore((s) => s.globalSettings);
+  const updateAiGlobal = useAutoReplyStore((s) => s.updateGlobalSettings);
 
   const mockMode = isMockMode;
   const lang = language === 'ar' ? 'ar' : 'en';
 
   const guideSteps = [1, 2, 3, 4, 5, 6, 7].map((n) => t(lang, `settings.guide${n}`));
 
-  const sections: { id: SettingsSection; label: string }[] = [
-    { id: 'general', label: t(lang, 'settings.sectionGeneral') },
-    { id: 'system', label: t(lang, 'settings.sectionWindow') },
-    { id: 'keybinds', label: lang === 'ar' ? 'الاختصارات' : 'Keybinds' },
-    { id: 'twitch', label: t(lang, 'settings.sectionTwitch') },
-    { id: 'obs', label: t(lang, 'settings.sectionObs') },
-    { id: 'ai', label: t(lang, 'settings.sectionAi') },
-    { id: 'guide', label: t(lang, 'settings.sectionGuide') },
+  const sections: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
+    { id: 'connections', label: t(lang, 'settings.secConnections'), icon: Link2 },
+    { id: 'appearance', label: t(lang, 'settings.secAppearance'), icon: Palette },
+    { id: 'ai', label: t(lang, 'settings.secAi'), icon: MessageSquareText },
+    { id: 'keybinds', label: t(lang, 'settings.secKeybinds'), icon: Keyboard },
+    { id: 'backups', label: t(lang, 'settings.secBackups'), icon: Archive },
+    { id: 'app', label: t(lang, 'settings.secApp'), icon: AppWindow },
+    { id: 'help', label: t(lang, 'settings.secHelp'), icon: CircleHelp },
   ];
 
+  // What the search box can find: every page plus the main setting on it, in the current language
+  const searchIndex: { section: SettingsSection; label: string }[] = [
+    ...sections.map((s) => ({ section: s.id, label: s.label })),
+    { section: 'connections', label: t(lang, 'settings.streamerAccount') },
+    { section: 'connections', label: t(lang, 'settings.botAccount') },
+    { section: 'connections', label: t(lang, 'settings.sectionObs') },
+    { section: 'connections', label: t(lang, 'settings.activeSender') },
+    { section: 'appearance', label: t(lang, 'settings.language') },
+    { section: 'appearance', label: t(lang, 'settings.theme') },
+    { section: 'appearance', label: t(lang, 'settings.uiScaleTitle') },
+    { section: 'ai', label: t(lang, 'settings.aiProviders') },
+    { section: 'ai', label: t(lang, 'settings.aiProvider') },
+    { section: 'app', label: t(lang, 'settings.closeToTray') },
+    { section: 'app', label: t(lang, 'settings.startup') },
+    { section: 'app', label: t(lang, 'updates.autoLabel') },
+    { section: 'app', label: t(lang, 'settings.logTitle') },
+    { section: 'help', label: t(lang, 'settings.guide') },
+    { section: 'help', label: t(lang, 'settings.takeTour') },
+    { section: 'help', label: t(lang, 'settings.whatsNewRow') },
+  ];
+  const needle = search.trim().toLowerCase();
+  const results = needle ? searchIndex.filter((entry) => entry.label.toLowerCase().includes(needle)).slice(0, 8) : [];
+  const current = sections.find((section) => section.id === activeSection) ?? sections[0];
+  const accountName = twitchConnected && twitchChannel ? twitchChannel.replace(/^#+/, '') : null;
+
   return (
-    <section className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] bg-[#23282e]">
-      <nav aria-label="Settings sections" className="border-e border-white/[0.08] bg-[#1a2228] py-3" role="tree">
-        <div className="ui-label px-3.5 pb-2 font-bold text-[#9aa3af]">{t(lang, 'settings.title')}</div>
-        <div className="space-y-0.5">
-          {sections.map((section) => {
+    <section className="settings-page grid min-h-0 flex-1 grid-cols-[264px_minmax(0,1fr)] bg-[#23282e]">
+      <nav aria-label={t(lang, 'settings.title')} className="settings-nav flex min-h-0 flex-col gap-1 overflow-y-auto border-e border-white/[0.08] bg-[#1a2228] px-3 pb-4 pt-4">
+        {/* Account, like the profile header in Windows Settings */}
+        <button
+          type="button"
+          onClick={() => setActiveSection('connections')}
+          className="mb-3 flex items-center gap-3 rounded-[6px] px-2 py-2 text-start transition-colors hover:bg-white/[0.05]"
+        >
+          <span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-full bg-[#2f2a45] font-sans text-lg font-semibold text-white">
+            {broadcasterAvatarUrl ? <img src={broadcasterAvatarUrl} alt="" className="size-full object-cover" /> : (accountName?.[0]?.toUpperCase() ?? '?')}
+          </span>
+          <span className="min-w-0">
+            <span dir="auto" className="block truncate font-sans text-[14px] font-semibold text-ink">{accountName ?? t(lang, 'workspace.notConnected')}</span>
+            <span className="block truncate font-sans text-[12px] text-muted">
+              {twitchConnected ? `${t(lang, 'settings.groupTwitch')} · ${t(lang, 'nav.online')}` : t(lang, 'workspace.connectTwitch')}
+            </span>
+          </span>
+        </button>
+
+        <label className="relative mb-2 block">
+          <span className="sr-only">{t(lang, 'settings.search')}</span>
+          <Input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t(lang, 'settings.search')}
+            className="settings-search h-[32px] pe-8 text-[13px]"
+          />
+          <Search size={14} aria-hidden className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2 text-muted" />
+        </label>
+
+        {needle ? (
+          results.length ? (
+            results.map((entry, index) => (
+              <button
+                key={`${entry.section}-${index}`}
+                type="button"
+                onClick={() => {
+                  setActiveSection(entry.section);
+                  setSearch('');
+                }}
+                className="flex flex-col items-start rounded-[6px] px-3 py-2 text-start transition-colors hover:bg-white/[0.05]"
+              >
+                <span className="font-sans text-[13px] text-ink">{entry.label}</span>
+                <span className="font-sans text-[11.5px] text-muted">{sections.find((s) => s.id === entry.section)?.label}</span>
+              </button>
+            ))
+          ) : (
+            <p className="px-3 py-2 font-sans text-[12.5px] text-muted">{t(lang, 'settings.noResults')}</p>
+          )
+        ) : (
+          sections.map((section) => {
             const isActive = activeSection === section.id;
+            const Icon = section.icon;
             return (
               <button
                 key={section.id}
                 type="button"
-                role="treeitem"
-                aria-selected={isActive}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => setActiveSection(section.id)}
-                className={`relative flex h-[32px] w-[calc(100%-16px)] mx-2 items-center px-2.5 rounded-[6px] text-start font-sans text-[12.5px] font-medium transition-colors ${isActive ? 'bg-[#2A3138] text-white font-bold shadow-xs border border-white/[0.12]' : 'text-[#9aa3af] hover:bg-white/[0.05] hover:text-[#f0f3f7]'}`}
+                className={`settings-nav-item relative flex h-[36px] items-center gap-3 rounded-[6px] ps-4 pe-3 text-start font-sans text-[13.5px] transition-colors ${
+                  isActive
+                    ? 'bg-[#2A3138] font-semibold text-white before:absolute before:start-0 before:top-[10px] before:h-4 before:w-[3px] before:rounded-full before:bg-accent'
+                    : 'text-[#c3cad3] hover:bg-white/[0.05] hover:text-[#f0f3f7]'
+                }`}
               >
-                <span>{section.label}</span>
+                <Icon size={16} aria-hidden className="shrink-0" />
+                <span className="truncate">{section.label}</span>
               </button>
             );
-          })}
-        </div>
+          })
+        )}
       </nav>
 
       <div className="app-scroll min-h-0 overflow-auto">
-        <div className="w-[680px] max-w-full px-7 py-6">
-          <h1 className="font-sans text-[22px] font-bold tracking-tight text-ink">
-            {sections.find((section) => section.id === activeSection)?.label}
-          </h1>
-          <div className="mb-6 mt-3 h-px bg-rule" />
+        <div className="w-[820px] max-w-full px-8 pb-10 pt-6">
+          <h1 className="mb-6 font-sans text-[26px] font-semibold tracking-tight text-ink">{current.label}</h1>
 
-      {/* SECTION 1: General & Appearance */}
-      {activeSection === 'general' && (
+      {/* Appearance */}
+      {activeSection === 'appearance' && (
         <section className="space-y-6">
           <div className="flex flex-col gap-6">
             {/* Language Selection */}
@@ -141,7 +253,7 @@ export function SettingsView() {
               <p className="mb-3 font-sans text-xs text-muted">
                 {t(lang, 'settings.themeHint')}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {THEME_OPTIONS.map((opt) => {
                   const isSelected = theme === opt.id;
                   return (
@@ -185,6 +297,26 @@ export function SettingsView() {
                 })}
               </div>
             </Card>
+
+            {/* Fluent only: which Windows 11 material sits behind the window */}
+            {theme === 'fluent' && (
+              <Card title={t(lang, 'settings.material')}>
+                <p className="mb-3 font-sans text-xs text-muted">{t(lang, 'settings.materialHint')}</p>
+                <SegmentedControl
+                  name="fluent-material"
+                  value={fluentBackdrop}
+                  options={[
+                    { value: 'acrylic', label: t(lang, 'settings.materialAcrylic') },
+                    { value: 'mica', label: t(lang, 'settings.materialMica') },
+                    { value: 'mica-alt', label: t(lang, 'settings.materialMicaAlt') },
+                  ]}
+                  onChange={(value) => setFluentBackdrop(value as FluentBackdrop)}
+                />
+                <p className="mt-3 font-sans text-[12px] leading-relaxed text-muted">
+                  {t(lang, fluentBackdrop === 'acrylic' ? 'settings.materialAcrylicHint' : fluentBackdrop === 'mica-alt' ? 'settings.materialMicaAltHint' : 'settings.materialMicaHint')}
+                </p>
+              </Card>
+            )}
 
             {/* Display & UI Scaling */}
             <Card title={t(lang, 'settings.uiScaleTitle')}>
@@ -311,68 +443,27 @@ export function SettingsView() {
         </section>
       )}
 
-      {/* SECTION 2: System & Window Behavior */}
-      {activeSection === 'system' && (
-        <section className="space-y-6">
-          <Card>
-            <div className="space-y-6">
-              {/* Close to Tray Toggle */}
-              <div className="flex items-center justify-between">
-                <div className="flex flex-col pe-4">
-                  <span className="font-sans text-sm font-bold uppercase tracking-[0.08em] text-ink">
-                    {t(lang, 'settings.closeToTray')}
-                  </span>
-                  <span className="mt-1 text-xs text-ink/60 leading-relaxed">
-                    {t(lang, 'settings.closeToTrayHint')}
-                  </span>
-                </div>
-                <Switch
-                  checked={closeToTray}
-                  onChange={(enabled) => setCloseToTray(enabled)}
-                  label={t(lang, 'settings.closeToTray')}
-                />
-              </div>
+      {/* App: how the app runs on Windows, updates and troubleshooting */}
+      {activeSection === 'app' && (
+        <section className="space-y-7">
+          <SettingGroup title={t(lang, 'settings.groupWindows')}>
+            <SettingRow icon={<Power size={18} />} title={t(lang, 'settings.startup')} description={t(lang, 'settings.startupHint')}>
+              <Switch checked={startupEnabled} onChange={(enabled) => setStartupEnabled(enabled)} label={t(lang, 'settings.startup')} />
+            </SettingRow>
+            <SettingRow icon={<SquareStack size={18} />} title={t(lang, 'settings.closeToTray')} description={t(lang, 'settings.closeToTrayHint')}>
+              <Switch checked={closeToTray} onChange={(enabled) => setCloseToTray(enabled)} label={t(lang, 'settings.closeToTray')} />
+            </SettingRow>
+          </SettingGroup>
 
-              {/* Launch on Startup Toggle */}
-              <div className="flex items-center justify-between border-t border-ink/10 pt-5">
-                <div className="flex flex-col pe-4">
-                  <span className="font-sans text-sm font-bold uppercase tracking-[0.08em] text-ink">
-                    {t(lang, 'settings.startup')}
-                  </span>
-                  <span className="mt-1 text-xs text-ink/60 leading-relaxed">
-                    {t(lang, 'settings.startupHint')}
-                  </span>
-                </div>
-                <Switch
-                  checked={startupEnabled}
-                  onChange={(enabled) => setStartupEnabled(enabled)}
-                  label={t(lang, 'settings.startup')}
-                />
-              </div>
-            </div>
-          </Card>
-          <ShareCard />
-          <BackupsCard />
-          <DevLuckStatus />
-          <ResetCard />
-          <Card title={t(lang, 'updates.settingsTitle')}>
-            <div className="space-y-3">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="font-sans text-xs font-semibold text-ink">{t(lang, 'updates.autoLabel')}</div>
-                  <p className="mt-1 font-sans text-[11px] leading-relaxed text-muted">{t(lang, 'updates.autoHint')}</p>
-                </div>
-                <Switch
-                  size="settings"
-                  checked={autoUpdate}
-                  onChange={setAutoUpdate}
-                  label={t(lang, 'updates.autoLabel')}
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-3 border-t border-white/[0.08] pt-3">
-                <span className="font-mono text-xs text-muted">
-                  {t(lang, 'updates.currentVersion')}: v{currentVersion}
-                </span>
+          <SettingGroup title={t(lang, 'settings.groupUpdates')}>
+            <SettingRow icon={<RefreshCw size={18} />} title={t(lang, 'updates.autoLabel')} description={t(lang, 'updates.autoHint')}>
+              <Switch checked={autoUpdate} onChange={setAutoUpdate} label={t(lang, 'updates.autoLabel')} />
+            </SettingRow>
+            <SettingRow
+              icon={<Newspaper size={18} />}
+              title={t(lang, 'settings.checkUpdatesRow')}
+              description={updateCheckStatus ?? `${t(lang, 'updates.currentVersion')}: v${currentVersion}`}
+            >
                 <Button
                   size="sm"
                   variant="outline"
@@ -390,32 +481,36 @@ export function SettingsView() {
                 >
                   {t(lang, 'updates.checkNow')}
                 </Button>
-                <Button size="sm" variant="outline" onClick={openWhatsNew}>
-                  {t(lang, 'updates.showWhatsNew')}
-                </Button>
-                {updateCheckStatus && <span role="status" className="font-sans text-xs text-muted">{updateCheckStatus}</span>}
-              </div>
-            </div>
-          </Card>
-          <Card title={t(lang, 'settings.updateTestTitle')}>
-            <div className="space-y-3">
-              <p className="font-sans text-xs leading-relaxed text-muted">{t(lang, 'settings.updateTestHint')}</p>
-              <div className="flex items-center gap-3">
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    const ready = await simulateUpdate();
-                    setUpdateTestStatus(
-                      ready ? t(lang, 'settings.updateTestReady') : t(lang, 'settings.updateTestUnavailable'),
-                    );
-                  }}
-                >
-                  {t(lang, 'settings.updateTestButton')}
-                </Button>
-                {updateTestStatus && <span role="status" className="font-sans text-xs text-muted">{updateTestStatus}</span>}
-              </div>
-            </div>
-          </Card>
+            </SettingRow>
+            <SettingRow
+              icon={<RotateCcw size={18} />}
+              title={t(lang, 'settings.updateTestTitle')}
+              description={updateTestStatus ?? t(lang, 'settings.updateTestHint')}
+            >
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  const ready = await simulateUpdate();
+                  setUpdateTestStatus(ready ? t(lang, 'settings.updateTestReady') : t(lang, 'settings.updateTestUnavailable'));
+                }}
+              >
+                {t(lang, 'settings.updateTestButton')}
+              </Button>
+            </SettingRow>
+          </SettingGroup>
+
+          <LogCard lang={lang} />
+          <DevLuckStatus />
+        </section>
+      )}
+
+      {/* Backups & sharing */}
+      {activeSection === 'backups' && (
+        <section className="space-y-6">
+          <ShareCard />
+          <BackupsCard />
+          <ResetCard />
         </section>
       )}
 
@@ -425,367 +520,234 @@ export function SettingsView() {
         </section>
       )}
 
-            {/* SECTION 3: Twitch & Bot Connection */}
-      {activeSection === 'twitch' && (
+      {/* Connections: Twitch, the bot account, lead moderators and OBS */}
+      {activeSection === 'connections' && (
         <section className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {/* Main Streamer Account */}
-            <Card
-              title={
-                <div className="flex items-center gap-2">
-                  <Radio size={16} className="text-primary" />
-                  <span>{t(lang, 'settings.streamerAccount')}</span>
-                </div>
+          <h2 className="mb-3 font-sans text-[13.5px] font-semibold text-ink">{t(lang, 'settings.groupTwitch')}</h2>
+          <SettingGroup>
+            {/* Broadcaster account */}
+            <SettingRow
+              icon={<Radio size={18} />}
+              title={t(lang, 'settings.streamerAccount')}
+              description={
+                twitchConnected
+                  ? `${twitchChannel ? `@${twitchChannel}` : t(lang, 'settings.connected')} · ${t(lang, 'settings.builtInAppHint')}`
+                  : t(lang, 'settings.builtInAppHint')
               }
             >
-              <div className="space-y-4">
-                <div className="border border-ink/20 bg-surface px-4 py-3">
-                  <div className="font-sans text-xs font-bold uppercase tracking-[0.18em] text-ink/70">
-                    {t(lang, 'settings.builtInApp')}
-                  </div>
-                  <div className="mt-1 font-sans text-xs text-ink/75">
-                    {t(lang, 'settings.builtInAppHint')}
-                  </div>
-                </div>
+              {twitchConnected && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title={t(lang, 'settings.forget')}
+                  onClick={() => rpc.invoke(Channels.TwitchForget).catch(() => undefined)}
+                >
+                  <LogOut size={13} />
+                  {t(lang, 'settings.forget')}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant={twitchConnected ? 'outline' : 'primary'}
+                disabled={mockMode}
+                title={mockMode ? t(lang, 'settings.browserPreview') : t(lang, 'settings.connect')}
+                onClick={() => rpc.invoke(Channels.TwitchAuthorize).catch(() => undefined)}
+              >
+                <KeyRound size={13} />
+                {twitchConnected ? (lang === 'ar' ? 'إعادة ربط' : 'Reconnect') : t(lang, 'settings.connect')}
+              </Button>
+            </SettingRow>
 
-                <div className="flex items-center justify-between border-t border-rule pt-3">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`size-2.5 ${
-                        twitchConnected ? 'bg-emerald-500' : 'bg-ink/30'
-                      }`}
-                    />
-                    <span className="font-sans text-xs font-bold uppercase tracking-[0.1em] text-muted">
-                      {twitchConnected
-                        ? twitchChannel
-                          ? `@${twitchChannel}`
-                          : t(lang, 'settings.connected')
-                        : t(lang, 'settings.offline')}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {twitchConnected && (
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        title={t(lang, 'settings.forget')}
-                        onClick={() => rpc.invoke(Channels.TwitchForget).catch(() => undefined)}
-                      >
-                        <LogOut size={13} />
-                        {t(lang, 'settings.forget')}
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      disabled={mockMode}
-                      title={mockMode ? t(lang, 'settings.browserPreview') : t(lang, 'settings.connect')}
-                      onClick={() => rpc.invoke(Channels.TwitchAuthorize).catch(() => undefined)}
-                    >
-                      <KeyRound size={13} />
-                      {twitchConnected
-                        ? lang === 'ar'
-                          ? 'إعادة ربط'
-                          : 'Reconnect'
-                        : t(lang, 'settings.connect')}
+            {/* Bot account: off by default; its details open below when it is on */}
+            <SettingRow icon={<Bot size={18} />} title={t(lang, 'settings.botAccountUse')} description={t(lang, 'settings.botAccountHint')}>
+              <Switch checked={botAccountEnabled} onChange={(enabled) => setBotAccountEnabled(enabled)} label={t(lang, 'settings.botAccountUse')} />
+            </SettingRow>
+
+            {botAccountEnabled && (
+              <>
+                <SettingRow
+                  icon={<span className={`block size-2.5 rounded-full ${botConnected ? 'bg-emerald-500' : 'bg-ink/30'}`} />}
+                  title={t(lang, 'settings.botAccount')}
+                  description={
+                    botConnected
+                      ? botLogin
+                        ? `@${botLogin}`
+                        : lang === 'ar'
+                          ? 'البوت متصل'
+                          : 'Bot connected'
+                      : lang === 'ar'
+                        ? 'غير متصل'
+                        : 'Offline'
+                  }
+                >
+                  {botConnected && (
+                    <Button variant="outline" size="sm" onClick={() => rpc.invoke(Channels.TwitchBotForget).catch(() => undefined)}>
+                      <LogOut size={13} />
+                      {lang === 'ar' ? 'إزالة' : 'Remove'}
                     </Button>
-                  </div>
-                </div>
-              </div>
-            </Card>
+                  )}
+                  <Button size="sm" disabled={mockMode} onClick={() => rpc.invoke(Channels.TwitchBotAuthorize).catch(() => undefined)}>
+                    <Bot size={13} />
+                    {t(lang, 'settings.botAccountConnect')}
+                  </Button>
+                </SettingRow>
 
-            {/* Bot / Moderator Account */}
-            <Card
-              title={
-                <div className="flex items-center gap-2">
-                  <Bot size={16} className="text-primary" />
-                  <span>{t(lang, 'settings.botAccount')}</span>
-                </div>
-              }
-            >
-              <div className="space-y-4">
-                <p className="font-sans text-xs text-ink/65">
-                  {t(lang, 'settings.botAccountHint')}
-                </p>
+                <SettingRow
+                  icon={
+                    activeChatSender === 'bot' ? (
+                      <Bot size={18} className="text-emerald-400" />
+                    ) : preferredChatSender === 'bot' && !botConnected ? (
+                      <AlertCircle size={18} className="text-amber-400" />
+                    ) : (
+                      <Crown size={18} />
+                    )
+                  }
+                  title={t(lang, 'settings.activeSender')}
+                  description={
+                    activeChatSender === 'bot'
+                      ? t(lang, 'settings.senderBotActive', { name: activeChatSenderLogin || botLogin || 'Bot' })
+                      : preferredChatSender === 'bot' && !botConnected
+                        ? t(lang, 'settings.senderBotOfflineFallback', { name: twitchChannel || 'Broadcaster' })
+                        : t(lang, 'settings.senderBroadcasterActive', { name: activeChatSenderLogin || twitchChannel || 'Broadcaster' })
+                  }
+                >
+                  <SegmentedControl
+                    value={preferredChatSender}
+                    onChange={(val) => setPreferredChatSender(val as 'bot' | 'broadcaster')}
+                    options={[
+                      { value: 'bot', label: t(lang, 'settings.senderBot') },
+                      { value: 'broadcaster', label: t(lang, 'settings.senderBroadcaster') },
+                    ]}
+                  />
+                </SettingRow>
 
-                <div className="flex items-center justify-between border-t border-ink/10 pt-3">
-                  <div className="space-y-0.5">
-                    <span className="font-sans text-xs font-bold uppercase tracking-[0.08em] text-ink">
-                      {t(lang, 'settings.botAccountUse')}
-                    </span>
-                    <p className="font-sans text-xs text-ink/65">
-                      {t(lang, 'settings.botAccountHint')}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (!botAccountEnabled) {
-                          setBotAccountEnabled(true);
-                        }
-                        rpc.invoke(Channels.TwitchBotSimulate).catch(() => undefined);
-                      }}
-                      className="gap-1 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
-                      title="Toggle simulated example bot for testing features and account switching"
-                    >
-                      <Sparkles size={13} className="text-amber-400" />
-                      <span>
-                        {botConnected && botLogin === 'ExampleBot'
-                          ? t(lang, 'settings.disconnectExampleBot')
-                          : t(lang, 'settings.debugExampleBot')}
-                      </span>
-                    </Button>
-                    <Switch
-                      checked={botAccountEnabled}
-                      onChange={(enabled) => setBotAccountEnabled(enabled)}
-                      label={t(lang, 'settings.botAccountUse')}
-                    />
-                  </div>
-                </div>
-
-                {botAccountEnabled && (
-                  <>
-                    <div className="flex items-center justify-between border-t border-rule pt-3">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`size-2.5 rounded-full ${
-                            botConnected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-ink/30'
-                          }`}
-                        />
-                        <span className="font-sans text-xs font-bold uppercase tracking-[0.1em] text-muted">
-                          {botConnected
-                            ? botLogin
-                              ? `@${botLogin}`
-                              : lang === 'ar'
-                                ? 'البوت متصل'
-                                : 'Bot connected'
-                            : lang === 'ar'
-                              ? 'غير متصل'
-                              : 'Offline'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {botConnected && (
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => rpc.invoke(Channels.TwitchBotForget).catch(() => undefined)}
-                          >
-                            <LogOut size={13} />
-                            {lang === 'ar' ? 'إزالة' : 'Remove'}
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          disabled={mockMode}
-                          onClick={() => rpc.invoke(Channels.TwitchBotAuthorize).catch(() => undefined)}
-                        >
-                          <Bot size={13} />
-                          {t(lang, 'settings.botAccountConnect')}
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Sender Selection */}
-                    <div className="space-y-2 border-t border-rule pt-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-sans text-xs font-bold uppercase tracking-[0.08em] text-ink">
-                          {t(lang, 'settings.activeSender')}
-                        </span>
-                      </div>
-                      <p className="font-sans text-xs text-ink/65">
-                        {t(lang, 'settings.activeSenderHint')}
-                      </p>
-                      <SegmentedControl
-                        value={preferredChatSender}
-                        onChange={(val) => setPreferredChatSender(val as 'bot' | 'broadcaster')}
-                        options={[
-                          {
-                            value: 'bot',
-                            label: botLogin ? `@${botLogin} (${t(lang, 'settings.senderBot')})` : t(lang, 'settings.senderBot'),
-                          },
-                          {
-                            value: 'broadcaster',
-                            label: twitchChannel ? `@${twitchChannel} (${t(lang, 'settings.senderBroadcaster')})` : t(lang, 'settings.senderBroadcaster'),
-                          },
-                        ]}
-                      />
-                    </div>
-
-                    {/* Active Sender Visual Indicator Banner */}
-                    <div
-                      className={`rounded border px-3 py-2.5 text-xs ${
-                        activeChatSender === 'bot'
-                          ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300'
-                          : preferredChatSender === 'bot' && !botConnected
-                            ? 'border-amber-500/30 bg-amber-950/20 text-amber-300'
-                            : 'border-primary/30 bg-primary/10 text-ink'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {activeChatSender === 'bot' ? (
-                          <Bot size={15} className="shrink-0 text-emerald-400" />
-                        ) : preferredChatSender === 'bot' && !botConnected ? (
-                          <AlertCircle size={15} className="shrink-0 text-amber-400" />
-                        ) : (
-                          <Crown size={15} className="shrink-0 text-primary" />
-                        )}
-                        <span className="font-semibold">
-                          {activeChatSender === 'bot'
-                            ? t(lang, 'settings.senderBotActive', { name: activeChatSenderLogin || botLogin || 'Bot' })
-                            : preferredChatSender === 'bot' && !botConnected
-                              ? t(lang, 'settings.senderBotOfflineFallback', { name: twitchChannel || 'Broadcaster' })
-                              : t(lang, 'settings.senderBroadcasterActive', { name: activeChatSenderLogin || twitchChannel || 'Broadcaster' })}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </Card>
-          </div>
+                {/* Lets the developer try bot features without a second Twitch account */}
+                <SettingRow icon={<Sparkles size={18} />} title={t(lang, 'settings.debugExampleBot')} description={t(lang, 'settings.exampleBotHint')}>
+                  <Button variant="ghost" size="sm" onClick={() => rpc.invoke(Channels.TwitchBotSimulate).catch(() => undefined)}>
+                    {botConnected && botLogin === 'ExampleBot' ? t(lang, 'settings.disconnectExampleBot') : t(lang, 'settings.debugExampleBot')}
+                  </Button>
+                </SettingRow>
+              </>
+            )}
+          </SettingGroup>
           <LeadModRestoreCard />
-        </section>
-      )}
-
-      {/* SECTION: OBS Studio Integration */}
-      {activeSection === 'obs' && (
-        <section className="space-y-6">
+          <h2 className="mb-3 pt-2 font-sans text-[13.5px] font-semibold text-ink">{t(lang, 'settings.groupObs')}</h2>
           <ObsSettings />
         </section>
       )}
 
-      {/* SECTION 4: AI & Intelligence Providers */}
+      {/* Chat & AI */}
       {activeSection === 'ai' && (
         <section className="space-y-6">
-          <TriggerGlobalSettings lang={lang} />
-          <Card title={t(lang, 'settings.aiProviders')}>
-            <div className="space-y-5">
-              <div className="flex items-start gap-3 border border-ink/20 bg-surface px-4 py-3">
-                <Sparkles size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />
-                <div>
-                  <div className="font-sans text-xs font-semibold text-ink">
-                    {t(lang, 'settings.aiProvidersHint')}
-                  </div>
-                  <div className="mt-1 font-sans text-[11px] leading-relaxed text-ink/65">
-                    {t(lang, 'settings.openRouterPrivacy')}
-                  </div>
-                </div>
-              </div>
+          <SettingGroup title={t(lang, 'settings.groupAiLimits')}>
+            <SettingRow icon={<Timer size={18} />} title={t(lang, 'settings.aiCooldownRow')} description={t(lang, 'settings.aiCooldownRowHint')}>
+              <SecondsBox
+                value={aiGlobal.globalAiCooldownSeconds}
+                onChange={(seconds) => updateAiGlobal({ globalAiCooldownSeconds: seconds })}
+                label={t(lang, 'settings.aiCooldownRow')}
+              />
+            </SettingRow>
+            <SettingRow icon={<UserRound size={18} />} title={t(lang, 'settings.aiUserCooldownRow')} description={t(lang, 'settings.aiUserCooldownRowHint')}>
+              <SecondsBox
+                value={aiGlobal.globalAiUserCooldownSeconds}
+                onChange={(seconds) => updateAiGlobal({ globalAiUserCooldownSeconds: seconds })}
+                label={t(lang, 'settings.aiUserCooldownRow')}
+              />
+            </SettingRow>
+          </SettingGroup>
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                {/* Provider Selection */}
-                <div className="min-w-0 flex-1">
-                  <div className="font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                    {t(lang, 'settings.aiProvider')}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5" role="group">
-                    {(['openrouter', 'groq'] as const).map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        className={`cursor-pointer select-none border px-3.5 py-2 font-sans text-xs font-bold uppercase tracking-[0.08em] ${
-                          provider === option
-                            ? 'border-primary bg-primary text-on-primary'
-                            : 'border-ink/25 bg-surface-2 text-ink/70 hover:border-ink/50 hover:bg-ink/5'
-                        }`}
-                        onClick={() => {
-                          setProvider(option);
-                          setApiKey('');
-                          setKeyStatus(null);
-                        }}
-                      >
-                        {option === 'openrouter' ? 'OpenRouter' : 'Groq (Ultra-Fast)'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Key Input */}
-                <label className="block min-w-0 flex-1 font-sans text-xs font-bold uppercase tracking-[0.12em] text-ink/70">
-                  {provider === 'groq' ? t(lang, 'settings.groqKey') : t(lang, 'settings.openRouterKey')}
-                  <Input
-                    className="mt-2"
-                    dir="ltr"
-                    type="password"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    placeholder={
-                      (provider === 'groq' ? groqConfigured : openRouterConfigured)
-                        ? '••••••••••••••••••••'
-                        : provider === 'groq'
-                          ? 'gsk_…'
-                          : 'sk-or-v1-…'
-                    }
-                  />
-                </label>
-
-                {/* Action Buttons */}
-                <div className="flex gap-2">
-                  <Button
-                    onClick={async () => {
-                      const ok = await saveOpenRouterKey(provider, apiKey);
-                      setKeyStatus(
-                        ok ? t(lang, 'settings.openRouterSaved') : t(lang, 'settings.openRouterFailed'),
-                      );
-                      if (ok) setApiKey('');
-                    }}
-                  >
-                    {t(lang, 'settings.openRouterSave')}
-                  </Button>
-                  {(provider === 'groq' ? groqConfigured : openRouterConfigured) && (
-                    <Button
-                      variant="danger"
-                      onClick={async () => {
-                        const ok = await removeOpenRouterKey(provider);
-                        setKeyStatus(
-                          ok
-                            ? t(lang, 'settings.openRouterRemoved')
-                            : t(lang, 'settings.openRouterFailed'),
-                        );
-                      }}
-                    >
-                      {t(lang, 'settings.openRouterRemove')}
-                    </Button>
-                  )}
-                </div>
-              </div>
-
-              {/* Configured Status */}
-              <div className="flex items-center gap-2 font-sans text-xs font-semibold uppercase tracking-[0.12em] text-ink/60">
-                <span
-                  className={`size-2 ${
-                    (provider === 'groq' ? groqConfigured : openRouterConfigured)
-                      ? 'bg-emerald-500'
-                      : 'bg-ink/25'
-                  }`}
-                />
-                {(provider === 'groq' ? groqConfigured : openRouterConfigured)
-                  ? t(lang, 'settings.openRouterConfigured')
-                  : t(lang, 'settings.openRouterNotConfigured')}
-                {keyStatus && (
-                  <span className="font-normal normal-case tracking-normal text-ink/70">
-                    · {keyStatus}
-                  </span>
-                )}
-              </div>
-            </div>
-          </Card>
+          <SettingGroup title={t(lang, 'settings.groupAiProvider')}>
+            <SettingRow
+              icon={<Sparkles size={18} />}
+              title={t(lang, 'settings.aiProvider')}
+              description={t(lang, 'settings.aiProvidersHint')}
+            >
+              <SegmentedControl
+                name="ai-provider"
+                className="w-[210px]"
+                value={provider}
+                options={[
+                  { value: 'openrouter', label: 'OpenRouter' },
+                  { value: 'groq', label: 'Groq' },
+                ]}
+                onChange={(value) => {
+                  setProvider(value as 'openrouter' | 'groq');
+                  setApiKey('');
+                  setKeyStatus(null);
+                }}
+              />
+            </SettingRow>
+            <SettingRow
+              icon={<KeyRound size={18} />}
+              title={provider === 'groq' ? t(lang, 'settings.groqKey') : t(lang, 'settings.openRouterKey')}
+              description={
+                <span className="inline-flex items-center gap-1.5">
+                  <span className={`inline-block size-2 rounded-full ${(provider === 'groq' ? groqConfigured : openRouterConfigured) ? 'bg-emerald-500' : 'bg-ink/30'}`} />
+                  {keyStatus ??
+                    ((provider === 'groq' ? groqConfigured : openRouterConfigured)
+                      ? t(lang, 'settings.openRouterConfigured')
+                      : t(lang, 'settings.openRouterNotConfigured'))}
+                </span>
+              }
+            >
+              <Input
+                className="h-[32px] w-[200px] text-[13px]"
+                dir="ltr"
+                type="password"
+                aria-label={provider === 'groq' ? t(lang, 'settings.groqKey') : t(lang, 'settings.openRouterKey')}
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={(provider === 'groq' ? groqConfigured : openRouterConfigured) ? '••••••••••••' : provider === 'groq' ? 'gsk_…' : 'sk-or-v1-…'}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!apiKey.trim()}
+                className="whitespace-nowrap"
+                onClick={async () => {
+                  const ok = await saveOpenRouterKey(provider, apiKey);
+                  setKeyStatus(ok ? t(lang, 'settings.openRouterSaved') : t(lang, 'settings.openRouterFailed'));
+                  if (ok) setApiKey('');
+                }}
+              >
+                {t(lang, 'settings.openRouterSave')}
+              </Button>
+              {(provider === 'groq' ? groqConfigured : openRouterConfigured) && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="whitespace-nowrap"
+                  onClick={async () => {
+                    const ok = await removeOpenRouterKey(provider);
+                    setKeyStatus(ok ? t(lang, 'settings.openRouterRemoved') : t(lang, 'settings.openRouterFailed'));
+                  }}
+                >
+                  {t(lang, 'settings.openRouterRemove')}
+                </Button>
+              )}
+            </SettingRow>
+            <p className="px-1 pt-1 font-sans text-[12px] leading-relaxed text-muted">{t(lang, 'settings.openRouterPrivacy')}</p>
+          </SettingGroup>
         </section>
       )}
 
-      {/* SECTION 5: Setup Guide */}
-      {activeSection === 'guide' && (
-        <section className="space-y-6">
-          <Card title={t(lang, 'settings.guide')}>
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/30 bg-primary/10 p-3">
-              <p className="min-w-0 flex-1 font-sans text-xs text-ink/80">{t(lang, 'settings.tourHint')}</p>
-              <Button size="sm" onClick={() => useTourStore.getState().start()}>
-                <Compass size={13} /> {t(lang, 'settings.takeTour')}
+      {/* Help: tour, what's new and the setup guide */}
+      {activeSection === 'help' && (
+        <section className="space-y-7">
+          <SettingGroup title={t(lang, 'settings.groupGetStarted')}>
+            <SettingRow icon={<Compass size={18} />} title={t(lang, 'settings.tourRow')} description={t(lang, 'settings.tourRowHint')}>
+              <Button size="sm" variant="outline" onClick={() => useTourStore.getState().start()}>
+                {t(lang, 'settings.takeTour')}
               </Button>
-            </div>
-            <p className="mt-4 font-sans text-xs text-ink/70">{t(lang, 'settings.guideIntro')}</p>
+            </SettingRow>
+            <SettingRow icon={<Newspaper size={18} />} title={t(lang, 'settings.whatsNewRow')} description={`${t(lang, 'settings.whatsNewRowHint')} · v${currentVersion}`}>
+              <Button size="sm" variant="outline" onClick={openWhatsNew}>
+                {t(lang, 'updates.showWhatsNew')}
+              </Button>
+            </SettingRow>
+          </SettingGroup>
+          <Card title={t(lang, 'settings.guide')}>
+            <p className="font-sans text-xs text-ink/70">{t(lang, 'settings.guideIntro')}</p>
             <ol className="mt-5 space-y-4">
               {guideSteps.map((step, index) => (
                 <li key={index} className="flex items-start gap-3.5">

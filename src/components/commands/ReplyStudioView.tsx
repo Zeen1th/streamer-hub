@@ -214,7 +214,7 @@ export function ReplyStudioView({
               className="h-6 border border-sky-500/40 bg-sky-600/90 text-white hover:bg-sky-600 px-2 text-[11px]"
             >
               <Play size={11} className="fill-current me-1" />
-              <span>{testSent ? '✓ Simulated!' : t(lang, 'sequence.runTest')}</span>
+              <span>{testSent ? 'Simulated' : t(lang, 'sequence.runTest')}</span>
             </Button>
           </div>
 
@@ -297,7 +297,7 @@ export function ReplyStudioView({
                 }}
                 options={[
                   { value: 'static', label: t(lang, 'workspace.prepared') },
-                  { value: 'ai', label: `✨ ${t(lang, 'workspace.ai')}` },
+                  { value: 'ai', label: t(lang, 'workspace.ai') },
                 ]}
               />
             </div>
@@ -530,11 +530,11 @@ export function ReplyStudioView({
                       },
                       {
                         value: 'broadcaster',
-                        label: `👑 ${t(lang, 'autoReplies.senderBroadcaster')}${twitchChannel ? ` (@${twitchChannel})` : ''}`,
+                        label: `${t(lang, 'autoReplies.senderBroadcaster')}${twitchChannel ? ` (@${twitchChannel})` : ''}`,
                       },
                       {
                         value: 'bot',
-                        label: `🤖 ${t(lang, 'autoReplies.senderBot')}${botLogin ? ` (@${botLogin})` : ''}`,
+                        label: `${t(lang, 'autoReplies.senderBot')}${botLogin ? ` (@${botLogin})` : ''}`,
                       },
                     ]}
                     onChange={(val) => update(rule.id, { senderRole: val as 'default' | 'bot' | 'broadcaster' })}

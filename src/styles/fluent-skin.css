@@ -1,6 +1,9 @@
 /*
- * Fluent: the second app theme, modelled on the Windows 11 / PowerToys Settings look.
- * Deep navy window with a glowing gradient, softly lit cards, rounded controls, original indigo accent, Segoe UI.
+ * Fluent: the Windows 11 theme (approved mockup: canvas page "Fluent (Windows 11)").
+ * The window sits on the real Mica backdrop (MainForm turns it on; the page is see-through), the title bar
+ * and side menus sit straight on Mica, and page content sits on one lighter layer. Neutral Windows greys,
+ * hairline strokes instead of shadows, 4px controls and 8px overlays, Segoe UI Variable, and the indigo
+ * accent lightened the way Windows lightens accents in dark mode (light fill, dark text).
  * Dark base (so [data-app='dark'] logic still applies) with data-skin='fluent' layered on top.
  * Hard-coded Tailwind colors are handled in fluent-skin.generated.css (npm run gen:skin).
  */
@@ -9,78 +12,99 @@
 [data-app='dark'][data-skin='fluent'],
 :root[data-theme='dark'][data-skin='fluent'],
 :root.theme-dark[data-skin='fluent'] {
-  --bg: #14161e;
-  --surface: #1a1c27;
-  --surface-2: #14161e;
-  --surface-3: #232636;
-  --surface-hover: #2b2f42;
-  --card: #212435;
-  --card-hover: #292d41;
+  --bg: #1c1c21;
+  --surface: #202026;
+  --surface-2: #1c1c21;
+  --surface-3: #2a2a31;
+  --surface-hover: #32323a;
+  --card: #26262d;
+  --card-hover: #2d2d35;
   --ink: #ffffff;
   --fg: #ffffff;
-  --muted: #a9aec1;
-  --faint: #8c92a8;
-  --rule: #343850;
-  --hair: #262a3c;
+  --muted: rgba(255, 255, 255, .786);
+  --faint: rgba(255, 255, 255, .58);
+  --rule: rgba(255, 255, 255, .083);
+  --hair: rgba(255, 255, 255, .06);
   --border: rgba(255, 255, 255, .07);
   --border-strong: rgba(255, 255, 255, .14);
-  /* Accent and button colors stay as in the original Dark theme */
-  --accent: #6366f1;
-  --accent-hover: #7a7cf6;
-  --accent-text: #a5b4fc;
-  --accent-fill: #6366f1;
-  --accent-soft: rgba(99, 102, 241, .15);
-  --accent-deep: #4f46e5;
-  --accent-2: #22a7e0;
-  --accent-cyan: #22a7e0;
-  --on-accent: #ffffff;
+  /* Windows dark-mode accent: a light tint of the app indigo, with dark text on it */
+  --accent: #a5b4fc;
+  --accent-hover: #b9c4fd;
+  --accent-text: #c3cbff;
+  --accent-fill: #a5b4fc;
+  --accent-soft: rgba(165, 180, 252, .14);
+  --accent-deep: #8b9cfa;
+  --accent-2: #60cdff;
+  --accent-cyan: #60cdff;
+  --on-accent: #12142b;
 
   --font-sans: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Cairo', system-ui, sans-serif;
   --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', 'Cairo', system-ui, sans-serif;
   --font-mono: 'Cascadia Mono', 'Cascadia Code', 'Consolas', 'Cairo', ui-monospace, monospace;
-  /* Fluent never goes heavier than semibold */
+  /* Windows never goes heavier than semibold */
   --font-weight-bold: 600;
   --font-weight-extrabold: 600;
   --font-weight-black: 600;
 
-  /* Soft Windows 11 corners: controls ~7px, cards ~9-11px */
-  --radius-xs: 3px;
-  --radius-sm: 5px;
-  --radius-md: 7px;
-  --radius-lg: 9px;
-  --radius-xl: 11px;
-  --radius-2xl: 14px;
-  --radius-3xl: 18px;
+  /* WinUI corners: controls and cards 4px, flyouts, dialogs and the content layer 8px */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
+  --radius-3xl: 12px;
 
-  /* Neutral palette: navy-tinted instead of blue-grey */
-  --color-zinc-50: #f4f5fa; --color-zinc-100: #e6e8f1; --color-zinc-200: #cdd1e0; --color-zinc-300: #aeb3c8;
-  --color-zinc-400: #9094ab; --color-zinc-500: #747890; --color-zinc-600: #565a70; --color-zinc-700: #3f4357;
-  --color-zinc-800: #2b2e40; --color-zinc-900: #1d2030; --color-zinc-950: #12141c;
-  --color-slate-50: #f4f5fa; --color-slate-100: #e6e8f1; --color-slate-200: #cdd1e0; --color-slate-300: #aeb3c8;
-  --color-slate-400: #9094ab; --color-slate-500: #747890; --color-slate-600: #565a70; --color-slate-700: #3f4357;
-  --color-slate-800: #2b2e40; --color-slate-900: #1d2030; --color-slate-950: #12141c;
-  --color-gray-50: #f4f5fa; --color-gray-100: #e6e8f1; --color-gray-200: #cdd1e0; --color-gray-300: #aeb3c8;
-  --color-gray-400: #9094ab; --color-gray-500: #747890; --color-gray-600: #565a70; --color-gray-700: #3f4357;
-  --color-gray-800: #2b2e40; --color-gray-900: #1d2030; --color-gray-950: #12141c;
+  /* Neutral palette with only a hint of cool, like Windows dark mode */
+  --color-zinc-50: #f7f7f9; --color-zinc-100: #ececf0; --color-zinc-200: #d6d6dc; --color-zinc-300: #b9b9c2;
+  --color-zinc-400: #9a9aa5; --color-zinc-500: #7c7c88; --color-zinc-600: #5d5d68; --color-zinc-700: #44444d;
+  --color-zinc-800: #2f2f36; --color-zinc-900: #222228; --color-zinc-950: #16161a;
+  --color-slate-50: #f7f7f9; --color-slate-100: #ececf0; --color-slate-200: #d6d6dc; --color-slate-300: #b9b9c2;
+  --color-slate-400: #9a9aa5; --color-slate-500: #7c7c88; --color-slate-600: #5d5d68; --color-slate-700: #44444d;
+  --color-slate-800: #2f2f36; --color-slate-900: #222228; --color-slate-950: #16161a;
+  --color-gray-50: #f7f7f9; --color-gray-100: #ececf0; --color-gray-200: #d6d6dc; --color-gray-300: #b9b9c2;
+  --color-gray-400: #9a9aa5; --color-gray-500: #7c7c88; --color-gray-600: #5d5d68; --color-gray-700: #44444d;
+  --color-gray-800: #2f2f36; --color-gray-900: #222228; --color-gray-950: #16161a;
 }
 
+/* Without native Mica (Windows 10, the browser preview) a soft tinted grey stands in for it */
 :root[data-skin='fluent'] body {
   background:
-    radial-gradient(1000px 700px at 4% -6%, rgba(62, 100, 224, .20), transparent 65%),
-    radial-gradient(900px 700px at 104% 106%, rgba(132, 70, 214, .15), transparent 65%),
-    linear-gradient(160deg, #181b2a 0%, #12141f 100%) fixed;
+    radial-gradient(1100px 760px at 0% 0%, rgba(92, 70, 190, .16), transparent 62%),
+    radial-gradient(900px 700px at 100% 100%, rgba(30, 120, 160, .12), transparent 62%),
+    #1f1f24 fixed;
   font-family: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Cairo', system-ui, sans-serif;
 }
 
-/* The shell lets the gradient through; the title bar, action bar and sidebar are frosted glass over it */
+/* With native Mica the page itself is see-through: the wallpaper-tinted backdrop replaces the painted one */
+:root[data-skin='fluent'][data-backdrop='mica'] body {
+  background: transparent;
+}
+
+/* Windows' dark Acrylic is a light grey blur; on its own, plus our light layers, it looks washed out.
+   A dark tint under everything keeps it see-through but deep, like the approved concept. */
+:root[data-skin='fluent'][data-backdrop='mica'][data-material='acrylic'] body {
+  background: rgba(18, 18, 22, .62);
+}
+
 [data-app='dark'][data-skin='fluent'] {
   background: transparent !important;
 }
 
-:root[data-skin='fluent'] [data-chrome] {
-  background-color: rgba(10, 12, 26, .28) !important;
+/* Title bar, action bar and side menus sit straight on Mica, like the Windows Settings navigation pane */
+:root[data-skin='fluent'] [data-chrome],
+:root[data-skin='fluent'] .settings-nav {
+  background-color: transparent !important;
   background-image: none !important;
-  border-color: rgba(255, 255, 255, .07) !important;
+  border-color: transparent !important;
+}
+
+/* Page content sits on one lighter layer with an 8px top corner, as in WinUI NavigationView */
+:root[data-skin='fluent'] [data-content-layer] {
+  background-color: rgba(255, 255, 255, .04) !important;
+  border-start-start-radius: 8px;
+  border-top: 1px solid rgba(255, 255, 255, .06);
+  border-inline-start: 1px solid rgba(255, 255, 255, .06);
 }
 
 :root[data-skin='fluent'][lang='ar'] body,
@@ -89,29 +113,44 @@ html[lang='ar'][data-skin='fluent'] body {
 }
 
 :root[data-skin='fluent'] ::selection {
-  background: rgba(99, 102, 241, .35);
+  background: rgba(165, 180, 252, .35);
 }
 
-/* Cards: lifted surface, 1px hairline, 8px corners */
+/* Cards: a light see-through layer, hairline stroke, no shadow, 4px corners */
 :root[data-skin='fluent'] .slab,
-:root[data-skin='fluent'] .engraved {
-  background: rgba(255, 255, 255, .055);
-  border: 1px solid rgba(255, 255, 255, .07);
-  border-radius: 10px;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset;
+:root[data-skin='fluent'] .engraved,
+:root[data-skin='fluent'] .setting-row,
+:root[data-skin='fluent'] .widget-card,
+:root[data-skin='fluent'] .command-card:not([aria-selected='true']),
+:root[data-skin='fluent'] .when-then {
+  background: rgba(255, 255, 255, .0512) !important;
+  border: 1px solid rgba(255, 255, 255, .06) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+
+:root[data-skin='fluent'] .setting-row:hover,
+:root[data-skin='fluent'] .command-card:not([aria-selected='true']):hover {
+  background: rgba(255, 255, 255, .075) !important;
 }
 
 :root[data-skin='fluent'] .ui-label {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: .04em;
+  letter-spacing: .02em;
 }
 
 :root[data-skin='fluent'] .data-value {
   font-family: 'Cascadia Mono', 'Consolas', ui-monospace, monospace;
 }
 
-/* Windows controls feel: subtle fill, hairline border, 4px, a quiet press state */
+/* Accent fills carry dark text, as Windows does in dark mode */
+:root[data-skin='fluent'] .bg-accent,
+:root[data-skin='fluent'] .bg-accent-fill {
+  color: #12142b;
+}
+
+/* Windows controls: subtle fill, hairline border, 4px, a quiet press state */
 :root[data-skin='fluent'] button:not(:disabled):active {
   filter: brightness(.92);
 }
@@ -119,44 +158,64 @@ html[lang='ar'][data-skin='fluent'] body {
 :root[data-skin='fluent'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
 :root[data-skin='fluent'] select,
 :root[data-skin='fluent'] textarea {
-  border-radius: 7px;
-  border-bottom-color: rgba(255, 255, 255, .42);
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, .0605);
+  border-color: rgba(255, 255, 255, .08);
+  border-bottom-color: rgba(255, 255, 255, .54);
 }
 
 :root[data-skin='fluent'] input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
 :root[data-skin='fluent'] select:focus,
 :root[data-skin='fluent'] textarea:focus {
-  border-bottom-color: var(--accent);
+  background-color: rgba(30, 30, 34, .7);
+  border-bottom: 2px solid var(--accent);
   outline: none !important;
 }
 
-:root[data-skin='fluent'] * {
-  scrollbar-color: #3a3f58 transparent;
+/* WinUI toggle switch: outlined when off, accent with a dark knob when on */
+:root[data-skin='fluent'] button[role='switch'][aria-checked='false'] {
+  background-color: rgba(0, 0, 0, .1) !important;
+  border-color: rgba(255, 255, 255, .6) !important;
+  box-shadow: none !important;
 }
 
-/* Workspace panes sit directly on the gradient */
-:root[data-skin='fluent'] main,
-:root[data-skin='fluent'] section.app-scroll {
+:root[data-skin='fluent'] button[role='switch'][aria-checked='false'] > span {
+  background-color: rgba(255, 255, 255, .786) !important;
+  box-shadow: none !important;
+}
+
+:root[data-skin='fluent'] button[role='switch'][aria-checked='true'] {
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+:root[data-skin='fluent'] button[role='switch'][aria-checked='true'] > span {
+  background-color: #12142b !important;
+  box-shadow: none !important;
+}
+
+:root[data-skin='fluent'] * {
+  scrollbar-color: rgba(255, 255, 255, .28) transparent;
+}
+
+/* Workspace panes sit on the content layer, not on their own fills */
+:root[data-skin='fluent'] main:not([data-content-layer]),
+:root[data-skin='fluent'] section.app-scroll,
+:root[data-skin='fluent'] .settings-page {
   background-color: transparent !important;
   background-image: none !important;
 }
 
-/* Floating layers sit over content, so they get frosted glass instead of a bare veil */
+/* Flyouts, menus and dialogs: acrylic (frosted) with 8px corners */
 :root[data-skin='fluent'] [class~='fixed'][class*='z-[']:not([class~='inset-0']),
 :root[data-skin='fluent'] [role='menu'],
 :root[data-skin='fluent'] [role='listbox'],
 :root[data-skin='fluent'] [class~='shadow-2xl'],
 :root[data-skin='fluent'] [class~='shadow-xl'] {
-  background-color: rgba(34, 38, 58, .86) !important;
-  backdrop-filter: blur(28px) saturate(1.4);
-  -webkit-backdrop-filter: blur(28px) saturate(1.4);
-}
-
-/* With native Mica the page itself is see-through: the wallpaper-tinted backdrop replaces the painted gradient */
-:root[data-skin='fluent'][data-backdrop='mica'] body {
-  background: transparent;
-}
-
-:root[data-skin='fluent'][data-backdrop='mica'] [data-chrome] {
-  background-color: rgba(10, 12, 26, .18) !important;
+  background-color: rgba(44, 44, 50, .88) !important;
+  border-color: rgba(255, 255, 255, .08) !important;
+  border-radius: 8px;
+  backdrop-filter: blur(30px) saturate(1.3);
+  -webkit-backdrop-filter: blur(30px) saturate(1.3);
 }

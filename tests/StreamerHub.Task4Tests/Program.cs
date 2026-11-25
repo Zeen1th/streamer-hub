@@ -357,6 +357,73 @@ using (var release = JsonDocument.Parse("""
             AssertEqual("my-client", afterReset.Twitch.ClientId, "the Twitch login survives the reset and a restart");
         }
 
+        // Leaderboard backup: stats.json + .bak, daily snapshots, before-reset copies, reset moves the file aside
+        {
+            var statsRoot = Path.Combine(recoveryRoot, "stats");
+            var day = new DateTime(2026, 11, 1, 12, 0, 0);
+            var stats = new StatsBackupStore(statsRoot, () => day);
+            string Payload(int users, int marker) => "{\"allTime\":{" + string.Join(",", Enumerable.Range(0, users).Select(i => $"\"u{i}\":{{\"login\":\"u{i}\",\"messages\":{marker}}}")) + "},\"lastActivity\":" + marker + "}";
+
+            AssertEqual<string?>(null, stats.Load(), "nothing saved yet");
+            AssertTrue(stats.Save(Payload(3, 1), "save", out var saveError) && saveError is null, "stats save succeeds");
+            AssertEqual(Payload(3, 1), stats.Load(), "stats round trip");
+            AssertTrue(File.Exists(Path.Combine(statsRoot, "stats.json")), "stats.json is written next to settings");
+            AssertTrue(!File.Exists(Path.Combine(statsRoot, "stats.json.tmp")), "no temp file is left behind");
+
+            AssertTrue(stats.Save(Payload(4, 2), "save", out _), "second save");
+            AssertTrue(File.Exists(Path.Combine(statsRoot, "stats.json.bak")), "the previous copy is kept as .bak");
+            File.WriteAllText(Path.Combine(statsRoot, "stats.json"), "{ broken");
+            AssertEqual(Payload(3, 1), stats.Load(), "a corrupt main file falls back to .bak");
+            File.WriteAllText(Path.Combine(statsRoot, "stats.json.bak"), "also broken");
+            AssertTrue(stats.Load()?.Contains("\"u3\"") == true, "both damaged: the newest daily snapshot is used");
+            AssertTrue(stats.Save(Payload(4, 3), "save", out _), "saving over a corrupt main works");
+            AssertTrue(File.ReadAllText(Path.Combine(statsRoot, "stats.json.bak")) == "also broken", "a damaged main never replaces .bak");
+
+            // one snapshot per day, last 7 kept
+            for (var d = 0; d < 10; d++)
+            {
+                day = new DateTime(2026, 11, 1, 12, 0, 0).AddDays(d);
+                AssertTrue(stats.Save(Payload(2, 10 + d), "save", out _), "daily save " + d);
+            }
+            var daily = Directory.GetFiles(Path.Combine(statsRoot, "backups"), "stats-2*.json").Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToList();
+            AssertEqual(7, daily.Count, "only the last 7 daily snapshots are kept");
+            AssertEqual("stats-20261110.json", daily.Last(), "the newest daily snapshot is kept");
+            AssertEqual("stats-20261104.json", daily.First(), "older daily snapshots are dropped");
+            AssertTrue(stats.List().Count(b => b.Kind == "daily") == 7 && stats.List().All(b => b.Users > 0), "snapshots are listed with their user count");
+
+            // before-reset copies: last 5, the live file is untouched
+            var liveBefore = File.ReadAllText(Path.Combine(statsRoot, "stats.json"));
+            for (var r = 0; r < 7; r++)
+            {
+                day = new DateTime(2026, 12, 1, 12, 0, r);
+                AssertTrue(stats.Save(Payload(2, 100 + r), "reset", out _), "reset copy " + r);
+            }
+            AssertEqual(5, Directory.GetFiles(Path.Combine(statsRoot, "backups"), "stats-before-reset-2*.json").Length, "the last 5 before-reset copies are kept");
+            AssertEqual(liveBefore, File.ReadAllText(Path.Combine(statsRoot, "stats.json")), "a reset copy does not replace the live file");
+
+            // restore returns the snapshot's JSON; unknown names and paths are refused
+            var firstDaily = "backups/" + daily.First();
+            AssertTrue(stats.Restore(firstDaily, out var restoredJson, out _) && restoredJson!.Contains("\"u1\""), "a snapshot can be restored");
+            AssertTrue(!stats.Restore("../settings.json", out _, out var badName) && badName == "BACKUP NOT FOUND", "unknown names are refused");
+
+            // oversized and invalid payloads are refused
+            var big = "{\"allTime\":{},\"pad\":\"" + new string('x', StatsBackupStore.MaxBytes) + "\"}";
+            AssertTrue(!stats.Save(big, "save", out var bigError) && bigError == "TOO LARGE", "an oversized payload is refused");
+            AssertTrue(!stats.Save("not json", "save", out _) && !stats.Save("[1,2]", "save", out _) && !stats.Save("", "save", out _), "invalid payloads are refused");
+            AssertEqual(liveBefore, File.ReadAllText(Path.Combine(statsRoot, "stats.json")), "refused payloads leave the live file alone");
+
+            // Reset everything moves stats.json and .bak aside
+            var statsSettings = Path.Combine(statsRoot, "settings.json");
+            using (var resetStore = new SettingsStore(statsSettings))
+            {
+                AssertTrue(File.Exists(Path.Combine(statsRoot, "stats.json")), "stats.json exists before the reset");
+                AssertTrue(resetStore.ResetToDefaults(null, out var statsResetError) && statsResetError is null, "reset with stats succeeds");
+            }
+            AssertTrue(!File.Exists(Path.Combine(statsRoot, "stats.json")) && !File.Exists(Path.Combine(statsRoot, "stats.json.bak")), "reset moves stats.json and .bak away");
+            AssertEqual(1, Directory.GetFiles(Path.Combine(statsRoot, "backups"), "stats-before-reset-everything-*.json").Length, "reset keeps the stats in backups");
+            AssertTrue(new StatsBackupStore(statsRoot, () => day).List().Any(b => b.Kind == "before-reset-everything"), "the reset copy is listed");
+        }
+
         // a first run is not a problem
         var fresh = Path.Combine(recoveryRoot, "fresh", "settings.json");
         using (var firstRun = new SettingsStore(fresh))

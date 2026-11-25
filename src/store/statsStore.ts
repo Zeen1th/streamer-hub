@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Events } from '../rpc/contracts';
+import { Channels, Events } from '../rpc/contracts';
 import type {
   ChannelPointsRedemption,
   ChatMessage,
@@ -15,34 +15,28 @@ import {
   addFeedEvent,
   bumpUser,
   isIgnoredUser,
+  mergeUsers,
+  parseStatsSnapshot,
+  pickStatsToKeep,
   pruneUsers,
   recordMinute,
   type FeedEvent,
+  type StatsSession,
+  type StatsSnapshot,
   type StreamTotals,
   type UserPatch,
   type UserStatsMap,
 } from '../lib/stats';
 
 const STORAGE_KEY = 'streamer-hub-stats-v1';
-/** A session older than this when the app starts is treated as a previous stream and archived into all-time only. */
-const STALE_SESSION_MS = 8 * 60 * 60 * 1000;
 const MAX_ALL_TIME_USERS = 2500;
 const SAVE_DELAY_MS = 2000;
+/** The host's copy (stats.json) is refreshed at most this often, plus once when the page is hidden or closed. */
+const BACKUP_EVERY_MS = 30_000;
+const BACKUP_LOAD_TIMEOUT_MS = 8000;
 
-interface Persisted {
-  allTime: UserStatsMap;
-  session: SessionData;
-  feed: FeedEvent[];
-  minutes: Record<string, number>;
-  giftIds: string[];
-  lastActivity: number;
-}
-
-interface SessionData {
-  startedAt: number;
-  users: UserStatsMap;
-  totals: StreamTotals;
-}
+type Persisted = StatsSnapshot;
+type SessionData = StatsSession;
 
 interface StatsState {
   allTime: UserStatsMap;
@@ -72,8 +66,10 @@ interface StatsState {
   recordDuel(result: { winner: string; loser: string; kind: 'win' | 'no_winner' }): void;
   /** Starts a fresh "this stream" without touching all-time totals. */
   newStream(): void;
-  /** Wipes everything: both leaderboards, the feed and the activity chart. */
+  /** Wipes everything: both leaderboards, the feed and the activity chart. What was there is kept first in the host backups. */
   resetAll(): void;
+  /** Loads a stats copy (a Settings > Backups snapshot) into the store and the page storage. False when it is not stats JSON. */
+  restoreFromJson(json: string): boolean;
 }
 
 const freshSession = (now: number): SessionData => ({ startedAt: now, users: {}, totals: { ...EMPTY_TOTALS } });
@@ -84,21 +80,7 @@ function load(now: number): Persisted {
     if (typeof localStorage === 'undefined') return fallback;
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<Persisted>;
-    if (!parsed || typeof parsed !== 'object') return fallback;
-    const loaded: Persisted = {
-      allTime: parsed.allTime && typeof parsed.allTime === 'object' ? parsed.allTime : {},
-      session:
-        parsed.session && typeof parsed.session === 'object' && parsed.session.users
-          ? { startedAt: parsed.session.startedAt ?? now, users: parsed.session.users, totals: { ...EMPTY_TOTALS, ...(parsed.session.totals ?? {}) } }
-          : freshSession(now),
-      feed: Array.isArray(parsed.feed) ? parsed.feed : [],
-      minutes: parsed.minutes && typeof parsed.minutes === 'object' ? parsed.minutes : {},
-      giftIds: Array.isArray(parsed.giftIds) ? parsed.giftIds.filter((id): id is string => typeof id === 'string') : [],
-      lastActivity: typeof parsed.lastActivity === 'number' ? parsed.lastActivity : now,
-    };
-    if (now - loaded.lastActivity > STALE_SESSION_MS) loaded.session = freshSession(now);
-    return loaded;
+    return parseStatsSnapshot(raw, now) ?? fallback;
   } catch {
     return fallback;
   }
@@ -106,22 +88,97 @@ function load(now: number): Persisted {
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+function snapshotOf(s: StatsState): Persisted {
+  return { allTime: s.allTime, session: s.session, feed: s.feed, minutes: s.minutes, giftIds: s.giftIds, lastActivity: Date.now() };
+}
+
+function writeLocal(json: string) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(STORAGE_KEY, json);
+  } catch {
+    // storage full or unavailable: stats just stay in memory (the host copy below still has them)
+  }
+}
+
+// ---- the host copy (stats.json): protects the leaderboards when the page storage is cleared or lost ----
+
+/** False until the host copy has been compared with the page storage, so an empty page never overwrites a good backup. */
+let backupReady = false;
+/** After "Reset everything" the page must not write its old stats back to the host before the app restarts. */
+let backupSuspended = false;
+let backupDirty = false;
+let lastBackupAt = 0;
+let backupTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingJson: string | null = null;
+
+function sendBackup(json: string, reason: 'save' | 'reset' = 'save') {
+  void rpc.invoke(Channels.StatsBackupSave, { json, reason }).catch(() => {
+    // no host (plain browser) or it refused: the page storage still has the stats
+  });
+}
+
+function flushBackup() {
+  if (backupTimer) {
+    clearTimeout(backupTimer);
+    backupTimer = null;
+  }
+  if (!pendingJson || !backupReady || backupSuspended) return;
+  const json = pendingJson;
+  pendingJson = null;
+  backupDirty = false;
+  lastBackupAt = Date.now();
+  sendBackup(json);
+}
+
+/** Called after each page save: sends to the host at most every 30 seconds (the newest data wins). */
+function queueBackup(json: string) {
+  pendingJson = json;
+  if (!backupReady || backupSuspended || backupTimer) return;
+  const wait = lastBackupAt + BACKUP_EVERY_MS - Date.now();
+  if (wait <= 0) flushBackup();
+  else backupTimer = setTimeout(flushBackup, wait);
+}
+
+/** The page is being hidden or closed: send what has not been sent yet, right now. */
+function flushBackupNow() {
+  if (!backupReady || backupSuspended || !backupDirty) return;
+  try {
+    pendingJson = JSON.stringify(snapshotOf(useStatsStore.getState()));
+  } catch {
+    return;
+  }
+  flushBackup();
+}
+
+/** Used by Settings > System > Reset everything: nothing more goes to the host before the restart. */
+export function suspendStatsBackup() {
+  backupSuspended = true;
+  pendingJson = null;
+  if (backupTimer) {
+    clearTimeout(backupTimer);
+    backupTimer = null;
+  }
+}
+
 function scheduleSave(read: () => StatsState) {
+  backupDirty = true;
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
     saveTimer = null;
     try {
-      if (typeof localStorage === 'undefined') return;
-      const s = read();
-      const data: Persisted = { allTime: s.allTime, session: s.session, feed: s.feed, minutes: s.minutes, giftIds: s.giftIds, lastActivity: Date.now() };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      const json = JSON.stringify(snapshotOf(read()));
+      writeLocal(json);
+      queueBackup(json);
     } catch {
-      // storage full or unavailable: stats just stay in memory
+      // not serializable: stats just stay in memory
     }
   }, SAVE_DELAY_MS);
 }
 
 const initial = load(Date.now());
+/** What the page storage held at start, for choosing between it and the host copy. */
+const localAtStart = { allTime: { ...initial.allTime }, lastActivity: initial.lastActivity };
 
 /** The streamer, their bot account and known bots are never counted as viewers. */
 const isNotViewer = (login: string) => {
@@ -274,11 +331,86 @@ export const useStatsStore = create<StatsState>((set, get) => {
     },
 
     resetAll: () => {
+      keepBeforeReset(get());
       set((s) => ({ allTime: {}, session: freshSession(Date.now()), feed: [], minutes: {}, giftIds: [], rev: s.rev + 1 }));
+      // The empty table goes to the host too, otherwise a restart within 30 s would bring the old board back
+      lastBackupAt = 0;
       scheduleSave(get);
+    },
+
+    restoreFromJson: (json) => {
+      const restored = parseStatsSnapshot(json, Date.now());
+      if (!restored) return false;
+      keepBeforeReset(get());
+      adopt(restored);
+      return true;
     },
   };
 });
+
+/** Sends the current numbers to the host as a "before reset" copy (only when there is something worth keeping). */
+function keepBeforeReset(s: StatsState) {
+  if (backupSuspended || Object.keys(s.allTime).length === 0) return;
+  try {
+    sendBackup(JSON.stringify(snapshotOf(s)), 'reset');
+  } catch {
+    // too big to serialize: nothing to keep
+  }
+}
+
+/** Replaces the live stats with `next`, in the store, the page storage and the host copy. */
+function adopt(next: Persisted) {
+  useStatsStore.setState((s) => ({
+    allTime: next.allTime,
+    session: next.session,
+    feed: next.feed,
+    minutes: next.minutes,
+    giftIds: next.giftIds,
+    rev: s.rev + 1,
+  }));
+  try {
+    const json = JSON.stringify(snapshotOf(useStatsStore.getState()));
+    writeLocal(json);
+    backupDirty = true;
+    lastBackupAt = 0;
+    queueBackup(json);
+  } catch {
+    // stays in memory
+  }
+}
+
+/** At start: compare the host copy with the page storage and keep the better one (see pickStatsToKeep). */
+async function reconcileWithHost() {
+  try {
+    const res = await Promise.race([
+      rpc.invoke(Channels.StatsBackupLoad, undefined),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), BACKUP_LOAD_TIMEOUT_MS)),
+    ]);
+    const backup = res?.json ? parseStatsSnapshot(res.json, Date.now()) : null;
+    if (backup && pickStatsToKeep(localAtStart, backup) === 'backup') {
+      const live = useStatsStore.getState();
+      // Counted between start and now while the page had nothing: add it on top of the backup
+      if (live.rev > 0 && Object.keys(localAtStart.allTime).length === 0) {
+        mergeUsers(backup.allTime, live.allTime);
+        mergeUsers(backup.session.users, live.session.users);
+      }
+      adopt(backup);
+    }
+  } catch {
+    // the host has no copy or is not there: carry on with the page storage
+  } finally {
+    backupReady = true;
+    if (pendingJson) queueBackup(pendingJson);
+  }
+}
+
+void reconcileWithHost();
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushBackupNow);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushBackupNow();
+  });
+}
 
 // Everything that is not a chat message arrives here, so no component has to be open for stats to accumulate.
 rpc.on(Events.TwitchFollow, (event) => useStatsStore.getState().recordFollow(event));

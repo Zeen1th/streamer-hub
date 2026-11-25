@@ -60,6 +60,12 @@ export const KNOWN_BOTS: readonly string[] = [
   'streamlootsbot',
 ];
 
+/**
+ * Older versions credited clips made by the streamer to a made-up viewer with the login "streamer". It is not a real
+ * viewer, so it never shows on a leaderboard and is dropped from saved stats when they load.
+ */
+export const LEGACY_FAKE_LOGINS: readonly string[] = ['streamer'];
+
 export function userKey(login: string): string {
   return login.trim().replace(/^@+/, '').toLowerCase();
 }
@@ -71,7 +77,7 @@ export function userKey(login: string): string {
 export function isIgnoredUser(login: string, ...excluded: Array<string | null | undefined>): boolean {
   const key = userKey(login);
   if (!key) return true;
-  if (KNOWN_BOTS.includes(key)) return true;
+  if (KNOWN_BOTS.includes(key) || LEGACY_FAKE_LOGINS.includes(key)) return true;
   return excluded.some((other) => !!other && userKey(other) === key);
 }
 
@@ -97,6 +103,97 @@ export function bumpUser(users: UserStatsMap, login: string, name: string | unde
   entry.points += patch.points ?? 0;
   entry.lastSeen = now;
   return entry;
+}
+
+export interface StatsSession {
+  startedAt: number;
+  users: UserStatsMap;
+  totals: StreamTotals;
+}
+
+/** Everything the stats store keeps (page storage and the host's backup copy share this shape). */
+export interface StatsSnapshot {
+  allTime: UserStatsMap;
+  session: StatsSession;
+  feed: FeedEvent[];
+  minutes: Record<string, number>;
+  giftIds: string[];
+  lastActivity: number;
+}
+
+/** A session older than this when the app starts is treated as a previous stream and archived into all-time only. */
+export const STALE_SESSION_MS = 8 * 60 * 60 * 1000;
+
+/** Removes the made-up "streamer" viewer (see LEGACY_FAKE_LOGINS) from a tally. Mutates `users`. */
+export function dropLegacyUsers(users: UserStatsMap): void {
+  for (const key of Object.keys(users)) {
+    if (LEGACY_FAKE_LOGINS.includes(userKey(key)) || LEGACY_FAKE_LOGINS.includes(userKey(users[key]?.login ?? ''))) delete users[key];
+  }
+}
+
+/**
+ * Reads saved stats JSON (or an already parsed object) defensively. Returns null when it is not stats at all. The made-up
+ * "streamer" viewer is dropped, and a session older than a long stream is replaced by a fresh one.
+ */
+export function parseStatsSnapshot(raw: unknown, now: number): StatsSnapshot | null {
+  let parsed: Partial<StatsSnapshot> | null;
+  try {
+    parsed = typeof raw === 'string' ? (JSON.parse(raw) as Partial<StatsSnapshot>) : (raw as Partial<StatsSnapshot>);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const fresh = (): StatsSession => ({ startedAt: now, users: {}, totals: { ...EMPTY_TOTALS } });
+  const loaded: StatsSnapshot = {
+    allTime: parsed.allTime && typeof parsed.allTime === 'object' ? parsed.allTime : {},
+    session:
+      parsed.session && typeof parsed.session === 'object' && parsed.session.users
+        ? { startedAt: parsed.session.startedAt ?? now, users: parsed.session.users, totals: { ...EMPTY_TOTALS, ...(parsed.session.totals ?? {}) } }
+        : fresh(),
+    feed: Array.isArray(parsed.feed) ? parsed.feed : [],
+    minutes: parsed.minutes && typeof parsed.minutes === 'object' ? parsed.minutes : {},
+    giftIds: Array.isArray(parsed.giftIds) ? parsed.giftIds.filter((id): id is string => typeof id === 'string') : [],
+    lastActivity: typeof parsed.lastActivity === 'number' ? parsed.lastActivity : now,
+  };
+  dropLegacyUsers(loaded.allTime);
+  dropLegacyUsers(loaded.session.users);
+  if (now - loaded.lastActivity > STALE_SESSION_MS) loaded.session = fresh();
+  return loaded;
+}
+
+/**
+ * Which copy of the stats to start with. The page's own storage wins normally. The host's backup wins when the page has
+ * no all-time viewers but the backup does (storage was cleared), or when the backup is newer (another profile saved it).
+ */
+export function pickStatsToKeep(
+  local: { allTime?: UserStatsMap; lastActivity?: number } | null | undefined,
+  backup: { allTime?: UserStatsMap; lastActivity?: number } | null | undefined,
+): 'local' | 'backup' {
+  const backupUsers = backup ? Object.keys(backup.allTime ?? {}).length : 0;
+  if (!backup || backupUsers === 0) return 'local';
+  const localUsers = local ? Object.keys(local.allTime ?? {}).length : 0;
+  if (localUsers === 0) return 'backup';
+  return (backup.lastActivity ?? 0) > (local?.lastActivity ?? 0) ? 'backup' : 'local';
+}
+
+/** Adds every counter of `extra` onto `base` (creating viewers that are missing). Mutates `base`. */
+export function mergeUsers(base: UserStatsMap, extra: UserStatsMap): void {
+  for (const [key, add] of Object.entries(extra)) {
+    const have = base[key];
+    if (!have) {
+      base[key] = { ...add };
+      continue;
+    }
+    have.messages += add.messages;
+    have.duelWins += add.duelWins;
+    have.duelLosses += add.duelLosses;
+    have.gifts += add.gifts;
+    have.redemptions += add.redemptions;
+    have.clips = (have.clips ?? 0) + (add.clips ?? 0);
+    have.points += add.points;
+    have.lastSeen = Math.max(have.lastSeen, add.lastSeen);
+    if (add.name) have.name = add.name;
+  }
 }
 
 export interface RankedUser {

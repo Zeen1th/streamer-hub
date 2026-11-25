@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronRight, Redo2, Undo2, Copy, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Trash2, TriangleAlert, Tv, X } from 'lucide-react';
-import type { CounterAction, PermissionLevel } from '../../rpc/contracts';
+import { Check, ChevronRight, Coins, CornerDownRight, Heart, MessageSquare, Redo2, Undo2, Copy, Layers, Minus, Pencil, Play, Plus, RotateCcw, Search, Sparkles, Tally5, Timer, Trash2, TriangleAlert, Tv, Users, X, Zap, type LucideIcon } from 'lucide-react';
+import type { CommandSequence, CounterAction, PermissionLevel, SequenceStep } from '../../rpc/contracts';
+import { SUB_ACTIONS } from '../../lib/subActionCatalog';
+import { triggerChatCommands } from '../../lib/triggerCommands';
+import { formatTimerInterval, TIMER_DEFAULT_INTERVAL_MINUTES } from '../../lib/sequenceTimers';
 import { Channels } from '../../rpc/contracts';
 import { rpc } from '../../rpc';
 import {
@@ -12,6 +15,7 @@ import {
   MIN_INSPECTOR_WIDTH,
   projectCommands,
   selectionAfterClick,
+  type CommandGroup,
   type CommandRow,
 } from '../../lib/commandProjection';
 import { renderTemplate } from '../../lib/counterRules';
@@ -29,7 +33,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Switch } from '../ui/Switch';
-import { DurationPicker } from '../ui/DurationPicker';
+import { Slider } from '../ui/Slider';
 import { CounterActionsGridView } from './CounterActionsGridView';
 import { AiReplyStudioView } from './AiReplyStudioView';
 import { ReplyStudioView } from './ReplyStudioView';
@@ -184,6 +188,7 @@ export function CommandsView() {
   const setSelected = useToolStore((s) => s.setSelected);
   const setQuery = useToolStore((s) => s.setQuery);
   const inspectorWidth = useToolStore((s) => s.inspectorWidth);
+  const logBarVisible = useToolStore((s) => s.logBarVisible);
   const canUndo = useUndoStore((s) => s.canUndo);
   const canRedo = useUndoStore((s) => s.canRedo);
   const language = useSettingsStore((s) => s.language);
@@ -398,32 +403,47 @@ export function CommandsView() {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-transparent" aria-label={t(lang, 'workspace.commands')}>
-      <div className="flex h-[38px] shrink-0 items-center gap-2 border-b border-white/[0.08] bg-[#1a2228] px-2.5">
-        <ProfilePicker lang={lang} />
-        <span aria-hidden className="mx-0.5 h-[22px] w-px bg-white/[0.12]" />
-        <Button size="sm" onClick={createCommand}><Plus size={13} />{t(lang, 'workspace.new')}</Button>
-        <Button size="sm" variant="outline" disabled={selectedRows.length === 0} onClick={duplicateSelected}><Copy size={12} />{t(lang, 'workspace.duplicate')}</Button>
-        <Button size="sm" variant="outline" disabled={selectedRows.length === 0} onClick={deleteSelected}><Trash2 size={12} />{t(lang, 'workspace.delete')}</Button>
-        <Button size="sm" variant="outline" disabled={!canUndo} onClick={() => undoManager.undo()} title={`${t(lang, 'undo.button')} (Ctrl+Z)`} aria-label={t(lang, 'undo.button')}><Undo2 size={13} /></Button>
-        <Button size="sm" variant="outline" disabled={!canRedo} onClick={() => undoManager.redo()} title={`${t(lang, 'redo.button')} (Ctrl+Y)`} aria-label={t(lang, 'redo.button')}><Redo2 size={13} /></Button>
-        <span aria-hidden className="mx-0.5 h-[22px] w-px bg-white/[0.12]" />
-        <label className="relative w-[210px]">
-          <Search aria-hidden size={12} className="absolute start-2 top-1/2 -translate-y-1/2 text-muted" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-[26px] ps-7 text-[11px]" placeholder={t(lang, 'workspace.filter')} />
-        </label>
-        {selectedRows.length > 1 && (
-          <>
-            <span className="font-mono text-[10px] text-muted">{t(lang, 'workspace.selectedCount', { n: selectedRows.length })}</span>
-            <Button size="sm" variant="outline" disabled={!selectedRows.some((row) => (row.sourceKind === 'reply' || row.sourceKind === 'sequence') && row.enabled)} onClick={disableSelected}>{t(lang, 'workspace.disableAll')}</Button>
-          </>
-        )}
-        <div className="ms-auto flex items-center gap-3">
-          <StreamTitleBar lang={lang} />
-          <span className="font-mono text-[10px] text-muted">
-            {t(lang, 'workspace.shownCount', { shown: visibleRows.length, disabled: rows.filter((row) => !row.enabled).length })}
-          </span>
-        </div>
-      </div>
+      {/* Page header, as in the approved concept: title and profile, then search and one clear New button.
+          Studios bring their own Back header, so this hides while one is open. */}
+      {!hasActiveStudio && (
+        <header className="commands-header flex shrink-0 flex-wrap items-center gap-3 px-5 pb-1 pt-5">
+          <h1 className="font-sans text-[26px] font-semibold leading-8 tracking-tight text-ink">{t(lang, 'workspace.commands')}</h1>
+          <ProfilePicker lang={lang} />
+          <div className="ms-auto flex flex-wrap items-center gap-2">
+            {/* Quiet until needed: copy and delete appear with a selection, undo and redo once there is something to undo */}
+            {(selectedRows.length > 0 || canUndo || canRedo) && (
+              <div className="flex items-center" role="group" aria-label={t(lang, 'workspace.edit')}>
+                {selectedRows.length > 0 && (
+                  <>
+                    <Button size="sm" variant="ghost" onClick={duplicateSelected} title={t(lang, 'workspace.duplicate')} aria-label={t(lang, 'workspace.duplicate')}><Copy size={14} /></Button>
+                    <Button size="sm" variant="ghost" onClick={deleteSelected} title={t(lang, 'workspace.delete')} aria-label={t(lang, 'workspace.delete')}><Trash2 size={14} /></Button>
+                  </>
+                )}
+                {canUndo && <Button size="sm" variant="ghost" onClick={() => undoManager.undo()} title={`${t(lang, 'undo.button')} (Ctrl+Z)`} aria-label={t(lang, 'undo.button')}><Undo2 size={14} /></Button>}
+                {canRedo && <Button size="sm" variant="ghost" onClick={() => undoManager.redo()} title={`${t(lang, 'redo.button')} (Ctrl+Y)`} aria-label={t(lang, 'redo.button')}><Redo2 size={14} /></Button>}
+              </div>
+            )}
+            {selectedRows.length > 1 && (
+              <Button size="sm" variant="outline" disabled={!selectedRows.some((row) => (row.sourceKind === 'reply' || row.sourceKind === 'sequence') && row.enabled)} onClick={disableSelected}>
+                {t(lang, 'workspace.disableAll')} ({selectedRows.length})
+              </Button>
+            )}
+            <label className="relative w-[230px]">
+              <span className="sr-only">{t(lang, 'workspace.filter')}</span>
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-[32px] pe-8 text-[13px]" placeholder={t(lang, 'workspace.filter')} />
+              <Search aria-hidden size={14} className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2 text-muted" />
+            </label>
+            <button
+              type="button"
+              onClick={createCommand}
+              className="flex h-[32px] items-center gap-2 rounded-[4px] border border-white/[0.08] bg-accent px-3.5 font-sans text-[13px] font-semibold text-on-accent transition-colors hover:bg-accent-hover"
+            >
+              <Plus size={14} aria-hidden />
+              {t(lang, 'workspace.newCommand')}
+            </button>
+          </div>
+        </header>
+      )}
       <div
         ref={workspaceRef}
         className="grid min-h-0 flex-1"
@@ -466,6 +486,7 @@ export function CommandsView() {
             />
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
+              <CommandTypeTabs rows={rows} lang={lang} />
               {group === 'ai' && <AiGlobalCooldownBar lang={lang} />}
               <CommandTable
                 rows={visibleRows}
@@ -494,7 +515,7 @@ export function CommandsView() {
               />
             </div>
           )}
-          <DockedLog />
+          {logBarVisible && <DockedLog />}
         </div>
         {!hasActiveStudio && (
           <CommandInspector
@@ -631,52 +652,33 @@ function CommandTable({
   const select = (row: CommandRow, modified: boolean) => setSelected(selectionAfterClick(selected, row.id, modified));
   if (allRows.length === 0) return <EmptyCommands onNewCommand={onNewCommand} />;
   return (
-    <div className="app-scroll min-h-0 flex-1 bg-[#23282e]" tabIndex={0}>
-      <table className="w-full table-fixed border-collapse text-start text-[12px]">
-        <thead className="sticky top-0 z-10 h-[34px] border-b border-white/[0.15] bg-[#262C33] text-[#9AA3AF] text-[10px] uppercase font-bold tracking-[0.09em]">
-          <tr>
-            <th className="w-[34%] px-2.5 text-start font-semibold">{t(lang, 'workspace.columnCommand')}</th>
-            <th className="px-2 text-start font-semibold">{t(lang, 'workspace.columnType')}</th>
-            <th className="w-[13%] px-2 text-start font-semibold max-[960px]:hidden">{t(lang, 'workspace.columnWho')}</th>
-            <th className="w-[10%] px-2 text-start font-semibold">{t(lang, 'workspace.columnCooldown')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const active = selected.includes(row.id);
-            return (
-              <FragmentRow
-                key={row.id}
-                row={row}
-                active={active}
-                onClick={(event) => {
-                  select(row, event.ctrlKey || event.metaKey || event.shiftKey);
-                }}
-                onDoubleClick={() => {
-                  if (row.sourceKind === 'counter') {
-                    onConfigureActions?.(row.sourceId);
-                  } else if (row.group === 'ai') {
-                    onConfigureAiReply?.(row.sourceId);
-                  } else if (row.sourceKind === 'sequence') {
-                    onConfigureSequence?.(row.sourceId);
-                  } else if (row.sourceKind === 'reply') {
-                    onConfigureReply?.(row.sourceId);
-                  }
-                }}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  if (!active) setSelected([row.id]);
-                  setMenu({ ...clampMenuPosition(event.clientX, event.clientY, window.innerWidth, window.innerHeight), rowId: row.id });
-                }}
-                onConfigureActions={onConfigureActions}
-                onConfigureReply={onConfigureReply}
-                onConfigureAiReply={onConfigureAiReply}
-                onConfigureSequence={onConfigureSequence}
-              />
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="app-scroll min-h-0 flex-1 bg-[#23282e] px-5 pb-6 pt-3" tabIndex={0}>
+      <ul className="flex flex-col gap-1" aria-label={t(lang, 'workspace.commands')}>
+        {rows.map((row) => {
+          const active = selected.includes(row.id);
+          return (
+            <CommandCard
+              key={row.id}
+              row={row}
+              active={active}
+              onClick={(event) => {
+                select(row, event.ctrlKey || event.metaKey || event.shiftKey);
+              }}
+              onEdit={() => {
+                if (row.sourceKind === 'counter') onConfigureActions?.(row.sourceId);
+                else if (row.group === 'ai') onConfigureAiReply?.(row.sourceId);
+                else if (row.sourceKind === 'sequence') onConfigureSequence?.(row.sourceId);
+                else onConfigureReply?.(row.sourceId);
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                if (!active) setSelected([row.id]);
+                setMenu({ ...clampMenuPosition(event.clientX, event.clientY, window.innerWidth, window.innerHeight), rowId: row.id });
+              }}
+            />
+          );
+        })}
+      </ul>
       <CommandContextMenu
         rows={allRows}
         onConfigureActions={onConfigureActions}
@@ -688,146 +690,183 @@ function CommandTable({
   );
 }
 
-function FragmentRow({
+/** The line under a command's name: the chat words or triggers that start it. */
+function triggerLine(row: CommandRow): string {
+  if (row.sourceKind === 'counter') return (row.subCommands ?? [row.command]).filter(Boolean).map((c) => (c.startsWith('!') ? c : `!${c}`)).join('  ');
+  if (row.sourceKind === 'reply') return row.command === row.name ? '' : row.command;
+  return row.command;
+}
+
+/** One command as a card: what it is, what starts it, who can use it, and an on/off switch. */
+function CommandCard({
   row,
   active,
   onClick,
-  onDoubleClick,
+  onEdit,
   onContextMenu,
-  onConfigureActions,
-  onConfigureReply,
-  onConfigureAiReply,
-  onConfigureSequence,
 }: {
   row: CommandRow;
   active: boolean;
   onClick: (event: React.MouseEvent) => void;
-  onDoubleClick?: () => void;
+  onEdit: () => void;
   onContextMenu: (event: React.MouseEvent) => void;
-  onConfigureActions?: (counterId: string) => void;
-  onConfigureReply?: (ruleId: string) => void;
-  onConfigureAiReply?: (ruleId: string) => void;
-  onConfigureSequence?: (sequenceId: string) => void;
 }) {
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
   const isCounter = row.sourceKind === 'counter';
   const isAi = row.group === 'ai';
   const isSequence = row.sourceKind === 'sequence';
+  const trigger = triggerLine(row);
+  const kind = isCounter
+    ? t(lang, 'workspace.type.counter')
+    : isAi
+      ? t(lang, 'workspace.type.ai')
+      : isSequence
+        ? `${t(lang, 'workspace.type.sequence')} · ${t(lang, 'workspace.stepsCount', { n: row.sequenceStepCount ?? 0 })}`
+        : t(lang, 'workspace.type.reply');
+
+  const setEnabled = (enabled: boolean) => {
+    if (row.sourceKind === 'reply') useAutoReplyStore.getState().update(row.sourceId, { enabled });
+    else if (row.sourceKind === 'sequence') useSequenceStore.getState().update(row.sourceId, { enabled });
+  };
 
   return (
-    <>
-      <tr
-        tabIndex={0}
-        aria-selected={active}
-        onClick={onClick}
-        onDoubleClick={onDoubleClick}
-        onContextMenu={onContextMenu}
-        className={`relative h-[44px] cursor-pointer border-b border-white/[0.06] transition-colors ${active ? 'bg-[#6366f1]/15 text-white border-s-2 border-[#6366f1]' : 'hover:bg-white/[0.045]'}`}
-      >
-        <td className="px-2.5">
-          <div className="flex min-w-0 flex-col justify-center leading-tight">
-            <span dir="ltr" className={`truncate text-left font-sans text-[13.5px] font-bold ${row.enabled ? 'text-[#e8ecff]' : 'text-muted line-through'}`}>
-              {row.name || t(lang, 'workspace.untitled')}
+    <li
+      tabIndex={0}
+      aria-selected={active}
+      onClick={onClick}
+      onDoubleClick={onEdit}
+      onContextMenu={onContextMenu}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') onEdit();
+      }}
+      className={`command-card group flex cursor-pointer flex-col rounded-[6px] border px-4 py-2.5 transition-colors ${
+        active ? 'border-accent/45 bg-accent/10' : 'border-white/[0.07] bg-[#2a3036] hover:bg-[#2f363d]'
+      } ${row.enabled ? '' : 'opacity-60'}`}
+    >
+      <div className="flex min-h-[40px] items-center gap-4">
+        <div className="flex w-[34%] min-w-0 flex-col">
+          <span dir="auto" className="truncate font-sans text-[14px] font-semibold text-ink">
+            {row.name || t(lang, 'workspace.untitled')}
+          </span>
+          {trigger && (
+            <span dir="ltr" className="truncate text-start font-mono text-[12px] text-accent-text">
+              {trigger}
             </span>
-            {isCounter && row.command && (
-              <span dir="ltr" className="truncate font-mono text-[10.5px] text-muted">!{row.command}</span>
-            )}
-          </div>
-        </td>
-        <td className="truncate px-2 text-ink">
-          <div className="flex items-center gap-1.5">
-            <span className={`shrink-0 rounded-[3px] border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${isAi || isSequence ? 'border-purple-500/30 bg-purple-500/15 text-[#d8b4fe]' : 'border-[#38424d] bg-[#242b32] text-[#cbd3e6]'}`}>
-              {t(lang, `workspace.type.${isCounter ? 'counter' : isAi ? 'ai' : isSequence ? 'sequence' : 'reply'}`)}
-            </span>
-            {isSequence && (row.triggerKinds?.length ?? 0) === 0 && (
-              row.isCalled ? (
-                <span title={t(lang, 'workspace.calledByOthers')} className="text-[13px] leading-none text-cyan-300">↪</span>
-              ) : (
-                <span title={t(lang, 'workspace.noTrigger')} className="text-[12px] text-amber-400">⚠</span>
-              )
-            )}
-            {isSequence && row.triggerKinds?.map((kind) => (
-              <span key={kind} title={t(lang, `workspace.trigger.${kind}`)} className="text-[13px] leading-none">
-                {TRIGGER_GLYPH[kind]}
+          )}
+        </div>
+
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-[12.5px] text-muted">
+          <span className="truncate">{kind}</span>
+          {isSequence && (row.triggerKinds?.length ?? 0) === 0 && (
+            row.isCalled ? (
+              <span title={t(lang, 'workspace.calledByOthers')} className="inline-flex text-cyan-300">
+                <CornerDownRight size={13} aria-hidden />
               </span>
-            ))}
-            {isCounter && (
-              <>
-                <span dir="ltr" className="rounded-[3px] border border-[#38424d] bg-[#242b32] px-1.5 py-0.5 font-mono text-[10.5px] font-bold text-accent-text shrink-0 shadow-xs">
-                  {String(row.count ?? 0).padStart(3, '0')}
+            ) : (
+              <span title={t(lang, 'workspace.noTrigger')} aria-label={t(lang, 'workspace.noTrigger')} className="inline-flex text-amber-400">
+                <TriangleAlert size={13} />
+              </span>
+            )
+          )}
+          {isSequence &&
+            row.triggerKinds?.map((kindId) => {
+              const Icon = TRIGGER_ICON[kindId];
+              return (
+                <span key={kindId} title={t(lang, `workspace.trigger.${kindId}`)} aria-label={t(lang, `workspace.trigger.${kindId}`)} className="inline-flex">
+                  <Icon size={13} strokeWidth={2} />
                 </span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onConfigureActions?.(row.sourceId);
-                  }}
-                  className="rounded-[3px] border border-[#2e3740] bg-[#22282f] hover:border-[#3d4856] hover:bg-[#283038] hover:text-white px-2 py-0.5 text-[10px] font-mono text-[#cbd3e6] shrink-0 transition-colors shadow-xs"
-                  title={t(lang, 'workspace.openActionsView')}
-                >
-                  {t(lang, 'workspace.actionsPill')} ↗
-                </button>
-              </>
-            )}
-            {isAi && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onConfigureAiReply?.(row.sourceId);
-                }}
-                className="rounded-[3px] border border-purple-500/30 bg-purple-500/15 text-[#d8b4fe] hover:border-purple-500/50 hover:bg-purple-500/25 hover:text-white px-2 py-0.5 text-[10px] font-mono font-bold shrink-0 transition-colors shadow-xs"
-                title={t(lang, 'aiStudio.openStudio')}
-              >
-                {t(lang, 'aiStudio.openStudio')} ↗
-              </button>
-            )}
-            {isSequence && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onConfigureSequence?.(row.sourceId);
-                }}
-                className="rounded-[3px] border border-purple-500/30 bg-purple-500/15 text-[#d8b4fe] hover:border-purple-500/50 hover:bg-purple-500/25 hover:text-white px-2 py-0.5 text-[10px] font-mono font-bold shrink-0 transition-colors shadow-xs"
-                title={t(lang, 'sequence.openStudio')}
-              >
-                {t(lang, 'workspace.stepsCount', { n: row.sequenceStepCount ?? 0 })} ↗
-              </button>
-            )}
-            {!isCounter && !isAi && !isSequence && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onConfigureReply?.(row.sourceId);
-                }}
-                className="rounded-[3px] border border-[#2e3740] bg-[#22282f] hover:border-[#3d4856] hover:bg-[#283038] hover:text-white px-2 py-0.5 text-[10px] font-mono text-[#cbd3e6] shrink-0 transition-colors shadow-xs"
-                title={t(lang, 'workspace.openReplyStudio')}
-              >
-                {t(lang, 'workspace.replyPill')} ↗
-              </button>
-            )}
-            {!row.enabled && <span className="ms-1 rounded-[3px] border border-[#2a323a] bg-[#1c2228] px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wider text-[#737e8c] shrink-0">{t(lang, 'workspace.disabledTag')}</span>}
-          </div>
-        </td>
-        <td className="truncate px-2 text-muted max-[960px]:hidden">{t(lang, `ranks.${row.permission}`)}</td>
-        <td className="px-2 font-mono text-[11px] text-muted">{row.cooldownSeconds > 0 ? `${row.cooldownSeconds}s` : t(lang, 'workspace.off')}</td>
-      </tr>
-      {row.error && <tr className="h-[28px] border-b border-rule/50 bg-danger/5"><td colSpan={4} className="border-s-2 border-danger px-2.5 text-[11px] text-danger font-medium"><TriangleAlert size={11} className="me-1.5 inline" />{row.error}</td></tr>}
-    </>
+              );
+            })}
+        </div>
+
+        <span className="hidden w-[96px] shrink-0 truncate text-[12.5px] text-muted min-[1100px]:block">{t(lang, `ranks.${row.permission}`)}</span>
+        <span className="w-[44px] shrink-0 text-end font-mono text-[11.5px] text-muted">
+          {row.cooldownSeconds > 0 ? `${row.cooldownSeconds}s` : t(lang, 'workspace.off')}
+        </span>
+
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit();
+          }}
+          className="shrink-0 rounded-[4px] px-2 py-1 text-[12px] text-muted opacity-0 transition-opacity hover:bg-white/[0.06] hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          {t(lang, 'workspace.edit')}
+        </button>
+
+        <span className="flex w-[44px] shrink-0 justify-end" onClick={(event) => event.stopPropagation()}>
+          {isCounter ? (
+            <span dir="ltr" className="font-mono text-[13px] font-semibold text-ink">{row.count ?? 0}</span>
+          ) : (
+            <Switch checked={row.enabled} onChange={setEnabled} label={`${row.enabled ? t(lang, 'workspace.disable') : t(lang, 'workspace.enable')}: ${row.name}`} />
+          )}
+        </span>
+      </div>
+      {row.error && (
+        <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] font-medium text-danger">
+          <TriangleAlert size={12} aria-hidden />
+          {row.error}
+        </div>
+      )}
+    </li>
   );
 }
 
-const TRIGGER_GLYPH: Record<NonNullable<CommandRow['triggerKinds']>[number], string> = {
-  channel_points: '🪙',
-  chat: '💬',
-  raid: '🔥',
-  follow: '❤️',
-  watch_streak: '⚡',
-  timer: '⏱',
+const TRIGGER_ICON: Record<NonNullable<CommandRow['triggerKinds']>[number], LucideIcon> = {
+  channel_points: Coins,
+  chat: MessageSquare,
+  raid: Users,
+  follow: Heart,
+  watch_streak: Zap,
+  timer: Timer,
 };
+
+const TYPE_TABS: { id: CommandGroup; labelKey: string }[] = [
+  { id: 'all', labelKey: 'workspace.allCommands' },
+  { id: 'counters', labelKey: 'workspace.counters' },
+  { id: 'replies', labelKey: 'workspace.preparedReplies' },
+  { id: 'ai', labelKey: 'workspace.aiReplies' },
+  { id: 'sequences', labelKey: 'workspace.sequences' },
+  { id: 'disabled', labelKey: 'workspace.disabled' },
+];
+
+/** The command types, as tabs at the top of the list (they used to be nested in the sidebar). */
+function CommandTypeTabs({ rows, lang }: { rows: CommandRow[]; lang: 'en' | 'ar' }) {
+  const group = useToolStore((s) => s.group);
+  const setGroup = useToolStore((s) => s.setGroup);
+  const countFor = (id: CommandGroup) =>
+    id === 'all' ? rows.length : id === 'disabled' ? rows.filter((r) => !r.enabled).length : rows.filter((r) => r.group === id).length;
+  return (
+    <div role="tablist" aria-label={t(lang, 'workspace.typeTabs')} className="flex shrink-0 items-center gap-1 overflow-x-auto px-4 pb-1 pt-3">
+      {TYPE_TABS.map((tab) => {
+        const count = countFor(tab.id);
+        const selected = group === tab.id;
+        // Disabled is only worth a tab when something is switched off
+        if (tab.id === 'disabled' && count === 0 && !selected) return null;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            data-od-id={`commands-tab-${tab.id}`}
+            onClick={() => setGroup(tab.id)}
+            className={`relative flex h-[36px] shrink-0 items-center gap-1.5 rounded-[4px] px-3 text-[13.5px] transition-colors ${
+              selected
+                ? 'font-semibold text-white after:absolute after:start-1/2 after:bottom-[2px] after:h-[3px] after:w-4 after:-translate-x-1/2 after:rounded-full after:bg-accent rtl:after:translate-x-1/2'
+                : 'text-[#c3cad3] hover:bg-white/[0.05] hover:text-[#f0f3f7]'
+            }`}
+          >
+            {t(lang, tab.labelKey)}
+            <span className={`text-[12px] ${selected ? 'text-[#cbd3dc]' : 'text-[#8b94a1]'}`}>{count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function EmptyCommands({ onNewCommand }: { onNewCommand?: () => void }) {
   const language = useSettingsStore((s) => s.language);
@@ -838,7 +877,7 @@ function EmptyCommands({ onNewCommand }: { onNewCommand?: () => void }) {
       <p className="mt-1 max-w-xs text-[12px] text-muted">{t(lang, 'workspace.emptyHint')}</p>
       <Button size="sm" className="mt-3" onClick={onNewCommand}>
         <Plus size={13} />
-        {t(lang, 'workspace.new')}
+        {t(lang, 'workspace.newCommand')}
       </Button>
     </div>
   );
@@ -1132,8 +1171,13 @@ function CommandInspector({
           />
         )
       ) : (
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-[11px] text-muted">
-          {t(lang, 'workspace.selectHint')}
+        <div className="flex flex-1 flex-col gap-4 px-5 pt-6">
+          <p className="text-[13px] leading-5 text-muted">{t(lang, 'workspace.selectHint')}</p>
+          {/* The live stream title lives here when no command is selected, out of the page header */}
+          <div className="flex flex-col gap-2">
+            <div className="text-[12px] font-semibold text-muted">{t(lang, 'workspace.liveTwitchTitle')}</div>
+            <StreamTitleBar lang={lang} />
+          </div>
         </div>
       )}
     </aside>
@@ -1166,84 +1210,52 @@ function SequenceInspector({
         kind={t(lang, 'sequence.title')}
         onClose={onClose}
       />
-      <div className="app-scroll min-h-0 flex-1 space-y-4 px-3 py-3">
-        {/* Studio Launcher Card */}
-        <div className="rounded-[5px] border border-[#384048] bg-[#2e3338] p-3 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div className="ui-label">{t(lang, 'sequence.stackTitle')}</div>
-            <span className="rounded-[3px] border border-purple-500/30 bg-purple-500/15 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-[#c4b5fd]">
-              {t(lang, 'workspace.stepsCount', { n: sequence.steps.length })}
-            </span>
-          </div>
+      <div className="app-scroll min-h-0 flex-1 space-y-3 px-5 pb-4">
+        <WhenThenCard
+          lang={lang}
+          when={whenLines(sequence, row, lang)}
+          then={sequence.steps.filter((s) => s.type !== 'comment').map((s) => stepSentence(s, lang))}
+        />
 
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full justify-between h-8 text-[11px] rounded-[4px] border border-[#3d4856] bg-[#242a30] text-[#f0f3fa] hover:border-[#4d5a6c] hover:bg-[#2c333a]"
+        <div className="flex gap-2">
+          <button
+            type="button"
             onClick={() => onConfigureSequence?.(sequence.id)}
+            className="flex h-[32px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-white/[0.08] bg-accent font-sans text-[13px] font-semibold text-on-accent transition-colors hover:bg-accent-hover"
           >
-            <div className="flex items-center gap-1.5 font-bold">
-              <Layers size={12} className="text-accent-text" />
-              <span>{t(lang, 'sequence.openStudio')}</span>
-            </div>
-            <ChevronRight size={12} className="text-muted" />
+            <Layers size={13} aria-hidden />
+            {t(lang, 'workspace.edit')}
+          </button>
+          <Button
+            variant="outline"
+            className="h-[32px] flex-1 whitespace-nowrap text-[13px]"
+            disabled={isExecuting}
+            onClick={() => {
+              const formatted = testTarget.trim() ? (testTarget.trim().startsWith('@') ? testTarget.trim() : `@${testTarget.trim()}`) : '';
+              void runSequence(sequence.id, { username: 'Streamer', userInput: formatted, source: 'test' });
+            }}
+          >
+            <Play size={12} aria-hidden />
+            {isExecuting ? t(lang, 'sequence.running') : t(lang, 'sequence.runTest')}
           </Button>
-
-          <div className="flex items-center gap-1.5">
-            <div className="relative flex-1">
-              <span className="absolute start-2 top-1/2 -translate-y-1/2 font-mono text-[10px] text-muted">@</span>
-              <Input
-                value={testTarget}
-                onChange={(e) => setTestTarget(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const formatted = testTarget.trim()
-                      ? (testTarget.trim().startsWith('@') ? testTarget.trim() : `@${testTarget.trim()}`)
-                      : '';
-                    void runSequence(sequence.id, {
-                      username: 'Streamer',
-                      userInput: formatted,
-                      source: 'test',
-                    });
-                  }
-                }}
-                placeholder={t(lang, 'sequence.testTargetPlaceholder')}
-                className="h-7 ps-5 font-mono text-[11px]"
-              />
-            </div>
-            <Button
-              size="sm"
-              className="h-7 text-[11px] font-bold rounded-[4px] px-3 shrink-0"
-              disabled={isExecuting}
-              onClick={() => {
-                const formatted = testTarget.trim()
-                  ? (testTarget.trim().startsWith('@') ? testTarget.trim() : `@${testTarget.trim()}`)
-                  : '';
-                void runSequence(sequence.id, {
-                  username: 'Streamer',
-                  userInput: formatted,
-                  source: 'test',
-                });
-              }}
-            >
-              <Play size={11} className="me-1" />
-              {isExecuting ? t(lang, 'sequence.running') : t(lang, 'sequence.runTest')}
-            </Button>
-          </div>
+        </div>
+        <div className="relative">
+          <span className="absolute start-2.5 top-1/2 -translate-y-1/2 font-mono text-[11px] text-muted">@</span>
+          <Input
+            value={testTarget}
+            onChange={(e) => setTestTarget(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const formatted = testTarget.trim() ? (testTarget.trim().startsWith('@') ? testTarget.trim() : `@${testTarget.trim()}`) : '';
+                void runSequence(sequence.id, { username: 'Streamer', userInput: formatted, source: 'test' });
+              }
+            }}
+            placeholder={t(lang, 'sequence.testTargetPlaceholder')}
+            className="h-[30px] ps-6 font-mono text-[12px]"
+          />
         </div>
 
-        {/* Trigger summary (edited in the studio) */}
-        <div className="space-y-2 border-t border-hair pt-2">
-          <InspectorField label={t(lang, 'sequence.triggerType')}>
-            <div className="flex flex-wrap gap-1">
-              {row.command.split(', ').filter(Boolean).map((label, idx) => (
-                <span key={idx} dir="auto" className="rounded border border-hair bg-surface-2 px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-ink">
-                  {label}
-                </span>
-              ))}
-            </div>
-          </InspectorField>
-
+        <div className="space-y-2 pt-1">
           <CooldownField
             value={sequence.cooldownSeconds}
             onChange={(cooldownSeconds) => update(sequence.id, { cooldownSeconds })}
@@ -1278,20 +1290,8 @@ function SequenceInspector({
           </MoreSettings>
         )}
       </div>
+      {/* The When / Then card already lists the steps, so the footer only keeps Saved and Delete */}
       <InspectorFooter
-        outputs={sequence.steps.map((s, idx) => {
-          let detail = '';
-          if (s.type === 'wait') detail = `${s.waitDuration ?? 3} ${s.waitUnit ?? 'seconds'}`;
-          else if (s.type === 'chat') detail = s.chatMessage ?? '';
-          else if (s.type === 'counter') detail = `${s.counterAction ?? 'increase'} counter`;
-          else if (s.type === 'command') detail = s.commandTrigger ?? '';
-          else if (s.type === 'tts') detail = s.ttsText ?? '';
-          else if (s.type === 'moderation') detail = `${s.moderationAction ?? 'smart_timeout'} ${s.targetUser ?? ''}`.trim();
-          else if (s.type === 'duel' || s.type === 'duel_streamer') detail = s.duelMode === 'random' ? 'random' : 'AI trivia';
-          else if (s.type === 'poll') detail = `${s.pollAction ?? 'start'} ${s.pollQuestion ?? ''}`.trim();
-          else if (s.type === 'if') detail = `${s.ifThen?.length ?? 0} then / ${s.ifElse?.length ?? 0} else`;
-          return `${idx + 1}. [${s.type.toUpperCase()}] ${detail}`;
-        })}
         savedAt={null}
         onDelete={() => useSequenceStore.getState().remove(sequence.id)}
       />
@@ -1337,7 +1337,7 @@ function CounterInspector({
         kind={primaryCommand ? `${t(lang, 'workspace.counterCommand')} · !${primaryCommand}` : t(lang, 'workspace.counterCommand')}
         onClose={onClose}
       />
-      <div className="app-scroll min-h-0 flex-1 space-y-4 px-3 py-3">
+      <div className="app-scroll min-h-0 flex-1 space-y-3 px-5 pb-4">
         {/* Counter Name */}
         <InspectorField label={t(lang, 'config.name')}>
           <Input
@@ -1498,7 +1498,7 @@ function ReplyInspector({
         kind={isAi ? t(lang, 'workspace.aiReply') : t(lang, 'workspace.preparedReply')}
         onClose={onClose}
       />
-      <div className="app-scroll min-h-0 flex-1 space-y-4 px-3 py-3">
+      <div className="app-scroll min-h-0 flex-1 space-y-3 px-5 pb-4">
         {/* Quick Enable/Disable toggle */}
         <div className="flex items-center justify-between rounded-md border border-hair bg-surface-2/40 px-3 py-2">
           <div className="space-y-0.5">
@@ -1527,7 +1527,7 @@ function ReplyInspector({
                   : 'border-[#38424d] bg-[#242b32] text-accent-text'
               }`}
             >
-              {isAi ? '✨ AI Reply' : '💬 Prepared'}
+              {isAi ? 'AI Reply' : 'Prepared'}
             </span>
           </div>
 
@@ -1610,7 +1610,80 @@ function MoreSettings({ label, children }: { label: string; children: React.Reac
 }
 
 function InspectorHeader({ title, kind, onClose }: { title: string; kind: string; onClose: () => void }) {
-  return <header className="shrink-0 border-b border-hair px-3 py-3"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div dir="auto" className="truncate font-sans text-[19px] font-extrabold leading-normal pb-0.5 text-accent-text">{title}</div><div className="mt-1 truncate ui-label">{kind}</div></div><button type="button" className="grid size-6 place-items-center text-ink" onClick={onClose} aria-label="Close"><X size={13} /></button></div></header>;
+  return (
+    <header className="shrink-0 px-5 pb-3 pt-5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-sans text-[12px] text-muted">{kind}</div>
+          <div dir="auto" className="mt-0.5 truncate font-sans text-[20px] font-semibold leading-7 text-ink">{title}</div>
+        </div>
+        <button type="button" className="grid size-7 place-items-center rounded-[4px] text-muted hover:bg-white/[0.06] hover:text-ink" onClick={onClose} aria-label="Close">
+          <X size={14} />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+/** A plain-language line for one sequence step, as in the concept's "Then" list. */
+function stepSentence(step: SequenceStep, lang: 'en' | 'ar'): { label: string; detail: string } {
+  const entry = SUB_ACTIONS.find((a) => a.type === step.type && (!a.options?.moderationAction || a.options.moderationAction === step.moderationAction)) ?? SUB_ACTIONS.find((a) => a.type === step.type);
+  const label = entry ? entry[lang].label : step.type;
+  let detail = '';
+  if (step.type === 'wait') detail = `${step.waitDuration ?? 3} ${step.waitUnit === 'minutes' ? (lang === 'ar' ? 'د' : 'min') : (lang === 'ar' ? 'ث' : 's')}`;
+  else if (step.type === 'chat') detail = step.chatMessage ?? '';
+  else if (step.type === 'tts') detail = step.ttsText ?? '';
+  else if (step.type === 'command') detail = step.commandTrigger ?? '';
+  else if (step.type === 'moderation') detail = step.targetUser ?? '';
+  else if (step.type === 'poll') detail = step.pollQuestion ?? '';
+  return { label, detail };
+}
+
+/** The When lines for a sequence: each trigger named by its kind, e.g. "Chat command: !hydrate". */
+function whenLines(sequence: CommandSequence, row: CommandRow, lang: 'en' | 'ar'): string[] {
+  if (!Array.isArray(sequence.triggers)) return row.command.split(', ').filter((label) => label && label !== '(No Triggers)');
+  return sequence.triggers
+    .filter((trigger) => trigger.enabled !== false)
+    .map((trigger) => {
+      if (trigger.type === 'twitch_channel_points') return `${t(lang, 'workspace.trigger.channel_points')}: ${trigger.rewardTitle || '?'}`;
+      if (trigger.type === 'twitch_chat') return `${t(lang, 'workspace.trigger.chat')}: ${triggerChatCommands(trigger).join(' / ') || '?'}`;
+      if (trigger.type === 'twitch_raid') return `${t(lang, 'workspace.trigger.raid')} (${trigger.minViewers ?? 1}+)`;
+      if (trigger.type === 'twitch_follow') return t(lang, 'workspace.trigger.follow');
+      if (trigger.type === 'twitch_watch_streak') return t(lang, 'workspace.trigger.watch_streak');
+      if (trigger.type === 'timer') return `${t(lang, 'workspace.trigger.timer')}: ${formatTimerInterval(trigger.intervalMinutes ?? TIMER_DEFAULT_INTERVAL_MINUTES)}`;
+      return String(trigger.type);
+    });
+}
+
+/** The concept's summary card: what starts the command, then what it does, in plain words. */
+function WhenThenCard({ when, then, lang }: { when: string[]; then: { label: string; detail: string }[]; lang: 'en' | 'ar' }) {
+  return (
+    <div className="when-then rounded-[6px] border border-white/[0.07] bg-[#2a3036] px-4 py-3.5 text-[13px] leading-5">
+      <div className="text-[12px] font-semibold text-muted">{t(lang, 'workspace.when')}</div>
+      <ul className="mt-1.5 space-y-1">
+        {when.length ? when.map((line, i) => <li key={i} className="text-ink"><bdi dir="auto">{line}</bdi></li>) : <li className="text-muted">{t(lang, 'workspace.noTrigger')}</li>}
+      </ul>
+      <div className="my-3 h-px bg-white/[0.07]" />
+      <div className="text-[12px] font-semibold text-muted">{t(lang, 'workspace.then')}</div>
+      <ol className="mt-1.5 space-y-1">
+        {then.map((line, i) => (
+          <li key={i} className="flex gap-2 text-ink">
+            <span className="shrink-0 text-muted">{i + 1}.</span>
+            {/* Label and message are isolated so an English message after an Arabic label keeps its order */}
+            <span className="min-w-0 break-words">
+              <bdi>{line.label}</bdi>
+              {line.detail && (
+                <>
+                  {': '}
+                  <bdi dir="auto" className="text-muted">{line.detail}</bdi>
+                </>
+              )}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
 }
 
 function InspectorField({ label, children }: { label: string; children: React.ReactNode }) { return <div><div className="ui-label mb-1.5">{label}</div>{children}</div>; }
@@ -1624,18 +1697,14 @@ function PermissionField({ value, onChange }: { value: PermissionLevel; onChange
 function CooldownField({ value, onChange }: { value: number; onChange: (value: number) => void }) {
   const language = useSettingsStore((s) => s.language);
   const lang = language === 'ar' ? 'ar' : 'en';
+  // One quiet row, Windows style: the label and value on one line, a slim slider under it
   return (
-    <div className="py-1">
-      <DurationPicker
-        value={value}
-        onChange={onChange}
-        min={0}
-        max={300}
-        step={5}
-        presets={[0, 15, 30, 60, 120, 300]}
-        label={t(lang, 'workspace.cooldown')}
-        accentColor="default"
-      />
+    <div className="flex flex-col gap-2 py-1">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[13px] text-ink">{t(lang, 'workspace.cooldown')}</span>
+        <span className="font-mono text-[12.5px] text-muted">{value > 0 ? `${value}s` : t(lang, 'workspace.off')}</span>
+      </div>
+      <Slider value={value} min={0} max={300} step={5} onChange={onChange} ariaLabel={t(lang, 'workspace.cooldown')} />
     </div>
   );
 }
@@ -1644,9 +1713,9 @@ function SinkRow({ label, detail, checked, onChange }: { label: string; detail: 
   return <div className="flex min-h-[46px] items-center gap-2 border-b border-hair py-1.5"><div className="min-w-0 flex-1"><div className={`text-[13px] font-extrabold ${checked ? 'text-ink' : 'text-muted'}`}>{label}</div><div dir="auto" className="truncate font-mono text-[10px] text-muted">{detail}</div></div><Switch checked={checked} onChange={onChange} label={label} /></div>;
 }
 
-function InspectorFooter({ outputs, savedAt, onDelete }: { outputs: string[]; savedAt: string | null; onDelete: () => void }) {
+function InspectorFooter({ outputs, savedAt, onDelete }: { outputs?: string[]; savedAt: string | null; onDelete: () => void }) {
   const language = useSettingsStore((s) => s.language); const lang = language === 'ar' ? 'ar' : 'en';
-  return <footer className="shrink-0 border-t-2 border-rule bg-surface px-3 py-2"><div className="ui-label">{t(lang, 'workspace.rightNowWrites')}</div><div className="mt-1 border-s-2 border-accent ps-2 font-mono text-[11px] leading-5 text-ink">{outputs.length ? outputs.map((output, index) => <div dir="auto" key={index}>{output}</div>) : <div className="text-muted">—</div>}</div><div className="mt-2 flex items-center"><span className="flex items-center gap-1 font-mono text-[9.5px] text-muted"><Check size={11} />{t(lang, 'workspace.saved')}{savedAt ? ` ${formatTime(savedAt)}` : ''}</span><Button size="sm" variant="outline" className="ms-auto" onClick={onDelete}><Trash2 size={11} />{t(lang, 'workspace.delete')}</Button></div></footer>;
+  return <footer className="shrink-0 border-t border-white/[0.07] px-5 py-2.5">{outputs && <><div className="ui-label">{t(lang, 'workspace.rightNowWrites')}</div><div className="mb-2 mt-1 border-s-2 border-accent ps-2 font-mono text-[11px] leading-5 text-ink">{outputs.length ? outputs.map((output, index) => <div dir="auto" key={index}>{output}</div>) : <div className="text-muted">—</div>}</div></>}<div className="flex items-center"><span className="flex items-center gap-1 font-mono text-[9.5px] text-muted"><Check size={11} />{t(lang, 'workspace.saved')}{savedAt ? ` ${formatTime(savedAt)}` : ''}</span><Button size="sm" variant="outline" className="ms-auto" onClick={onDelete}><Trash2 size={11} />{t(lang, 'workspace.delete')}</Button></div></footer>;
 }
 
 const LOG_KIND: Record<LogEntry['kind'], string> = { chat: 'CHAT', trigger: 'TRIGGER', 'cooldown-denied': 'SKIP', 'permission-denied': 'DENY', manual: 'MANUAL', reset: 'RESET', system: 'SYSTEM', 'obs-ok': 'WRITE', 'obs-error': 'ERROR' };

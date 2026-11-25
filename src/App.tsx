@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { Titlebar } from './components/titlebar/Titlebar';
 import { WindowResizeHandles } from './components/titlebar/WindowResizeHandles';
-import { ActionBar } from './components/layout/ActionBar';
 import { AppSidebar } from './components/layout/AppSidebar';
 import { HomeView } from './components/tools/home/HomeView';
 import { CommandsView } from './components/commands/CommandsView';
@@ -35,6 +34,7 @@ import { GuidedTour } from './components/tour/GuidedTour';
 import { useChatterStore } from './store/chatterStore';
 import { useVoteStore } from './store/voteStore';
 import { ObsChatView } from './components/tools/chat/ObsChatView';
+import { ChatSectionTabs } from './components/tools/chat/ChatSectionTabs';
 import { VotesView } from './components/tools/votes/VotesView';
 import { AlertCompressorView } from './components/tools/alerts/AlertCompressorView';
 import { useAlertCompressorStore } from './store/alertCompressorStore';
@@ -46,6 +46,7 @@ import { shortcutKey } from './lib/shortcutKey';
 import { useEmoteStore } from './store/emoteStore';
 import { useGiftStore } from './store/giftStore';
 import { WhatsNewDialog } from './components/updates/WhatsNewDialog';
+import { ThemeIntroDialog } from './components/updates/ThemeIntroDialog';
 import { ReauthPromptModal } from './components/modals/ReauthPromptModal';
 
 /** First run: once the language is picked, a new streamer gets the guided tour (after the app has drawn itself). */
@@ -107,6 +108,15 @@ export default function App() {
     media?.addEventListener('change', apply);
     return () => media?.removeEventListener('change', apply);
   }, [theme]);
+
+  // Fluent picks the Windows 11 material behind the window; other themes paint over it, so they keep plain Mica
+  const fluentBackdrop = useSettingsStore((s) => s.fluentBackdrop);
+  useEffect(() => {
+    const kind = theme === 'fluent' ? fluentBackdrop : 'mica';
+    document.documentElement.dataset.material = kind;
+    if ((window as { __nativeBackdrop?: string }).__nativeBackdrop !== 'mica') return;
+    rpc.invoke(Channels.WindowSetBackdrop, { kind }).catch(() => undefined);
+  }, [theme, fluentBackdrop]);
 
   const effectiveScale = useSettingsStore((s) => s.effectiveScale);
 
@@ -370,7 +380,6 @@ export default function App() {
       style={{ minWidth: 'min(900px, 100vw)' }}
     >
       <Titlebar />
-      <ActionBar />
       {recoveryNotice && (
         <div role="alert" className="flex min-h-[44px] shrink-0 items-center gap-3 border-b border-amber-500/25 bg-amber-500/10 px-4 py-1.5">
           <TriangleAlert size={16} className="shrink-0 text-amber-400" aria-hidden />
@@ -405,9 +414,10 @@ export default function App() {
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <AppSidebar />
-          <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#23282e]">
+          <main data-content-layer className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#23282e]">
             {tab === 'home' && <HomeView />}
             {tab === 'commands' && <CommandsView />}
+            {(tab === 'overlay' || tab === 'obs-chat') && <ChatSectionTabs />}
             {tab === 'overlay' && <ChatView target="overlay" />}
             {tab === 'obs-chat' && <ObsChatView />}
             {tab === 'votes' && <VotesView />}
@@ -420,6 +430,7 @@ export default function App() {
       <ReauthPromptModal />
       <UndoToast />
       <WhatsNewDialog />
+      <ThemeIntroDialog />
       <GuidedTour />
       <AutoUpdateToast />
       <LeadModReminder />

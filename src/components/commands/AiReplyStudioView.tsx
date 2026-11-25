@@ -362,7 +362,7 @@ export function AiReplyStudioView({
               className="h-6 border border-purple-500/40 bg-purple-600/90 text-white hover:bg-purple-600 px-2 text-[11px]"
             >
               <Play size={11} className="fill-current me-1" />
-              <span>{testSent ? '✓ Simulated!' : isTesting ? 'Testing…' : t(lang, 'sequence.runTest')}</span>
+              <span>{testSent ? 'Simulated' : isTesting ? 'Testing…' : t(lang, 'sequence.runTest')}</span>
             </Button>
           </div>
 
@@ -423,7 +423,7 @@ export function AiReplyStudioView({
                 }}
                 options={[
                   { value: 'static', label: t(lang, 'workspace.prepared') },
-                  { value: 'ai', label: `✨ ${t(lang, 'workspace.ai')}` },
+                  { value: 'ai', label: t(lang, 'workspace.ai') },
                 ]}
               />
             </div>
@@ -672,7 +672,7 @@ export function AiReplyStudioView({
                   className="px-2 py-1 hover:text-white cursor-pointer"
                   title={cp.agentRole ? `${cp.name}: ${cp.agentRole}` : cp.name}
                 >
-                  <span>✨ {cp.name}</span>
+                  <span>{cp.name}</span>
                 </button>
                 <button
                   type="button"
@@ -842,7 +842,7 @@ export function AiReplyStudioView({
                 <div className="flex items-center justify-between border-b border-purple-500/20 pb-2.5">
                   <div className="flex items-center gap-2">
                     <div className="flex h-7 w-7 items-center justify-center rounded-full bg-purple-500/20 text-purple-300 font-bold text-xs border border-purple-500/30">
-                      {rule.agentName ? rule.agentName[0]?.toUpperCase() : '🤖'}
+                      {rule.agentName ? rule.agentName[0]?.toUpperCase() : 'AI'}
                     </div>
                     <div>
                       <div className="font-semibold text-[13px] text-purple-200">
@@ -1288,11 +1288,11 @@ export function AiReplyStudioView({
                       },
                       {
                         value: 'broadcaster',
-                        label: `👑 ${t(lang, 'autoReplies.senderBroadcaster')}${twitchChannel ? ` (@${twitchChannel})` : ''}`,
+                        label: `${t(lang, 'autoReplies.senderBroadcaster')}${twitchChannel ? ` (@${twitchChannel})` : ''}`,
                       },
                       {
                         value: 'bot',
-                        label: `🤖 ${t(lang, 'autoReplies.senderBot')}${botLogin ? ` (@${botLogin})` : ''}`,
+                        label: `${t(lang, 'autoReplies.senderBot')}${botLogin ? ` (@${botLogin})` : ''}`,
                       },
                     ]}
                     onChange={(val) => update(rule.id, { senderRole: val as 'default' | 'bot' | 'broadcaster' })}

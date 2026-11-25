@@ -70,19 +70,20 @@ export function WidgetCard({ id, title, icon, size, editing, isFirst, isLast, on
   return (
     <section
       className={cn(
-        'relative flex min-h-[150px] min-w-0 flex-col rounded-[10px] border bg-[#2e3438] p-4 transition-[border-color,box-shadow] duration-150',
+        // Same calm card as a command row: thin border, no shadow, plain icon
+        'widget-card relative flex min-h-[150px] min-w-0 flex-col rounded-[6px] border bg-[#2a3036] px-4 pb-4 pt-3.5 transition-[border-color,box-shadow] duration-150',
         SPAN[size],
-        editing ? 'cursor-grab border-dashed border-[#6366f1]/45 active:cursor-grabbing' : 'border-white/[0.08] hover:border-white/[0.14]',
-        over && 'border-[#6366f1] shadow-[0_0_0_2px_rgba(99,102,241,0.35)]',
+        editing ? 'cursor-grab border-dashed border-accent/45 active:cursor-grabbing' : 'border-white/[0.07]',
+        over && 'border-accent shadow-[0_0_0_2px_var(--accent-soft)]',
       )}
       aria-label={title}
       {...dragProps}
     >
       <header className="mb-3 flex min-h-[28px] items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          {editing && <GripVertical size={15} className="shrink-0 text-[#9aa3af]" aria-hidden />}
-          <span className="grid size-[26px] shrink-0 place-items-center rounded-[7px] bg-white/[0.06] text-[#cbd3e6]">{icon}</span>
-          <h3 className="truncate font-sans text-[13px] font-bold text-white">{title}</h3>
+        <div className="flex min-w-0 items-center gap-2.5">
+          {editing && <GripVertical size={15} className="shrink-0 text-muted" aria-hidden />}
+          <span className="grid size-4 shrink-0 place-items-center text-muted [&_svg]:size-4 [&_svg]:text-muted!">{icon}</span>
+          <h3 className="truncate font-sans text-[13.5px] font-semibold text-ink">{title}</h3>
         </div>
         {!editing && actions}
       </header>
@@ -99,7 +100,7 @@ export function WidgetCard({ id, title, icon, size, editing, isFirst, isLast, on
                 aria-pressed={size === s}
                 className={cn(
                   'h-[22px] min-w-[30px] rounded-[5px] px-1.5 text-[11px] font-semibold',
-                  size === s ? 'bg-[#6366f1] text-white' : 'bg-white/[0.05] text-[#9aa3af] hover:bg-white/[0.1] hover:text-white',
+                  size === s ? 'bg-accent text-on-accent' : 'bg-white/[0.05] text-[#9aa3af] hover:bg-white/[0.1] hover:text-white',
                 )}
               >
                 {h(`size.${s}` as const)}

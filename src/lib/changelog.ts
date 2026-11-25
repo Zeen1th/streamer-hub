@@ -19,6 +19,39 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.31',
+    en: {
+      added: [
+        'A cleaner, calmer look. The sidebar now has just Home, Commands and Chat, with Live Votes and Alert Studio under Tools, and the app has a single title bar.',
+        'Commands are cards with an on/off switch. Command types are tabs at the top, and picking a command shows a plain "When / Then" summary of what starts it and what it does, with Edit and Run Test.',
+        'Settings are regrouped like Windows 11 Settings: Connections, Appearance, Chat & AI, Keybinds, Backups & sharing, App and Help, with a search box to find any setting.',
+        'The Fluent theme was redone in the Windows 11 style. In Settings > Appearance pick the window material: Acrylic (see-through), Mica or Mica Alt. The Light theme was removed, so the choice is now Dark or Fluent.',
+        'The Chat page has two tabs: your overlays and the streamer chat. The full log moved to Settings > App > Troubleshooting log, and the small log bar under Commands is off unless you turn it on there.',
+        'Leaderboards are backed up on your PC with daily copies, and you can restore them in Settings > Backups & sharing. Expand on the Leaderboards widget shows the top 10, then everyone.',
+        'Optional: give Lead Moderator back automatically after a smart timeout, through a logged-in Twitch dashboard window (unofficial, off by default, in Settings > Connections).',
+        'The Add step menu is shorter: Clear chat and Ban are gone (steps that already use them keep working), and the app\'s own labels no longer use emoji.',
+      ],
+      fixed: [
+        'Arabic: clearer wording (for example "السلاسل"), the whole sidebar is translated, the Home greeting and stream time read in the right order, and English chat messages inside Arabic step lists keep their order.',
+      ],
+    },
+    ar: {
+      added: [
+        'شكل أنظف وأهدأ. القائمة الجانبية فيها الآن الرئيسية والأوامر والشات فقط، والتصويت المباشر واستوديو التنبيهات تحت الأدوات، وللتطبيق شريط عنوان واحد.',
+        'الأوامر بطاقات مع مفتاح تشغيل وإيقاف. أنواع الأوامر تبويبات في الأعلى، وعند اختيار أمر يظهر ملخص بسيط "عندما / ثم" لما يشغّله وما يفعله، مع زري التحرير والتشغيل التجريبي.',
+        'الإعدادات مرتبة مثل إعدادات ويندوز 11: الاتصالات، والمظهر، والشات والذكاء الاصطناعي، والاختصارات، والنسخ الاحتياطي والمشاركة، والتطبيق، والمساعدة، مع مربع بحث للوصول لأي إعداد.',
+        'أُعيد تصميم ثيم فلوِنت بأسلوب ويندوز 11. من الإعدادات > المظهر اختر خامة النافذة: أكريليك (شفافة)، أو ميكا، أو ميكا البديلة. أُزيل الثيم الفاتح، فالاختيار الآن بين الداكن وفلوِنت.',
+        'صفحة الشات فيها تبويبان: الأوفرلايات وشات الستريمر. السجل الكامل انتقل إلى الإعدادات > التطبيق > سجل استكشاف الأخطاء، وشريط السجل الصغير أسفل الأوامر متوقف إلا إذا شغّلته من هناك.',
+        'لوحات الصدارة تُحفظ نسخة منها على جهازك مع نسخ يومية، وتستطيع استرجاعها من الإعدادات > النسخ الاحتياطي والمشاركة. زر التوسيع في أداة لوحات الصدارة يعرض أفضل 10 ثم الجميع.',
+        'اختياري: إرجاع رتبة المشرف الرئيسي تلقائياً بعد الإسكات الذكي، عبر نافذة لوحة تحكم تويتش مسجّل الدخول فيها (غير رسمي، متوقف افتراضياً، في الإعدادات > الاتصالات).',
+        'قائمة إضافة خطوة أقصر: أُزيل مسح الشات والحظر (الخطوات التي تستخدمهما تستمر بالعمل)، ولم تعد عناوين التطبيق نفسها تستخدم الإيموجي.',
+      ],
+      fixed: [
+        'العربية: صياغة أوضح (مثل "السلاسل")، والقائمة الجانبية مترجمة بالكامل، وتحية الرئيسية ومدة البث تظهر بالترتيب الصحيح، ورسائل الشات الإنجليزية داخل قوائم الخطوات العربية تحافظ على ترتيبها.',
+      ],
+    },
+  },
+  {
     version: '0.4.30',
     en: {
       added: [

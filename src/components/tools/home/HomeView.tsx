@@ -19,11 +19,12 @@ const PRESET_META: Record<string, { icon: typeof Gamepad2; label: HomeTextKey }>
 
 const sameLayout = (a: readonly LayoutItem[], b: readonly LayoutItem[]) => a.length === b.length && a.every((item, i) => item.id === b[i].id && item.size === b[i].size);
 
+/** Connection status as plain text with a dot, not a pill. */
 function StatusChip({ label, on, onText, offText }: { label: string; on: boolean; onText: string; offText: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[11px] text-[#9aa3af]" title={`${label}: ${on ? onText : offText}`}>
-      <i className={cn('inline-block size-2 rounded-full', on ? 'bg-[#22C55E] shadow-[0_0_0_3px_rgba(34,197,94,0.16)]' : 'bg-[#F5B324] shadow-[0_0_0_3px_rgba(245,179,36,0.16)]')} />
-      <b className="font-semibold text-white">{label}</b>
+    <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted" title={`${label}: ${on ? onText : offText}`}>
+      <i className={cn('inline-block size-2 rounded-full', on ? 'bg-[#22C55E]' : 'bg-[#F5B324]')} />
+      <span className="text-ink">{label}</span>
       <span>{on ? onText : offText}</span>
     </span>
   );
@@ -49,23 +50,24 @@ export function HomeView() {
   const addable = availableWidgets(items);
 
   return (
-    <section className="app-scroll min-h-0 flex-1 overflow-y-auto bg-[#23282e] p-[16px_18px_28px] text-[#f0f3f7]" data-screen-label="Home">
-      <header className="mb-4 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+    <section className="app-scroll min-h-0 flex-1 overflow-y-auto bg-[#23282e] px-5 pb-8 pt-5 text-[#f0f3f7]" data-screen-label="Home">
+      <header className="mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
-          <h1 className="truncate text-start font-sans text-[22px] font-bold leading-tight text-white" dir="ltr">
+          <h1 className="truncate text-start font-sans text-[26px] font-semibold leading-8 tracking-tight text-ink" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
             {greeting}
-            {streamerName ? <span className="text-[#a5b4fc]">{lang === 'ar' ? ' ' : ', '}<bdi>{streamerName}</bdi></span> : null}
+            {streamerName ? <span>{lang === 'ar' ? ' ' : ', '}<bdi>{streamerName}</bdi></span> : null}
           </h1>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
             <StatusChip label={h('header.twitch')} on={twitchConnected} onText={h('header.on')} offText={h('header.off')} />
             <StatusChip label={h('header.obs')} on={obsConnected} onText={h('header.on')} offText={h('header.off')} />
-            <span className="font-mono text-[11px] text-[#9aa3af]">{h('header.streamFor', { t: formatDuration(now - startedAt) })}</span>
+            {/* The duration is isolated left-to-right (U+2066..U+2069) so "0m" keeps its order inside Arabic text */}
+            <span className="text-[12.5px] text-muted">{h('header.streamFor', { t: `⁦${formatDuration(now - startedAt)}⁩` })}</span>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5" role="group" aria-label={h('header.profile')}>
-            <span className="hidden font-mono text-[10.5px] font-bold uppercase tracking-wider text-[#9aa3af] md:inline">{h('header.profile')}</span>
+          {/* Layout presets look like the Commands tabs: text, with a short accent bar under the active one */}
+          <div className="flex items-center gap-1" role="group" aria-label={h('header.profile')}>
             {LAYOUT_PRESETS.map((preset) => {
               const meta = PRESET_META[preset.id];
               const Icon = meta.icon;
@@ -77,11 +79,13 @@ export function HomeView() {
                   onClick={() => replaceLayout(preset.items)}
                   aria-pressed={active}
                   className={cn(
-                    'inline-flex h-[30px] items-center gap-1.5 rounded-[8px] border px-3 text-[12px] font-medium transition-colors',
-                    active ? 'border-[#6366F1] bg-[#6366F1] font-bold text-white' : 'border-white/[0.08] bg-white/[0.03] text-[#9aa3af] hover:border-white/[0.15] hover:bg-white/[0.06] hover:text-white',
+                    'relative inline-flex h-[32px] items-center gap-1.5 rounded-[4px] px-3 text-[13px] transition-colors',
+                    active
+                      ? 'font-semibold text-ink after:absolute after:start-1/2 after:bottom-[1px] after:h-[3px] after:w-4 after:-translate-x-1/2 after:rounded-full after:bg-accent rtl:after:translate-x-1/2'
+                      : 'text-muted hover:bg-white/[0.05] hover:text-ink',
                   )}
                 >
-                  <Icon size={14} />
+                  <Icon size={14} aria-hidden />
                   <span>{h(meta.label)}</span>
                 </button>
               );
@@ -92,8 +96,8 @@ export function HomeView() {
             onClick={() => setEditing((v) => !v)}
             aria-pressed={editing}
             className={cn(
-              'inline-flex h-[30px] items-center gap-1.5 rounded-[8px] border px-3 text-[12px] font-semibold transition-colors',
-              editing ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-100' : 'border-white/[0.12] bg-white/[0.05] text-white hover:bg-white/[0.1]',
+              'inline-flex h-[32px] items-center gap-1.5 rounded-[4px] border px-3 text-[13px] font-semibold transition-colors',
+              editing ? 'border-transparent bg-accent text-on-accent hover:bg-accent-hover' : 'border-white/[0.08] bg-white/[0.05] text-ink hover:bg-white/[0.09]',
             )}
           >
             {editing ? <Check size={14} /> : <Pencil size={13} />}
@@ -103,7 +107,7 @@ export function HomeView() {
       </header>
 
       {editing && (
-        <div className="mb-4 rounded-[10px] border border-dashed border-[#6366f1]/45 bg-[#6366f1]/[0.06] p-3.5">
+        <div className="mb-4 rounded-[6px] border border-dashed border-accent/45 bg-accent/[0.06] p-3.5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-2 text-[12px] text-[#cbd3dc]">
               <LayoutGrid size={14} className="text-[#a5b4fc]" />
@@ -124,7 +128,7 @@ export function HomeView() {
                     key={meta.id}
                     type="button"
                     onClick={() => add(meta.id)}
-                    className="group flex items-start gap-2.5 rounded-[9px] border border-white/[0.08] bg-[#1a2228] p-2.5 text-start transition-colors hover:border-[#6366f1]/60 hover:bg-white/[0.05]"
+                    className="group flex items-start gap-2.5 rounded-[9px] border border-white/[0.08] bg-[#1a2228] p-2.5 text-start transition-colors hover:border-accent/60 hover:bg-white/[0.05]"
                   >
                     <span className="grid size-[30px] shrink-0 place-items-center rounded-[8px] bg-white/[0.06]">{entry.icon}</span>
                     <span className="min-w-0 flex-1">
@@ -166,7 +170,7 @@ export function HomeView() {
       {items.length === 0 && !editing && (
         <div className="grid place-items-center rounded-[10px] border border-dashed border-white/[0.14] py-16 text-center">
           <p className="mb-3 text-[13px] text-[#9aa3af]">{h('edit.hint')}</p>
-          <button type="button" onClick={() => setEditing(true)} className="inline-flex h-[30px] items-center gap-1.5 rounded-[8px] bg-[#6366f1] px-3.5 text-[12px] font-semibold text-white hover:bg-[#7a7cf6]">
+          <button type="button" onClick={() => setEditing(true)} className="inline-flex h-[30px] items-center gap-1.5 rounded-[4px] bg-accent px-3.5 text-[12px] font-semibold text-on-accent hover:bg-accent-hover">
             <Pencil size={13} /> {h('header.customize')}
           </button>
         </div>

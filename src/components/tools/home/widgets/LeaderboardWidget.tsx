@@ -1,27 +1,14 @@
-import { useMemo, useState } from 'react';
-import { Crown, Send, Trash2, Trophy } from 'lucide-react';
+import { useState } from 'react';
+import { Maximize2, Send, Trash2, Trophy } from 'lucide-react';
 import { rpc } from '../../../../rpc';
 import { Channels } from '../../../../rpc/contracts';
-import { useChatterStore } from '../../../../store/chatterStore';
-import { useConnectionStore } from '../../../../store/connectionStore';
 import { useStatsStore } from '../../../../store/statsStore';
-import {
-  formatCompact,
-  isIgnoredUser,
-  leaderboardChatLine,
-  topUsers,
-  type LeaderboardMetric,
-  type LeaderboardPeriod,
-} from '../../../../lib/stats';
+import { leaderboardChatLine, type LeaderboardMetric, type LeaderboardPeriod } from '../../../../lib/stats';
 import { cn } from '../../../../lib/cn';
-import { Avatar } from '../Avatar';
 import { useHomeText } from '../homeText';
 import { WidgetCard, type WidgetProps } from '../WidgetCard';
-
-const METRICS: LeaderboardMetric[] = ['messages', 'duelWins', 'gifts', 'redemptions', 'clips'];
-
-const MEDAL = ['bg-amber-400/90 text-amber-950', 'bg-slate-300/90 text-slate-900', 'bg-orange-400/80 text-orange-950'];
-const BAR = ['bg-amber-400/70', 'bg-slate-300/60', 'bg-orange-400/60'];
+import { LeaderboardModal } from './LeaderboardModal';
+import { LeaderboardRow, METRICS, useLeaderboardRows } from './LeaderboardRows';
 
 function readMetric(raw: string | undefined): LeaderboardMetric {
   return (METRICS as string[]).includes(raw ?? '') ? (raw as LeaderboardMetric) : 'messages';
@@ -33,33 +20,18 @@ export function LeaderboardWidget({ chrome, config, setConfig }: WidgetProps) {
   const period: LeaderboardPeriod = config.period === 'allTime' ? 'allTime' : 'stream';
   const limit = chrome.size >= 8 ? 8 : 5;
 
-  const broadcaster = useConnectionStore((s) => s.twitchChannel)?.replace(/^#+/, '');
-  const botLogin = useConnectionStore((s) => s.botLogin);
-  const allTime = useStatsStore((s) => s.allTime);
-  const session = useStatsStore((s) => s.session);
-  const rev = useStatsStore((s) => s.rev);
   const resetAll = useStatsStore((s) => s.resetAll);
-  const chatters = useChatterStore((s) => s.chatters);
   const [status, setStatus] = useState<'idle' | 'posted' | 'failed'>('idle');
   const [confirmReset, setConfirmReset] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
-  const rows = useMemo(
-    () => topUsers(period === 'stream' ? session.users : allTime, metric, limit, (login) => isIgnoredUser(login, broadcaster, botLogin)),
-    // rev changes whenever the (mutated) maps do
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [period, metric, limit, broadcaster, botLogin, rev, session, allTime],
-  );
-
-  const avatars = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const c of Object.values(chatters)) if (c.login && c.avatarUrl) map.set(c.login, c.avatarUrl);
-    return map;
-  }, [chatters]);
-
+  const { all, avatars } = useLeaderboardRows(period, metric);
+  const rows = all.slice(0, limit);
   const top = rows[0]?.value ?? 1;
 
   const post = async () => {
-    const line = leaderboardChatLine(`${h(`lb.title.${metric}` as const)} (${h(period === 'stream' ? 'lb.stream' : 'lb.allTime')})`, rows, h(`lb.unit.${metric}` as const));
+    // The chat line is always the top 5, however many rows the widget or the expanded view shows
+    const line = leaderboardChatLine(`${h(`lb.title.${metric}` as const)} (${h(period === 'stream' ? 'lb.stream' : 'lb.allTime')})`, all.slice(0, 5), h(`lb.unit.${metric}` as const));
     try {
       const res = await rpc.invoke(Channels.TwitchSendChatMessage, { message: line });
       setStatus(res?.ok ? 'posted' : 'failed');
@@ -114,39 +86,21 @@ export function LeaderboardWidget({ chrome, config, setConfig }: WidgetProps) {
         <div className="flex flex-1 items-center justify-center py-8 text-center text-[12px] leading-relaxed text-[#9aa3af]">{h('lb.empty')}</div>
       ) : (
         <ol className="space-y-1.5">
-          {rows.map((row) => {
-            const podium = row.rank <= 3;
-            const detail =
-              metric === 'duelWins'
-                ? h('lb.record', { w: row.user.duelWins, l: row.user.duelLosses })
-                : metric === 'redemptions' && row.user.points > 0
-                  ? h('lb.points', { n: formatCompact(row.user.points) })
-                  : '';
-            return (
-              <li key={row.user.login} className={cn('relative overflow-hidden rounded-[9px] border px-2.5 py-1.5', row.rank === 1 ? 'border-amber-300/25 bg-amber-300/[0.07]' : 'border-white/[0.06] bg-[#1a2228]')}>
-                <span
-                  aria-hidden
-                  className={cn('absolute inset-y-0 start-0 opacity-[0.14]', podium ? BAR[row.rank - 1] : 'bg-white/70')}
-                  style={{ width: `${Math.max(6, (row.value / top) * 100)}%` }}
-                />
-                <div className="relative flex items-center gap-2.5">
-                  <span className={cn('grid size-[20px] shrink-0 place-items-center rounded-full font-mono text-[10.5px] font-bold', podium ? MEDAL[row.rank - 1] : 'bg-white/[0.08] text-[#9aa3af]')}>
-                    {row.rank === 1 ? <Crown size={11} /> : row.rank}
-                  </span>
-                  <Avatar name={row.user.name} src={avatars.get(row.user.login)} size={26} />
-                  <span className="min-w-0 flex-1 truncate text-start text-[12.5px] font-semibold text-white" dir="ltr">
-                    <bdi>{row.user.name}</bdi>
-                    {detail && <span dir="auto" className="ml-2 font-mono text-[10.5px] font-normal text-[#9aa3af]">{detail}</span>}
-                  </span>
-                  <span className="font-mono text-[13px] font-bold tabular-nums text-white">{formatCompact(row.value)}</span>
-                </div>
-              </li>
-            );
-          })}
+          {rows.map((row) => (
+            <LeaderboardRow key={row.user.login} row={row} metric={metric} top={top} avatar={avatars.get(row.user.login)} />
+          ))}
         </ol>
       )}
 
-      <div className="mt-auto flex flex-wrap items-center justify-end gap-2 pt-3">
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-3">
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          title={h('lb.expandTitle')}
+          className="flex h-[24px] items-center gap-1 rounded-[6px] px-2 text-[11px] text-[#9aa3af] hover:bg-white/[0.08] hover:text-white"
+        >
+          <Maximize2 size={12} /> {h('lb.expand')}
+        </button>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
@@ -174,6 +128,16 @@ export function LeaderboardWidget({ chrome, config, setConfig }: WidgetProps) {
           </button>
         </div>
       </div>
+
+      {expanded && (
+        <LeaderboardModal
+          metric={metric}
+          period={period}
+          onMetric={(m) => setConfig({ metric: m })}
+          onPeriod={(p) => setConfig({ period: p })}
+          onClose={() => setExpanded(false)}
+        />
+      )}
     </WidgetCard>
   );
 }

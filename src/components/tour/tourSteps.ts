@@ -67,12 +67,12 @@ export const TOUR_STEPS: TourStep[] = [
     target: '[data-nav="overlay"]',
     tab: 'overlay',
     en: {
-      title: 'Chat Overlay',
-      body: 'Style how your chat looks on stream, then copy its link into OBS as a Browser Source. You can have more than one overlay.',
+      title: 'Chat',
+      body: 'Style how your chat looks on stream, then copy its link into OBS as a Browser Source. Switch between your overlays at the top of the page.',
     },
     ar: {
-      title: 'أوفرلاي الشات',
-      body: 'صمّم شكل الشات على البث، ثم انسخ رابطه إلى OBS كـ Browser Source. يمكنك إنشاء أكثر من أوفرلاي.',
+      title: 'الشات',
+      body: 'صمّم شكل الشات على البث، ثم انسخ رابطه إلى OBS كـ Browser Source. بدّل بين الأوفرلايات من أعلى الصفحة.',
     },
   },
   {
@@ -80,11 +80,11 @@ export const TOUR_STEPS: TourStep[] = [
     target: '[data-nav="obs-chat"]',
     tab: 'obs-chat',
     en: {
-      title: 'OBS Streamer Chat',
+      title: 'Streamer chat',
       body: 'A chat you add to OBS as a dock, so you can read and reply without leaving OBS.',
     },
     ar: {
-      title: 'شات OBS للبث',
+      title: 'شات الستريمر',
       body: 'شات تضيفه إلى OBS كـ Dock لتقرأ وترد دون مغادرة OBS.',
     },
   },
@@ -115,30 +115,17 @@ export const TOUR_STEPS: TourStep[] = [
     },
   },
   {
-    id: 'activity',
-    target: '[data-nav="activity"]',
-    tab: 'activity',
-    en: {
-      title: 'Activity',
-      body: 'Everything the app did: commands that ran, messages it sent and errors. Look here first when something does not work.',
-    },
-    ar: {
-      title: 'النشاط',
-      body: 'كل ما فعله التطبيق: الأوامر التي عملت والرسائل التي أرسلها والأخطاء. ابدأ من هنا عندما لا يعمل شيء.',
-    },
-  },
-  {
     id: 'settings',
     target: '[data-nav="settings"]',
     tab: 'settings',
-    section: 'general',
+    section: 'connections',
     en: {
       title: 'Settings',
-      body: 'Connect OBS, add a bot account, set up AI, restore backups and share your commands with other streamers.',
+      body: 'Connect OBS, add a bot account, set up AI and keybinds, restore backups and share your commands. When a command does not fire, the log is under System.',
     },
     ar: {
       title: 'الإعدادات',
-      body: 'اربط OBS، وأضف حساب بوت، وجهّز الذكاء الاصطناعي، واسترجع النسخ الاحتياطية، وشارك أوامرك مع ستريمرز آخرين.',
+      body: 'اربط OBS، وأضف حساب بوت، وجهّز الذكاء الاصطناعي والاختصارات، واسترجع النسخ الاحتياطية، وشارك أوامرك. إذا لم يعمل أمر، تجد السجل في قسم النظام.',
     },
   },
   {

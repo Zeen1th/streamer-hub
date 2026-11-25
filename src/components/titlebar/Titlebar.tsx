@@ -26,7 +26,7 @@ export function Titlebar() {
   const [message, setMessage] = useState<string | null>(null);
 
   const parsedNotes = parseReleaseNotes(releaseNotes, lang);
-  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.30';
+  const displayCurrentVersion = currentVersion && currentVersion !== '0.1.0' ? currentVersion : '0.4.31';
 
   useEffect(() => {
     if (!debugPromptRequested) return;
@@ -38,7 +38,7 @@ export function Titlebar() {
     <header
       dir="ltr"
       data-chrome
-      className="relative z-50 flex h-8 shrink-0 select-none items-center justify-between border-b border-white/[0.08] bg-[#1a2228] ps-3"
+      className="relative z-50 flex h-10 shrink-0 select-none items-center justify-between border-b border-white/[0.08] bg-[#1a2228] ps-3"
       onPointerDown={(event) => {
         if (event.button !== 0 || (event.target as HTMLElement | null)?.closest('[data-drag-exclude]')) return;
         rpc.invoke(Channels.WindowBeginDrag).catch(() => undefined);
@@ -46,7 +46,12 @@ export function Titlebar() {
       onDoubleClick={() => rpc.invoke(Channels.WindowMaximizeToggle).catch(() => undefined)}
     >
       <div className="flex items-center gap-2.5">
-        <span className="font-sans text-[12.5px] font-bold tracking-tight text-ink">Streamer Hub</span>
+        <span aria-hidden className="grid size-4 place-items-center rounded-[4px] bg-accent">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="text-on-accent">
+            <path d="M4 12h4l2-6 3 12 2-6h5" />
+          </svg>
+        </span>
+        <span className="font-sans text-[12.5px] font-semibold tracking-tight text-ink">Streamer Hub</span>
         <button
           type="button"
           data-drag-exclude

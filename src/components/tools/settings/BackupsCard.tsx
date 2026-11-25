@@ -6,6 +6,7 @@ import { Channels, type SettingsBackupInfo } from '../../../rpc/contracts';
 import { useSettingsStore } from '../../../store/settingsStore';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
+import { StatsBackups } from './StatsBackups';
 
 function kindKey(kind: SettingsBackupInfo['kind']) {
   switch (kind) {
@@ -118,6 +119,8 @@ export function BackupsCard() {
             ))}
           </ul>
         )}
+
+        <StatsBackups />
       </div>
     </Card>
   );

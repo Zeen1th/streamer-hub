@@ -545,6 +545,7 @@ public sealed record OpenFolderPayload(
 );
 
 public sealed record SetZoomPayload(double Factor);
+public sealed record SetBackdropPayload(string? Kind);
 
 public sealed record ChatSendInputPayload(string Message, string? SenderRole = null);
 

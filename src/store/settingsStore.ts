@@ -3,10 +3,10 @@ import { create } from 'zustand';
 import type { Language } from '../i18n/translations';
 import { Channels } from '../rpc/contracts';
 import { isMockMode, rpc } from '../rpc';
-import type { ChatSenderRole } from '../rpc/contracts';
+import type { ChatSenderRole, FluentBackdrop } from '../rpc/contracts';
 import { autoScaleFor, DEFAULT_UI_SCALE } from '../lib/uiScale';
 import type { DarkThemeVariant, ThemePreference } from '../lib/theme';
-import { isDarkTheme } from '../lib/theme';
+import { isDarkTheme, normalizeTheme } from '../lib/theme';
 
 export type { Language };
 export type UiScaleMode = 'auto' | 'custom';
@@ -49,6 +49,9 @@ interface SettingsState {
   setClientSecret(clientSecret: string): void;
   setLanguage(language: Language): void;
   setTheme(theme: ThemePreference): void;
+  /** Fluent only: the Windows 11 material behind the window. */
+  fluentBackdrop: FluentBackdrop;
+  setFluentBackdrop(kind: FluentBackdrop): void;
   setBotAccountEnabled(enabled: boolean): void;
   setPreferredChatSender(sender: ChatSenderRole): void;
   setStartupEnabled(enabled: boolean): void;
@@ -77,10 +80,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   clientId: '',
   clientSecret: '',
   language: '',
-  theme: (() => {
-    const stored = localStorage.getItem('streamer-hub-theme');
-    return (stored === 'ember' ? 'fluent' : (stored as ThemePreference | null)) ?? 'dark';
-  })(),
+  // Only Dark and Fluent remain; an older saved Light, System or Ember choice is mapped onto them
+  theme: normalizeTheme(localStorage.getItem('streamer-hub-theme')),
   lastDarkTheme: (() => {
     const stored = localStorage.getItem('streamer-hub-last-dark-theme');
     return stored && isDarkTheme(stored) ? (stored as DarkThemeVariant) : 'dark';
@@ -165,13 +166,31 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ preferredChatSender: sender });
     persist(get);
   },
-  setTheme: (theme) => {
+  setTheme: (requested) => {
+    const theme = normalizeTheme(requested);
     const nextLastDark = isDarkTheme(theme) ? theme : get().lastDarkTheme;
     set({ theme, lastDarkTheme: nextLastDark });
     localStorage.setItem('streamer-hub-theme', theme);
     if (isDarkTheme(theme)) {
       localStorage.setItem('streamer-hub-last-dark-theme', theme);
     }
+  },
+  // Acrylic by default: it is the see-through one. Mica is opaque and only tinted by the wallpaper.
+  fluentBackdrop: (() => {
+    try {
+      const stored = localStorage.getItem('streamer-hub-fluent-backdrop');
+      return stored === 'mica' || stored === 'mica-alt' || stored === 'acrylic' ? stored : 'acrylic';
+    } catch {
+      return 'acrylic';
+    }
+  })(),
+  setFluentBackdrop: (kind) => {
+    try {
+      localStorage.setItem('streamer-hub-fluent-backdrop', kind);
+    } catch {
+      // ignore
+    }
+    set({ fluentBackdrop: kind });
   },
   setUiScale: (mode, customScale) => {
     const currentCustom = get().uiCustomScale;

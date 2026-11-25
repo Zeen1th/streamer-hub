@@ -93,21 +93,13 @@ export const SUB_ACTIONS: SubActionEntry[] = [
     keywords: 'mute',
   },
   {
-    id: 'clear_chat',
-    type: 'moderation',
-    category: 'moderation',
-    options: { moderationAction: 'clear_chat' },
-    en: { label: 'Clear chat', desc: 'Clear every message in the chat room' },
-    ar: { label: 'مسح الشات', desc: 'مسح كل الرسائل في غرفة الشات' },
-    keywords: 'delete wipe',
-  },
-  {
     id: 'moderation',
     type: 'moderation',
     category: 'moderation',
-    en: { label: 'Ban, mod, VIP and more', desc: 'Ban, unban, mod, unmod, VIP and unVIP a viewer' },
-    ar: { label: 'حظر، مشرف، VIP وغيرها', desc: 'حظر، رفع الحظر، إضافة أو إزالة مشرف أو VIP' },
-    keywords: 'ban unban mod unmod vip unvip',
+    options: { moderationAction: 'mod', targetUser: '{target}' },
+    en: { label: 'Give or remove mod / VIP', desc: 'Mod, unmod, VIP or unVIP a viewer' },
+    ar: { label: 'إعطاء أو سحب مشرف / VIP', desc: 'إضافة أو إزالة رتبة مشرف أو VIP لمشاهد' },
+    keywords: 'mod unmod vip unvip role',
   },
 
   // Audio & Voice

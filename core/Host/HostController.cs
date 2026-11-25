@@ -249,6 +249,7 @@ public sealed class HostController : IDisposable
     private readonly CancellationToken _shutdown;
     private readonly SettingsStore _settings;
     private readonly string _appData;
+    private readonly StatsBackupStore _statsBackup;
     private readonly ChatOverlayHostBridge _chatOverlay;
     private readonly ObsFileWriter _obs = new();
     private readonly ObsWebSocketClient _obsWs = new();
@@ -458,6 +459,7 @@ public sealed class HostController : IDisposable
         _shutdown = shutdown;
         _settings = settings;
         _appData = appData;
+        _statsBackup = new StatsBackupStore(appData);
         _chatOverlay = new ChatOverlayHostBridge(settings, chatOverlayServer);
         _tokens = new TokenVault(Path.Combine(appData, "token.bin"));
         _botTokens = new TokenVault(Path.Combine(appData, "bot-token.bin"));
@@ -583,6 +585,13 @@ public sealed class HostController : IDisposable
         });
         _dispatcher.Register(Channels.ChatGetEmotes, (_, _) =>
             Task.FromResult<object?>(_emotes.Providers));
+        _dispatcher.Register(Channels.WindowSetBackdrop, (payload, _) =>
+        {
+            // Fluent theme: which Windows 11 material sits behind the see-through page (mica, mica-alt or acrylic)
+            var request = Json.Deserialize<SetBackdropPayload>(payload ?? default);
+            var ok = Ui(() => _form.SetBackdrop(request?.Kind ?? "mica"));
+            return Task.FromResult<object?>(new { ok });
+        });
         _dispatcher.Register(Channels.WindowSetZoom, (payload, _) =>
         {
             var request = Json.Deserialize<SetZoomPayload>(payload ?? default);
@@ -930,6 +939,32 @@ public sealed class HostController : IDisposable
             Log("system", $"SETTINGS RESTORED FROM {request.Name}");
             if (!RelaunchApp()) return Task.FromResult<object?>(new { ok = true, restarting = false });
             return Task.FromResult<object?>(new { ok = true, restarting = true });
+        });
+        _dispatcher.Register(Channels.StatsBackupSave, (payload, _) =>
+        {
+            var request = Json.Deserialize<StatsBackupSavePayload>(payload ?? default);
+            if (request is null) return Task.FromResult<object?>(new { ok = false, error = "EMPTY" });
+            return Task.FromResult<object?>(new { ok = _statsBackup.Save(request.Json, request.Reason, out var saveError) });
+        });
+        _dispatcher.Register(Channels.StatsBackupLoad, (_, _) => Task.FromResult<object?>(new { json = _statsBackup.Load() }));
+        _dispatcher.Register(Channels.StatsBackupsList, (_, _) =>
+            Task.FromResult<object?>(new
+            {
+                backups = _statsBackup.List().Select(b => new
+                {
+                    name = b.Name,
+                    kind = b.Kind,
+                    modified = b.ModifiedUtc.ToString("o"),
+                    users = b.Users,
+                    bytes = b.Bytes,
+                }).ToArray(),
+            }));
+        _dispatcher.Register(Channels.StatsBackupRestore, (payload, _) =>
+        {
+            var request = Json.Deserialize<RestoreBackupPayload>(payload ?? default);
+            if (request is null || !_statsBackup.Restore(request.Name, out var json, out var error)) return Task.FromResult<object?>(new { ok = false, json = (string?)null, error = "BACKUP NOT FOUND" });
+            Log("system", $"LEADERBOARDS RESTORED FROM {request.Name}");
+            return Task.FromResult<object?>(new { ok = true, json });
         });
         _dispatcher.Register(Channels.SettingsResetAll, (payload, _) =>
         {
@@ -2642,6 +2677,7 @@ public sealed class HostController : IDisposable
     }
 
     private sealed record RestoreBackupPayload(string Name);
+    private sealed record StatsBackupSavePayload(string? Json, string? Reason);
     private sealed record ReadLinesPayload(string? Path);
     private sealed record ProfileIdPayload(string Id);
     private sealed record ProfileNamePayload(string Name);

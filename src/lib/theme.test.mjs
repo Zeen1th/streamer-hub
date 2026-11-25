@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveTheme } from './theme.ts';
+import { normalizeTheme, resolveTheme, skinFor, THEME_OPTIONS } from './theme.ts';
+
+test('only Dark and Fluent are offered; older saved themes map onto them', () => {
+  assert.deepEqual(THEME_OPTIONS.map((o) => o.id), ['dark', 'fluent']);
+  assert.equal(normalizeTheme('fluent'), 'fluent');
+  assert.equal(normalizeTheme('ember'), 'fluent');
+  for (const old of ['light', 'system', 'graphite', null, undefined, 'dark']) assert.equal(normalizeTheme(old), 'dark');
+  assert.equal(skinFor('fluent'), 'fluent');
+  assert.equal(skinFor('dark'), 'default');
+});
 
 test('resolves system preference and explicit overrides', () => {
   assert.equal(resolveTheme('system', true), 'dark');
